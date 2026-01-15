@@ -28,16 +28,22 @@ final class DictationFeature: Feature {
     // Services
     private let audioService: AudioCaptureService
     private let transcriptionService: TranscriptionService
-    private let clipboardService: ClipboardService
+    private let micPermission: MicrophonePermissionService
+    private let pasteService: PasteService
+
+    // State for focus tracking
+    private var focusSnapshot: FocusSnapshot?
 
     init(
         audioService: AudioCaptureService,
         transcriptionService: TranscriptionService,
-        clipboardService: ClipboardService
+        micPermission: MicrophonePermissionService,
+        pasteService: PasteService
     ) {
         self.audioService = audioService
         self.transcriptionService = transcriptionService
-        self.clipboardService = clipboardService
+        self.micPermission = micPermission
+        self.pasteService = pasteService
 
         // Wire audio chunk handling - calculate RMS for visualization
         self.audioService.onChunk = { [weak self] chunk in
@@ -126,6 +132,21 @@ final class DictationFeature: Feature {
     }
 
     private func startRecording() {
+        // Check mic permission first
+        guard micPermission.state.isAuthorized else {
+            if micPermission.state.needsPrompt {
+                Task { await micPermission.requestAccess() }
+            } else if micPermission.state.isBlocked {
+                micPermission.openSystemSettings()
+            }
+            state.phase = .error(message: "Microphone permission required")
+            scheduleDeactivation(delay: 2.0)
+            return
+        }
+
+        // Capture focus before recording
+        focusSnapshot = FocusSnapshot.capture()
+
         do {
             try audioService.startCapture()
             state.phase = .recording
@@ -151,10 +172,18 @@ final class DictationFeature: Feature {
                 if text.isEmpty {
                     state.phase = .done(text: "No speech detected")
                 } else {
-                    clipboardService.copy(text)
-                    state.phase = .done(text: text)
+                    let outcome = pasteService.paste(text: text, focusSnapshot: focusSnapshot)
+                    switch outcome {
+                    case .pasted:
+                        state.phase = .done(text: text)
+                    case .copiedFallback(let reason):
+                        state.phase = .done(text: "\(text)\n(Copied: \(reason))")
+                    case .skipped:
+                        state.phase = .done(text: "No speech detected")
+                    }
                 }
 
+                focusSnapshot = nil
                 scheduleDeactivation(delay: 2.0)
             } catch let error as TranscriptionError {
                 let message = error.errorDescription ?? "Transcription failed"

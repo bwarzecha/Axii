@@ -37,18 +37,9 @@ final class AudioCaptureService {
     var onChunk: ((AudioChunk) -> Void)?
 
     /// Start capturing audio from the microphone.
+    /// Permission should be checked by caller before invoking this method.
     func startCapture() throws {
         guard !isRecording else { return }
-
-        // Check microphone permission
-        let permissionStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        if permissionStatus == .notDetermined {
-            AVCaptureDevice.requestAccess(for: .audio) { _ in }
-            throw AudioCaptureError.permissionNotDetermined
-        }
-        if permissionStatus != .authorized {
-            throw AudioCaptureError.permissionDenied
-        }
 
         accumulatedSamples = []
         startTime = Date()
@@ -105,17 +96,11 @@ final class AudioCaptureService {
 
 enum AudioCaptureError: LocalizedError {
     case invalidFormat
-    case permissionNotDetermined
-    case permissionDenied
 
     var errorDescription: String? {
         switch self {
         case .invalidFormat:
             return "Microphone not available"
-        case .permissionNotDetermined:
-            return "Microphone permission required"
-        case .permissionDenied:
-            return "Microphone access denied"
         }
     }
 }

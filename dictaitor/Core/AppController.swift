@@ -17,10 +17,13 @@ final class AppController {
     private let featureManager: FeatureManager
     private var panelController: FloatingPanelController?
 
-    // Services
+    // Services (exposed for onboarding)
     private let transcriptionService: TranscriptionService
     private let audioService: AudioCaptureService
     private let clipboardService: ClipboardService
+    let micPermission: MicrophonePermissionService
+    let accessibilityPermission: AccessibilityPermissionService
+    private let pasteService: PasteService
 
     // Features
     let dictationFeature: DictationFeature
@@ -32,12 +35,19 @@ final class AppController {
         transcriptionService = TranscriptionService()
         audioService = AudioCaptureService()
         clipboardService = ClipboardService()
+        micPermission = MicrophonePermissionService()
+        accessibilityPermission = AccessibilityPermissionService()
+        pasteService = PasteService(
+            clipboard: clipboardService,
+            accessibilityPermission: accessibilityPermission
+        )
 
         // Create features with injected services
         dictationFeature = DictationFeature(
             audioService: audioService,
             transcriptionService: transcriptionService,
-            clipboardService: clipboardService
+            micPermission: micPermission,
+            pasteService: pasteService
         )
 
         // Setup

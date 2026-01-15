@@ -13,13 +13,38 @@ import AppKit
 @main
 struct DictAItorApp: App {
     @State private var controller = AppController()
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         // Menu bar for status and quit
         MenuBarExtra("DictAItor", systemImage: menuBarIcon) {
-            MenuBarView(dictationState: controller.dictationFeature.state)
+            MenuBarView(
+                dictationState: controller.dictationFeature.state,
+                onShowOnboarding: { openWindow(id: "onboarding") }
+            )
         }
         .menuBarExtraStyle(.menu)
+
+        // Onboarding window
+        Window("Setup", id: "onboarding") {
+            OnboardingView(
+                micPermission: controller.micPermission,
+                accessibilityPermission: controller.accessibilityPermission,
+                onComplete: {
+                    hasCompletedOnboarding = true
+                    NSApp.keyWindow?.close()
+                }
+            )
+            .onAppear {
+                // Bring window to front and activate app
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+        .windowResizability(.contentSize)
+        .windowStyle(.hiddenTitleBar)
+        .defaultLaunchBehavior(hasCompletedOnboarding ? .suppressed : .presented)
     }
 
     private var menuBarIcon: String {
@@ -30,6 +55,9 @@ struct DictAItorApp: App {
 /// Menu bar dropdown content.
 struct MenuBarView: View {
     var dictationState: DictationState
+    var onShowOnboarding: () -> Void
+
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 8) {
@@ -42,6 +70,11 @@ struct MenuBarView: View {
                 .foregroundStyle(.tertiary)
 
             Divider()
+
+            Button("Setup Permissions...") {
+                openWindow(id: "onboarding")
+                onShowOnboarding()
+            }
 
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
