@@ -5,6 +5,7 @@
 //  Centralized global hotkey management.
 //
 
+#if os(macOS)
 import AppKit
 import HotKey
 
@@ -64,3 +65,4 @@ final class HotkeyService {
         Array(hotkeys.keys)
     }
 }
+#endif

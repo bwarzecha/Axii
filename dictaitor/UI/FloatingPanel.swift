@@ -6,6 +6,7 @@
 //  Content is provided dynamically by features.
 //
 
+#if os(macOS)
 import AppKit
 import SwiftUI
 
@@ -108,3 +109,4 @@ private final class NonActivatingPanel: NSPanel {
         }
     }
 }
+#endif

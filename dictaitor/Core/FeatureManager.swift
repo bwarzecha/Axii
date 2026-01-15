@@ -6,6 +6,7 @@
 //  only one feature is active at a time and coordinates panel display.
 //
 
+#if os(macOS)
 import SwiftUI
 import HotKey
 
@@ -83,3 +84,4 @@ final class FeatureManager {
         activeFeature != nil
     }
 }
+#endif

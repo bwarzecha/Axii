@@ -6,9 +6,12 @@
 //  Streams raw audio chunks - UI decides how to visualize.
 //
 
-#if os(macOS)
 import AVFoundation
 import AVFAudio
+
+#if os(iOS)
+import AVFAudio
+#endif
 
 /// Raw audio chunk delivered to consumer.
 struct AudioChunk: Sendable {
@@ -40,6 +43,13 @@ final class AudioCaptureService {
     /// Permission should be checked by caller before invoking this method.
     func startCapture() throws {
         guard !isRecording else { return }
+
+        #if os(iOS)
+        // Configure audio session for recording on iOS
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playAndRecord, mode: .default)
+        try session.setActive(true)
+        #endif
 
         accumulatedSamples = []
         startTime = Date()
@@ -104,4 +114,3 @@ enum AudioCaptureError: LocalizedError {
         }
     }
 }
-#endif

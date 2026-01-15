@@ -5,6 +5,7 @@
 //  Protocol defining a self-contained feature that owns its hotkeys, state, and UI.
 //
 
+#if os(macOS)
 import SwiftUI
 
 /// Context provided to features for registration and signaling.
@@ -42,3 +43,4 @@ protocol Feature: AnyObject {
     /// Force cancel - called when another feature needs to take over
     func cancel()
 }
+#endif
