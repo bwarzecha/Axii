@@ -29,6 +29,7 @@ final class DictationFeature: Feature {
     private let audioService: AudioCaptureService
     private let transcriptionService: TranscriptionService
     private let micPermission: MicrophonePermissionService
+    private let microphoneSelection: MicrophoneSelectionService
     private let pasteService: PasteService
 
     // State for focus tracking
@@ -38,11 +39,13 @@ final class DictationFeature: Feature {
         audioService: AudioCaptureService,
         transcriptionService: TranscriptionService,
         micPermission: MicrophonePermissionService,
+        microphoneSelection: MicrophoneSelectionService,
         pasteService: PasteService
     ) {
         self.audioService = audioService
         self.transcriptionService = transcriptionService
         self.micPermission = micPermission
+        self.microphoneSelection = microphoneSelection
         self.pasteService = pasteService
 
         // Wire audio chunk handling - calculate RMS for visualization
@@ -56,7 +59,14 @@ final class DictationFeature: Feature {
     // MARK: - Feature Protocol
 
     var panelContent: AnyView {
-        AnyView(DictationPanelView(state: state, hotkeyHint: DictationConfig.hotkeyDisplay))
+        AnyView(DictationPanelView(
+            state: state,
+            microphoneSelection: microphoneSelection,
+            hotkeyHint: DictationConfig.hotkeyDisplay,
+            onMicrophoneSwitch: { [weak self] device in
+                self?.switchMicrophone(to: device)
+            }
+        ))
     }
 
     func register(with context: FeatureContext) {
@@ -209,6 +219,29 @@ final class DictationFeature: Feature {
     private func scheduleDeactivation(delay: TimeInterval) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.cancelAndDeactivate()
+        }
+    }
+
+    // MARK: - Microphone Switching
+
+    private func switchMicrophone(to device: AudioInputDevice) {
+        let wasRecording = audioService.isRecording
+
+        // Stop recording if active (discard samples - user is switching mic)
+        if wasRecording {
+            _ = audioService.stopCapture()
+            state.audioLevel = 0
+        }
+
+        // Switch to new device
+        microphoneSelection.selectDevice(device)
+
+        // Restart recording if it was active
+        if wasRecording {
+            // Small delay to let the audio system switch
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.startRecording()
+            }
         }
     }
 

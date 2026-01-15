@@ -17,12 +17,13 @@ final class AppController {
     private let featureManager: FeatureManager
     private var panelController: FloatingPanelController?
 
-    // Services (exposed for onboarding)
+    // Services (exposed for onboarding and settings)
     private let transcriptionService: TranscriptionService
     private let audioService: AudioCaptureService
     private let clipboardService: ClipboardService
     let micPermission: MicrophonePermissionService
     let accessibilityPermission: AccessibilityPermissionService
+    let microphoneSelection: MicrophoneSelectionService
     private let pasteService: PasteService
 
     // Features
@@ -37,6 +38,7 @@ final class AppController {
         clipboardService = ClipboardService()
         micPermission = MicrophonePermissionService()
         accessibilityPermission = AccessibilityPermissionService()
+        microphoneSelection = MicrophoneSelectionService()
         pasteService = PasteService(
             clipboard: clipboardService,
             accessibilityPermission: accessibilityPermission
@@ -47,6 +49,7 @@ final class AppController {
             audioService: audioService,
             transcriptionService: transcriptionService,
             micPermission: micPermission,
+            microphoneSelection: microphoneSelection,
             pasteService: pasteService
         )
 

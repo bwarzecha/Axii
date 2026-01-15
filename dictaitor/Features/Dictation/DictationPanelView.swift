@@ -5,12 +5,15 @@
 //  SwiftUI view for the dictation panel.
 //
 
+#if os(macOS)
 import SwiftUI
 
 /// Panel view displayed during dictation.
 struct DictationPanelView: View {
     var state: DictationState
+    var microphoneSelection: MicrophoneSelectionService
     let hotkeyHint: String
+    var onMicrophoneSwitch: ((AudioInputDevice) -> Void)?
 
     var body: some View {
         ZStack {
@@ -27,10 +30,29 @@ struct DictationPanelView: View {
                 if state.isRecording {
                     audioLevelBar
                 }
+                if showMicrophonePicker {
+                    microphonePicker
+                }
             }
             .padding(20)
         }
-        .frame(width: 280, height: 120)
+        .frame(width: 280, height: dynamicHeight)
+    }
+
+    private var showMicrophonePicker: Bool {
+        switch state.phase {
+        case .idle, .recording, .loadingModel:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var dynamicHeight: CGFloat {
+        var height: CGFloat = 120
+        if state.isRecording { height += 20 }
+        if showMicrophonePicker { height += 30 }
+        return height
     }
 
     @ViewBuilder
@@ -116,4 +138,61 @@ struct DictationPanelView: View {
         .frame(height: 6)
         .padding(.horizontal, 20)
     }
+
+    private var microphonePicker: some View {
+        Menu {
+            ForEach(microphoneSelection.availableDevices) { device in
+                Button {
+                    if device != microphoneSelection.selectedDevice {
+                        onMicrophoneSwitch?(device)
+                    }
+                } label: {
+                    HStack {
+                        Text(device.name)
+                        if device == microphoneSelection.selectedDevice {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "mic")
+                    .font(.caption2)
+                Text(microphoneSelection.selectedDevice.name)
+                    .font(.caption)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+            }
+            .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
 }
+
+#Preview("Idle") {
+    DictationPanelView(
+        state: DictationState(),
+        microphoneSelection: MicrophoneSelectionService(),
+        hotkeyHint: "Control+Shift+Space"
+    )
+    .frame(width: 300, height: 200)
+    .background(.black.opacity(0.5))
+}
+
+#Preview("Recording") {
+    let state = DictationState()
+    state.phase = .recording
+    state.audioLevel = 0.6
+    return DictationPanelView(
+        state: state,
+        microphoneSelection: MicrophoneSelectionService(),
+        hotkeyHint: "Control+Shift+Space"
+    )
+    .frame(width: 300, height: 200)
+    .background(.black.opacity(0.5))
+}
+#endif
