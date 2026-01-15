@@ -63,7 +63,8 @@ final class AudioCaptureService {
 
         sampleRate = format.sampleRate
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        // Buffer size of 4096 ensures we always have enough samples for FFT (needs 1024 minimum)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
             self?.processBuffer(buffer)
         }
 

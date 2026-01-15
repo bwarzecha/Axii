@@ -22,6 +22,7 @@ enum DictationPhase: Equatable {
 final class DictationState {
     var phase: DictationPhase = .idle
     var audioLevel: Float = 0
+    var spectrum: [Float] = []
 
     var isRecording: Bool {
         if case .recording = phase { return true }

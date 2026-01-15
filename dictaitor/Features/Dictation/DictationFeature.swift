@@ -48,11 +48,12 @@ final class DictationFeature: Feature {
         self.microphoneSelection = microphoneSelection
         self.pasteService = pasteService
 
-        // Wire audio chunk handling - calculate RMS for visualization
+        // Wire audio chunk handling - calculate spectrum for visualization
         self.audioService.onChunk = { [weak self] chunk in
-            let level = Self.calculateRMS(chunk.samples)
-            // Normalize for UI (RMS is typically 0-0.1 for speech)
-            self?.state.audioLevel = min(level * 5, 1.0)
+            let rms = Self.calculateRMS(chunk.samples)
+            let normalized = min(sqrt(rms) * 3.0, 1.0)
+            self?.state.audioLevel = normalized
+            self?.state.spectrum = SpectrumAnalyzer.calculateSpectrum(chunk.samples)
         }
     }
 

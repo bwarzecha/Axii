@@ -105,6 +105,8 @@ struct MenuBarView: View {
 
 #else
 // iOS version - simple recording and transcription test
+import Accelerate
+
 @main
 struct DictAItorApp: App {
     var body: some Scene {
@@ -128,6 +130,19 @@ struct IOSDictationView: View {
 
             // Status display
             statusView
+
+            // Spectrum visualization during recording
+            if controller.state.isRecording {
+                SpectrumView(spectrum: controller.state.spectrum, level: CGFloat(controller.state.audioLevel))
+                    .frame(height: 60)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(.black.opacity(0.8))
+                    )
+                    .padding(.horizontal)
+            }
 
             // Transcription result
             if case .done(let text) = controller.state.phase {
@@ -154,8 +169,24 @@ struct IOSDictationView: View {
     private var statusView: some View {
         switch controller.state.phase {
         case .idle:
-            Text("Tap to record")
+            if controller.isModelLoading {
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                    Text("Loading AI model...")
+                        .font(.headline)
+                    Text("This may take a minute on first launch")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
                 .foregroundStyle(.secondary)
+            } else if controller.isModelReady {
+                Text("Tap to record")
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Tap to record")
+                    .foregroundStyle(.secondary)
+            }
         case .loadingModel:
             HStack {
                 ProgressView()
@@ -239,15 +270,49 @@ struct IOSDictationView: View {
 final class IOSDictationController {
     let state = DictationState()
     let micPermission = MicrophonePermissionService()
+    private(set) var isModelLoading = false
+    private(set) var isModelReady = false
 
     private let audioCapture = AudioCaptureService()
     private let transcription = TranscriptionService()
+
+    init() {
+        // Wire up audio visualization (dispatch to main for UI updates)
+        audioCapture.onChunk = { [weak self] chunk in
+            Task { @MainActor in
+                guard let self else { return }
+                let rms = Self.calculateRMS(chunk.samples)
+                self.state.audioLevel = min(sqrt(rms) * 3.0, 1.0)
+                self.state.spectrum = SpectrumAnalyzer.calculateSpectrum(chunk.samples)
+            }
+        }
+    }
 
     func setup() async {
         // Request mic permission if needed
         if micPermission.state.needsPrompt {
             _ = await micPermission.requestAccess()
         }
+
+        // Auto-load model in background
+        await preloadModel()
+    }
+
+    private func preloadModel() async {
+        let ready = await transcription.isReady
+        if ready {
+            isModelReady = true
+            return
+        }
+
+        isModelLoading = true
+        do {
+            try await transcription.prepare()
+            isModelReady = true
+        } catch {
+            // Silent fail - will retry when recording starts
+        }
+        isModelLoading = false
     }
 
     func toggleRecording() async {
@@ -266,11 +331,11 @@ final class IOSDictationController {
         }
 
         // Load model if needed
-        let isReady = await transcription.isReady
-        if !isReady {
+        if !isModelReady {
             state.phase = .loadingModel
             do {
                 try await transcription.prepare()
+                isModelReady = true
             } catch {
                 state.phase = .error(message: "Failed to load model: \(error.localizedDescription)")
                 return
@@ -288,6 +353,8 @@ final class IOSDictationController {
 
     private func stopRecording() async {
         let (samples, stats) = audioCapture.stopCapture()
+        state.audioLevel = 0
+        state.spectrum = []
 
         guard stats.sampleCount > 0 else {
             state.phase = .error(message: "No audio recorded")
@@ -302,6 +369,13 @@ final class IOSDictationController {
         } catch {
             state.phase = .error(message: error.localizedDescription)
         }
+    }
+
+    private static func calculateRMS(_ samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0 }
+        var rms: Float = 0
+        vDSP_rmsqv(samples, 1, &rms, vDSP_Length(samples.count))
+        return rms
     }
 }
 #endif
