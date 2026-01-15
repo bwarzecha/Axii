@@ -3,22 +3,24 @@
 //  dictaitor
 //
 //  Floating panel that stays on top of all windows without stealing focus.
+//  Content is provided dynamically by features.
 //
 
 import AppKit
-import HotKey
 import SwiftUI
 
 /// Controller that manages the floating panel lifecycle.
+/// Content is set dynamically via updateContent().
 @MainActor
 final class FloatingPanelController: NSObject {
     private let panel: NonActivatingPanel
     private let hostingView: NSHostingView<AnyView>
-    private var onDismiss: (() -> Void)?
-    private var escapeHotKey: HotKey?
 
-    /// Creates a floating panel with the given SwiftUI content.
-    init<Content: View>(content: Content) {
+    /// Callback when panel is dismissed (e.g., by clicking outside).
+    var onDismiss: (() -> Void)?
+
+    /// Creates a floating panel with empty placeholder content.
+    override init() {
         let contentSize = NSSize(width: 280, height: 120)
 
         panel = NonActivatingPanel(
@@ -42,8 +44,9 @@ final class FloatingPanelController: NSObject {
         panel.isMovableByWindowBackground = true
         panel.animationBehavior = .utilityWindow
 
-        // Content
-        hostingView = NSHostingView(rootView: AnyView(content))
+        // Start with empty content - features will provide their views
+        let placeholder = AnyView(EmptyView())
+        hostingView = NSHostingView(rootView: placeholder)
         hostingView.frame = NSRect(origin: .zero, size: contentSize)
         panel.contentView = hostingView
 
@@ -51,57 +54,25 @@ final class FloatingPanelController: NSObject {
         panel.delegate = self
     }
 
-    /// Updates the panel content with new SwiftUI view.
-    func updateContent<Content: View>(_ content: Content) {
-        hostingView.rootView = AnyView(content)
+    /// Updates the panel content with a new SwiftUI view.
+    func updateContent(_ view: AnyView) {
+        hostingView.rootView = view
     }
 
     /// Shows the panel centered at the top of the main screen.
     func show() {
         positionAtTopCenter()
         panel.orderFrontRegardless()
-        startEscapeMonitor()
     }
 
     /// Hides the panel.
     func hide() {
-        stopEscapeMonitor()
         panel.orderOut(nil)
-    }
-
-    private func startEscapeMonitor() {
-        guard escapeHotKey == nil else { return }
-        // Use HotKey library for Escape - no modifiers needed
-        escapeHotKey = HotKey(key: .escape, modifiers: [])
-        escapeHotKey?.keyDownHandler = { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.hide()
-                self?.onDismiss?()
-            }
-        }
-    }
-
-    private func stopEscapeMonitor() {
-        escapeHotKey = nil  // Setting to nil unregisters the hotkey
     }
 
     /// Returns whether the panel is currently visible.
     var isVisible: Bool {
         panel.isVisible
-    }
-
-    /// Toggles panel visibility.
-    func toggle() {
-        if isVisible {
-            hide()
-        } else {
-            show()
-        }
-    }
-
-    /// Sets a callback for when panel is dismissed (e.g., via Escape).
-    func setDismissHandler(_ handler: @escaping () -> Void) {
-        self.onDismiss = handler
     }
 
     private func positionAtTopCenter() {
@@ -115,7 +86,6 @@ final class FloatingPanelController: NSObject {
         )
         panel.setFrame(NSRect(origin: origin, size: panelSize), display: false)
     }
-
 }
 
 extension FloatingPanelController: NSWindowDelegate {

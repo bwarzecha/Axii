@@ -4,15 +4,35 @@
 Dictaitor is a macOS menu bar app for quick voice-to-text dictation. It uses a floating panel that stays on top of all windows, triggered by a global hotkey.
 
 ## Architecture
-- **SwiftUI** for UI components
-- **AppKit (NSPanel)** for floating window behavior
-- **HotKey package** for global keyboard shortcuts
-- **FluidAudio** (future) for speech-to-text
 
-## Key Files
-- `dictaitorApp.swift` - App entry point, AppState, hotkey registration
-- `FloatingPanel.swift` - Non-activating floating panel
-- `RecordingPanelView.swift` - SwiftUI panel content
+```
+dictaitor/
+├── dictaitorApp.swift        # App entry point, MenuBarView
+├── Core/
+│   ├── AppState.swift        # Pure observable state (@Observable)
+│   └── AppController.swift   # Central orchestrator
+├── Services/
+│   └── HotkeyService.swift   # Centralized hotkey management
+└── UI/
+    ├── FloatingPanel.swift   # NSPanel window controller
+    └── RecordingPanelView.swift  # SwiftUI panel content
+```
+
+### Key Components
+
+- **AppState** - Pure state with @Observable, no business logic
+- **AppController** - Coordinates services and state, handles actions
+- **HotkeyService** - Registers/unregisters global hotkeys by ID
+- **FloatingPanelController** - Manages NSPanel lifecycle
+
+### Data Flow
+```
+User Action → AppController → Updates AppState → SwiftUI auto-updates
+                ↓
+         HotkeyService (register/unregister)
+                ↓
+         FloatingPanel (show/hide)
+```
 
 ## Build & Run
 ```bash
@@ -41,7 +61,7 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`
 
 ### Test Checklist (Floating Panel)
 - [ ] Menu bar icon visible
-- [ ] Shift+Option+Space shows panel
+- [ ] Control+Shift+Space shows panel
 - [ ] Panel stays on top when switching apps
 - [ ] Same hotkey hides panel
 - [ ] Escape key hides panel
@@ -50,10 +70,18 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`
 ## Code Style
 - Max 300 lines per file
 - Use `@MainActor` for UI-related classes
-- Prefer `@Observable` (iOS 17+) or `@ObservableObject` for state
-- No magic strings - use constants
+- Use `@Observable` for state (not ObservableObject)
+- No magic strings - use constants/enums
 
-## Hotkey
-Current: **Shift + Option + Space**
-- Modifier: `.shift` + `.option`
-- Key: `.space`
+## Hotkey Configuration
+Current: **Control+Shift+Space** (defined in `AppController.HotkeyConfig`)
+
+### Adding New Hotkeys
+1. Add case to `HotkeyID` enum in `HotkeyService.swift`
+2. Register in `AppController.setupHotkeys()`
+3. Unregister when no longer needed
+
+## Future Services (planned)
+- `AudioService` - Microphone capture
+- `TranscriptionService` - Speech-to-text
+- `TextOutputService` - Clipboard/insertion
