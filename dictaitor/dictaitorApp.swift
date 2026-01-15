@@ -22,6 +22,7 @@ struct DictAItorApp: App {
         MenuBarExtra("DictAItor", systemImage: menuBarIcon) {
             MenuBarView(
                 dictationState: controller.dictationFeature.state,
+                hotkeyDisplay: controller.settings.hotkeyConfig.displayString,
                 onShowOnboarding: { openWindow(id: "onboarding") }
             )
         }
@@ -45,6 +46,15 @@ struct DictAItorApp: App {
         .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
         .defaultLaunchBehavior(hasCompletedOnboarding ? .suppressed : .presented)
+
+        // Settings window
+        Window("Settings", id: "settings") {
+            SettingsView(settings: controller.settings)
+                .onAppear {
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+        }
+        .windowResizability(.contentSize)
     }
 
     private var menuBarIcon: String {
@@ -55,6 +65,7 @@ struct DictAItorApp: App {
 /// Menu bar dropdown content.
 struct MenuBarView: View {
     var dictationState: DictationState
+    var hotkeyDisplay: String
     var onShowOnboarding: () -> Void
 
     @Environment(\.openWindow) private var openWindow
@@ -65,14 +76,18 @@ struct MenuBarView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text("Hotkey: Control+Shift+Space")
+            Text("Hotkey: \(hotkeyDisplay)")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
 
             Divider()
 
+            Button("Settings...") {
+                showWindow(title: "Settings", id: "settings")
+            }
+
             Button("Setup Permissions...") {
-                openWindow(id: "onboarding")
+                showWindow(title: "Setup", id: "onboarding")
                 onShowOnboarding()
             }
 
@@ -83,6 +98,16 @@ struct MenuBarView: View {
         }
         .padding(.vertical, 8)
         .frame(width: 180)
+    }
+
+    /// Shows a window, bringing it to front if already open.
+    private func showWindow(title: String, id: String) {
+        if let window = NSApp.windows.first(where: { $0.title == title }) {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        } else {
+            openWindow(id: id)
+        }
     }
 
     private var statusText: String {

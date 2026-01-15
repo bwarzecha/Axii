@@ -11,13 +11,6 @@ import AppKit
 import HotKey
 import SwiftUI
 
-/// Configuration for dictation hotkey.
-enum DictationConfig {
-    static let hotkeyKey: Key = .space
-    static let hotkeyModifiers: NSEvent.ModifierFlags = [.control, .shift]
-    static let hotkeyDisplay = "Control+Shift+Space"
-}
-
 /// Self-contained dictation feature with real audio capture and transcription.
 @MainActor
 final class DictationFeature: Feature {
@@ -31,6 +24,7 @@ final class DictationFeature: Feature {
     private let micPermission: MicrophonePermissionService
     private let microphoneSelection: MicrophoneSelectionService
     private let pasteService: PasteService
+    private let settings: SettingsService
 
     // State for focus tracking
     private var focusSnapshot: FocusSnapshot?
@@ -40,13 +34,15 @@ final class DictationFeature: Feature {
         transcriptionService: TranscriptionService,
         micPermission: MicrophonePermissionService,
         microphoneSelection: MicrophoneSelectionService,
-        pasteService: PasteService
+        pasteService: PasteService,
+        settings: SettingsService
     ) {
         self.audioService = audioService
         self.transcriptionService = transcriptionService
         self.micPermission = micPermission
         self.microphoneSelection = microphoneSelection
         self.pasteService = pasteService
+        self.settings = settings
 
         // Wire audio chunk handling - calculate spectrum for visualization
         self.audioService.onChunk = { [weak self] chunk in
@@ -63,7 +59,7 @@ final class DictationFeature: Feature {
         AnyView(DictationPanelView(
             state: state,
             microphoneSelection: microphoneSelection,
-            hotkeyHint: DictationConfig.hotkeyDisplay,
+            hotkeyHint: settings.hotkeyConfig.displayString,
             onMicrophoneSwitch: { [weak self] device in
                 self?.switchMicrophone(to: device)
             }
@@ -73,10 +69,22 @@ final class DictationFeature: Feature {
     func register(with context: FeatureContext) {
         self.context = context
 
+        // Register hotkey with current settings
+        registerHotkey()
+
+        // Re-register when settings change
+        settings.onHotkeyChanged = { [weak self] in
+            self?.registerHotkey()
+        }
+    }
+
+    private func registerHotkey() {
+        guard let context else { return }
+        let config = settings.hotkeyConfig
         context.hotkeyService.register(
             .togglePanel,
-            key: DictationConfig.hotkeyKey,
-            modifiers: DictationConfig.hotkeyModifiers
+            key: config.key,
+            modifiers: config.nsModifiers
         ) { [weak self] in
             self?.handleHotkey()
         }

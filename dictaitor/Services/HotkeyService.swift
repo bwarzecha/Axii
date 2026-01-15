@@ -24,6 +24,18 @@ enum HotkeyID: String, CaseIterable {
 @MainActor
 final class HotkeyService {
     private var hotkeys: [HotkeyID: HotKey] = [:]
+    private var isPaused = false
+
+    /// Temporarily pauses all hotkey handlers.
+    /// Use when capturing new hotkey input to prevent conflicts.
+    func pause() {
+        isPaused = true
+    }
+
+    /// Resumes hotkey handlers after pausing.
+    func resume() {
+        isPaused = false
+    }
 
     /// Registers a global hotkey with the given configuration.
     /// - Parameters:
@@ -41,7 +53,10 @@ final class HotkeyService {
         hotkeys[id] = nil
 
         let hotkey = HotKey(key: key, modifiers: modifiers)
-        hotkey.keyDownHandler = handler
+        hotkey.keyDownHandler = { [weak self] in
+            guard self?.isPaused != true else { return }
+            handler()
+        }
         hotkeys[id] = hotkey
     }
 
