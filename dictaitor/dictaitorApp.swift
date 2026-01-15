@@ -1,90 +1,148 @@
 //
 //  DictAItorApp.swift
-//  DictAItorApp
+//  dictaitor
 //
-//  Created by Bartosz on 1/14/26.
+//  Menu bar app with floating panel triggered by global hotkey.
 //
 
 import SwiftUI
 
-
 #if os(macOS)
-import Combine  // Required for @Published to work
-import HotKey   // Global hotkey support
-#endif
+import AppKit
+import Combine
+import HotKey
 
+// MARK: - Constants
 
-#if os(macOS)
-/// Manages global hotkey and popover visibility state.
-/// Must be a class (not struct) so it persists across view updates.
-/// @MainActor ensures all property access happens on the main thread.
+enum HotkeyConfig {
+    static let key: Key = .space
+    static let modifiers: NSEvent.ModifierFlags = [.control, .shift]
+    static let displayString = "Control+Shift+Space"
+}
+
+// MARK: - App State
+
 @MainActor
-class AppState: ObservableObject {
-    /// When true, the popover should be visible. MenuBarExtra doesn't directly
-    /// support programmatic show/hide, so we track this for UI feedback.
+final class AppState: ObservableObject {
     @Published var isListening = false
-    
-    /// Holds a reference to the hotkey registration.
-    /// If this is deallocated, the hotkey stops working.
+    @Published var isPanelVisible = false
+
     private var hotKey: HotKey?
-    
+    private var panelController: FloatingPanelController?
+
     init() {
         setupHotKey()
+        setupPanel()
     }
-    
+
     private func setupHotKey() {
-        // .option is the ⌥ key, .space is spacebar
-        hotKey = HotKey(key: .space, modifiers: [.option])
-        
-        // This closure is called whenever ⌥Space is pressed, regardless of
-        // which app is focused. It runs on an arbitrary thread.
+        hotKey = HotKey(key: HotkeyConfig.key, modifiers: HotkeyConfig.modifiers)
+
         hotKey?.keyDownHandler = { [weak self] in
-            // Hop to main thread before modifying @Published property
             Task { @MainActor in
-                self?.isListening.toggle()
-                print("Hotkey pressed, isListening: \(self?.isListening ?? false)")
+                self?.togglePanel()
             }
         }
     }
+
+    private func setupPanel() {
+        let panelView = RecordingPanelView(
+            isListening: isListening,
+            hotkeyHint: HotkeyConfig.displayString
+        )
+        panelController = FloatingPanelController(content: panelView)
+
+        panelController?.setDismissHandler { [weak self] in
+            self?.isPanelVisible = false
+        }
+    }
+
+    func togglePanel() {
+        isPanelVisible.toggle()
+        updatePanel()
+    }
+
+    func showPanel() {
+        isPanelVisible = true
+        updatePanel()
+    }
+
+    func hidePanel() {
+        isPanelVisible = false
+        updatePanel()
+    }
+
+    private func updatePanel() {
+        if isPanelVisible {
+            // Update content before showing
+            let panelView = RecordingPanelView(
+                isListening: isListening,
+                hotkeyHint: HotkeyConfig.displayString
+            )
+            panelController?.updateContent(panelView)
+            panelController?.show()
+        } else {
+            panelController?.hide()
+        }
+    }
+
+    func toggleListening() {
+        isListening.toggle()
+        // Update panel content to reflect new state
+        if isPanelVisible {
+            let panelView = RecordingPanelView(
+                isListening: isListening,
+                hotkeyHint: HotkeyConfig.displayString
+            )
+            panelController?.updateContent(panelView)
+        }
+    }
 }
+
 #endif
+
+// MARK: - App Entry Point
 
 @main
 struct DictAItorApp: App {
     #if os(macOS)
-    // @StateObject creates AppState once and keeps it alive
     @StateObject private var appState = AppState()
     #endif
+
     var body: some Scene {
-#if os(macOS)
-       MenuBarExtra("DictAItor", systemImage: "waveform") {
-           VStack(spacing: 12) {
-               // Show different UI based on listening state
-               Image(systemName: appState.isListening ? "waveform" : "mic")
-                   .font(.system(size: 32))
-                   .foregroundColor(appState.isListening ? .blue : .secondary)
-               
-               Text(appState.isListening ? "Listening..." : "Press ⌥Space")
-                   .font(.headline)
-               
-               // Manual toggle button (useful for testing)
-               Button(appState.isListening ? "Stop" : "Start") {
-                   appState.isListening.toggle()
-               }
-               
-               Divider()
-               
-               Button("Quit") {
-                   NSApplication.shared.terminate(nil)
-               }
-           }
-           .padding()
-           .frame(width: 220, height: 160)
-       }
-       .menuBarExtraStyle(.window)
-        
+        #if os(macOS)
+        // Minimal menu bar - just for quit and status
+        MenuBarExtra("DictAItor", systemImage: appState.isPanelVisible ? "waveform" : "mic") {
+            VStack(spacing: 8) {
+                Text(appState.isPanelVisible ? "Panel visible" : "Panel hidden")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("Hotkey: \(HotkeyConfig.displayString)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+
+                Divider()
+
+                Button("Toggle Panel") {
+                    appState.togglePanel()
+                }
+                .keyboardShortcut("p", modifiers: [.command])
+
+                Divider()
+
+                Button("Quit") {
+                    NSApplication.shared.terminate(nil)
+                }
+                .keyboardShortcut("q", modifiers: [.command])
+            }
+            .padding(.vertical, 8)
+            .frame(width: 180)
+        }
+        .menuBarExtraStyle(.menu)
+
         #else
-        // iPhone uses a standard window
+        // iOS fallback
         WindowGroup {
             ContentView()
         }
