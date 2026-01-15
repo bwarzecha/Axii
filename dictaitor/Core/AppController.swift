@@ -6,6 +6,7 @@
 //  Logic lives in features, not here.
 //
 
+#if os(macOS)
 import AppKit
 
 /// Application coordinator. Sets up services and registers features.
@@ -16,6 +17,11 @@ final class AppController {
     private let featureManager: FeatureManager
     private var panelController: FloatingPanelController?
 
+    // Services
+    private let transcriptionService: TranscriptionService
+    private let audioService: AudioCaptureService
+    private let clipboardService: ClipboardService
+
     // Features
     let dictationFeature: DictationFeature
 
@@ -23,25 +29,43 @@ final class AppController {
         // Create services
         hotkeyService = HotkeyService()
         featureManager = FeatureManager(hotkeyService: hotkeyService)
+        transcriptionService = TranscriptionService()
+        audioService = AudioCaptureService()
+        clipboardService = ClipboardService()
 
-        // Create features
-        dictationFeature = DictationFeature()
+        // Create features with injected services
+        dictationFeature = DictationFeature(
+            audioService: audioService,
+            transcriptionService: transcriptionService,
+            clipboardService: clipboardService
+        )
 
         // Setup
         setupPanel()
         registerFeatures()
+
+        // Start background model download
+        startModelDownload()
     }
 
     private func setupPanel() {
-        // Create panel with placeholder content
         panelController = FloatingPanelController()
         featureManager.setPanelController(panelController!)
     }
 
     private func registerFeatures() {
-        // Features register themselves and their hotkeys
         featureManager.register(dictationFeature)
+    }
 
-        // Future: featureManager.register(chatFeature)
+    private func startModelDownload() {
+        Task {
+            do {
+                try await transcriptionService.prepare()
+                print("Transcription model ready")
+            } catch {
+                print("Model loading failed: \(error)")
+            }
+        }
     }
 }
+#endif

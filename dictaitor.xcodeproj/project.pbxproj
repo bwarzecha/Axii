@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		4E023D652F185AB300284984 /* HotKey in Frameworks */ = {isa = PBXBuildFile; productRef = 4E023D642F185AB300284984 /* HotKey */; };
+		4EADEE022F19595100D0B62B /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 4EADEE012F19595100D0B62B /* FluidAudio */; };
+		4EADEE042F19595100D0B62B /* FluidAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = 4EADEE032F19595100D0B62B /* FluidAudioTTS */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +29,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4EADEE022F19595100D0B62B /* FluidAudio in Frameworks */,
+				4EADEE042F19595100D0B62B /* FluidAudioTTS in Frameworks */,
 				4E023D652F185AB300284984 /* HotKey in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -71,6 +75,8 @@
 			name = dictaitor;
 			packageProductDependencies = (
 				4E023D642F185AB300284984 /* HotKey */,
+				4EADEE012F19595100D0B62B /* FluidAudio */,
+				4EADEE032F19595100D0B62B /* FluidAudioTTS */,
 			);
 			productName = dictaitor;
 			productReference = 4E023D552F1853FF00284984 /* dictaitor.app */;
@@ -102,6 +108,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				4E023D632F185AB300284984 /* XCRemoteSwiftPackageReference "HotKey" */,
+				4EADEE002F19595100D0B62B /* XCRemoteSwiftPackageReference "FluidAudio" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4E023D562F1853FF00284984 /* Products */;
@@ -255,6 +262,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = dictaitor/dictaitor.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9VG3P9SC9G;
@@ -264,6 +272,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "DictAItor needs microphone access to transcribe your speech.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -300,6 +309,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = dictaitor/dictaitor.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9VG3P9SC9G;
@@ -309,6 +319,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "DictAItor needs microphone access to transcribe your speech.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -372,6 +383,14 @@
 				kind = branch;
 			};
 		};
+		4EADEE002F19595100D0B62B /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -379,6 +398,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4E023D632F185AB300284984 /* XCRemoteSwiftPackageReference "HotKey" */;
 			productName = HotKey;
+		};
+		4EADEE012F19595100D0B62B /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4EADEE002F19595100D0B62B /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
+		4EADEE032F19595100D0B62B /* FluidAudioTTS */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4EADEE002F19595100D0B62B /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudioTTS;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

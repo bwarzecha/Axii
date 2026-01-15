@@ -56,6 +56,8 @@ struct MenuBarView: View {
         switch dictationState.phase {
         case .idle:
             return "Ready"
+        case .loadingModel:
+            return "Loading model..."
         case .recording:
             return "Recording..."
         case .transcribing:

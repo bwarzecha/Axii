@@ -10,6 +10,7 @@ import SwiftUI
 /// Dictation workflow phases.
 enum DictationPhase: Equatable {
     case idle
+    case loadingModel
     case recording
     case transcribing
     case done(text: String)

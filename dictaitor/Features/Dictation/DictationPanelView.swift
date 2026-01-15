@@ -41,6 +41,12 @@ struct DictationPanelView: View {
                 .font(.system(size: 36))
                 .foregroundStyle(.secondary)
 
+        case .loadingModel:
+            Image(systemName: "arrow.down.circle")
+                .font(.system(size: 36))
+                .foregroundStyle(.blue)
+                .symbolEffect(.pulse, options: .repeating, isActive: true)
+
         case .recording:
             Image(systemName: "mic.fill")
                 .font(.system(size: 36))
@@ -68,6 +74,11 @@ struct DictationPanelView: View {
         switch state.phase {
         case .idle:
             Text("Press \(hotkeyHint)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+        case .loadingModel:
+            Text("Loading model...")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
