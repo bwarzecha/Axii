@@ -24,19 +24,23 @@ struct DictationPanelView: View {
                         .strokeBorder(.white.opacity(0.2), lineWidth: 1)
                 )
 
-            VStack(spacing: 12) {
-                statusIcon
-                statusText
-                if state.isRecording {
-                    audioLevelBar
+            VStack(spacing: 0) {
+                topArea
+                    .frame(height: 32)
+                    .padding(.top, 10)
+                Spacer(minLength: 0)
+                HStack {
+                    if showMicrophonePicker {
+                        microphonePicker
+                    }
+                    Spacer()
+                    statusText
                 }
-                if showMicrophonePicker {
-                    microphonePicker
-                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
             }
-            .padding(20)
         }
-        .frame(width: 280, height: dynamicHeight)
+        .frame(width: 340, height: 88)
     }
 
     private var showMicrophonePicker: Bool {
@@ -48,46 +52,17 @@ struct DictationPanelView: View {
         }
     }
 
-    private var dynamicHeight: CGFloat {
-        var height: CGFloat = 120
-        if state.isRecording { height += 20 }
-        if showMicrophonePicker { height += 30 }
-        return height
-    }
-
     @ViewBuilder
-    private var statusIcon: some View {
+    private var topArea: some View {
         switch state.phase {
-        case .idle:
-            Image(systemName: "mic")
-                .font(.system(size: 36))
+        case .idle, .loadingModel:
+            Text("Press \(hotkeyHint)")
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
-
-        case .loadingModel:
-            Image(systemName: "arrow.down.circle")
-                .font(.system(size: 36))
-                .foregroundStyle(.blue)
-                .symbolEffect(.pulse, options: .repeating, isActive: true)
-
         case .recording:
-            Image(systemName: "mic.fill")
-                .font(.system(size: 36))
-                .foregroundStyle(.red)
-                .symbolEffect(.pulse, options: .repeating, isActive: true)
-
-        case .transcribing:
-            ProgressView()
-                .scaleEffect(1.5)
-
-        case .done:
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 36))
-                .foregroundStyle(.green)
-
-        case .error:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 36))
-                .foregroundStyle(.orange)
+            audioWaveform
+        default:
+            Color.clear
         }
     }
 
@@ -95,22 +70,22 @@ struct DictationPanelView: View {
     private var statusText: some View {
         switch state.phase {
         case .idle:
-            Text("Press \(hotkeyHint)")
+            Text("Ready")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
         case .loadingModel:
-            Text("Loading model...")
+            Text("Loading...")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
         case .recording:
             Text("Listening...")
-                .font(.headline)
+                .font(.subheadline)
 
         case .transcribing:
             Text("Transcribing...")
-                .font(.headline)
+                .font(.subheadline)
 
         case .done(let text):
             Text(text)
@@ -125,51 +100,46 @@ struct DictationPanelView: View {
         }
     }
 
-    private var audioLevelBar: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(.gray.opacity(0.3))
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(.green.gradient)
-                    .frame(width: geo.size.width * CGFloat(state.audioLevel))
-            }
-        }
-        .frame(height: 6)
-        .padding(.horizontal, 20)
+    private var audioWaveform: some View {
+        SpectrumView(spectrum: state.spectrum, level: CGFloat(state.audioLevel))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 8)
     }
 
     private var microphonePicker: some View {
-        Menu {
-            ForEach(microphoneSelection.availableDevices) { device in
-                Button {
-                    if device != microphoneSelection.selectedDevice {
-                        onMicrophoneSwitch?(device)
-                    }
-                } label: {
-                    HStack {
-                        Text(device.name)
-                        if device == microphoneSelection.selectedDevice {
-                            Spacer()
-                            Image(systemName: "checkmark")
+        HStack(spacing: 4) {
+            Image(systemName: state.phase == .recording ? "mic.fill" : "mic")
+                .font(.caption2)
+                .foregroundStyle(state.phase == .recording ? Color.red : Color.secondary)
+            Menu {
+                ForEach(microphoneSelection.availableDevices) { device in
+                    Button {
+                        if device != microphoneSelection.selectedDevice {
+                            onMicrophoneSwitch?(device)
+                        }
+                    } label: {
+                        HStack {
+                            Text(device.name)
+                            if device == microphoneSelection.selectedDevice {
+                                Spacer()
+                                Image(systemName: "checkmark")
+                            }
                         }
                     }
                 }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(microphoneSelection.selectedDevice.name)
+                        .font(.caption)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.secondary)
             }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "mic")
-                    .font(.caption2)
-                Text(microphoneSelection.selectedDevice.name)
-                    .font(.caption)
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
-            }
-            .foregroundStyle(.secondary)
+            .menuStyle(.borderlessButton)
+            .fixedSize()
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
     }
 }
 
@@ -179,7 +149,7 @@ struct DictationPanelView: View {
         microphoneSelection: MicrophoneSelectionService(),
         hotkeyHint: "Control+Shift+Space"
     )
-    .frame(width: 300, height: 200)
+    .frame(width: 360, height: 100)
     .background(.black.opacity(0.5))
 }
 
@@ -192,7 +162,43 @@ struct DictationPanelView: View {
         microphoneSelection: MicrophoneSelectionService(),
         hotkeyHint: "Control+Shift+Space"
     )
-    .frame(width: 300, height: 200)
+    .frame(width: 360, height: 100)
     .background(.black.opacity(0.5))
+}
+
+#Preview("Spectrum Animated") {
+    struct AnimatedPreview: View {
+        let state = DictationState()
+        @State private var timer: Timer?
+        @State private var phase: Float = 0
+
+        var body: some View {
+            DictationPanelView(
+                state: state,
+                microphoneSelection: MicrophoneSelectionService(),
+                hotkeyHint: "Control+Shift+Space"
+            )
+            .frame(width: 360, height: 100)
+            .background(.black.opacity(0.8))
+            .onAppear {
+                state.phase = .recording
+                timer = Timer.scheduledTimer(withTimeInterval: 0.04, repeats: true) { _ in
+                    phase += 0.3
+                    let level = Float.random(in: 0.3...0.9)
+                    state.audioLevel = level
+                    // Simulate spectrum with flowing wave
+                    state.spectrum = (0..<64).map { i in
+                        let wave = sin(Float(i) * 0.15 + phase) * 0.5 + 0.5
+                        let noise = Float.random(in: 0.8...1.2)
+                        return wave * level * noise
+                    }
+                }
+            }
+            .onDisappear {
+                timer?.invalidate()
+            }
+        }
+    }
+    return AnimatedPreview()
 }
 #endif
