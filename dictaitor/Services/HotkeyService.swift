@@ -11,12 +11,9 @@ import HotKey
 
 /// Identifiers for registered hotkeys.
 enum HotkeyID: String, CaseIterable {
-    case togglePanel
+    case togglePanel    // Dictation feature
+    case conversation   // Conversation/Agent feature
     case escape
-    // Future hotkeys:
-    // case startRecording
-    // case stopRecording
-    // case cancel
 }
 
 /// Centralized service for managing global hotkeys.

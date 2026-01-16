@@ -26,9 +26,14 @@ final class AppController {
     let microphoneSelection: MicrophoneSelectionService
     private let pasteService: PasteService
     let settings: SettingsService
+    let llmSettings: LLMSettingsService
+    private let llmService: LLMService
+    private let ttsService: TextToSpeechService
+    private let playbackService: AudioPlaybackService
 
     // Features
     let dictationFeature: DictationFeature
+    let conversationFeature: ConversationFeature
 
     init() {
         // Create services
@@ -41,6 +46,10 @@ final class AppController {
         accessibilityPermission = AccessibilityPermissionService()
         microphoneSelection = MicrophoneSelectionService()
         settings = SettingsService()
+        llmSettings = LLMSettingsService()
+        llmService = LLMService(settings: llmSettings)
+        ttsService = TextToSpeechService()
+        playbackService = AudioPlaybackService()
         pasteService = PasteService(
             clipboard: clipboardService,
             accessibilityPermission: accessibilityPermission
@@ -54,6 +63,15 @@ final class AppController {
             microphoneSelection: microphoneSelection,
             pasteService: pasteService,
             settings: settings
+        )
+        conversationFeature = ConversationFeature(
+            audioService: audioService,
+            transcriptionService: transcriptionService,
+            micPermission: micPermission,
+            settings: settings,
+            llmService: llmService,
+            ttsService: ttsService,
+            playbackService: playbackService
         )
 
         // Setup
@@ -82,6 +100,7 @@ final class AppController {
 
     private func registerFeatures() {
         featureManager.register(dictationFeature)
+        featureManager.register(conversationFeature)
     }
 
     private func startModelDownload() {
@@ -90,7 +109,15 @@ final class AppController {
                 try await transcriptionService.prepare()
                 print("Transcription model ready")
             } catch {
-                print("Model loading failed: \(error)")
+                print("Transcription model loading failed: \(error)")
+            }
+        }
+        Task {
+            do {
+                try await ttsService.prepare()
+                print("TTS model ready")
+            } catch {
+                print("TTS model loading failed: \(error)")
             }
         }
     }

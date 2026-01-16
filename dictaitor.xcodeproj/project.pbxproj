@@ -10,6 +10,9 @@
 		4E023D652F185AB300284984 /* HotKey in Frameworks */ = {isa = PBXBuildFile; productRef = 4E023D642F185AB300284984 /* HotKey */; };
 		4EADEE022F19595100D0B62B /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 4EADEE012F19595100D0B62B /* FluidAudio */; };
 		4EADEE042F19595100D0B62B /* FluidAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = 4EADEE032F19595100D0B62B /* FluidAudioTTS */; };
+		4EADEEA82F19A6A500D0B62B /* AWSBedrock in Frameworks */ = {isa = PBXBuildFile; productRef = 4EADEEA72F19A6A500D0B62B /* AWSBedrock */; };
+		4EADEEAA2F19A6A500D0B62B /* AWSBedrockRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 4EADEEA92F19A6A500D0B62B /* AWSBedrockRuntime */; };
+		4EADEEAC2F19A6A500D0B62B /* AWSSDKIdentity in Frameworks */ = {isa = PBXBuildFile; productRef = 4EADEEAB2F19A6A500D0B62B /* AWSSDKIdentity */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,8 +33,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				4EADEE022F19595100D0B62B /* FluidAudio in Frameworks */,
+				4EADEEAC2F19A6A500D0B62B /* AWSSDKIdentity in Frameworks */,
 				4EADEE042F19595100D0B62B /* FluidAudioTTS in Frameworks */,
 				4E023D652F185AB300284984 /* HotKey in Frameworks */,
+				4EADEEAA2F19A6A500D0B62B /* AWSBedrockRuntime in Frameworks */,
+				4EADEEA82F19A6A500D0B62B /* AWSBedrock in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -77,6 +83,9 @@
 				4E023D642F185AB300284984 /* HotKey */,
 				4EADEE012F19595100D0B62B /* FluidAudio */,
 				4EADEE032F19595100D0B62B /* FluidAudioTTS */,
+				4EADEEA72F19A6A500D0B62B /* AWSBedrock */,
+				4EADEEA92F19A6A500D0B62B /* AWSBedrockRuntime */,
+				4EADEEAB2F19A6A500D0B62B /* AWSSDKIdentity */,
 			);
 			productName = dictaitor;
 			productReference = 4E023D552F1853FF00284984 /* dictaitor.app */;
@@ -109,6 +118,7 @@
 			packageReferences = (
 				4E023D632F185AB300284984 /* XCRemoteSwiftPackageReference "HotKey" */,
 				4EADEE002F19595100D0B62B /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				4EADEEA62F19A6A500D0B62B /* XCRemoteSwiftPackageReference "aws-sdk-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4E023D562F1853FF00284984 /* Products */;
@@ -266,10 +276,9 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9VG3P9SC9G;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "DictAItor needs microphone access to transcribe your speech.";
@@ -313,10 +322,9 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 9VG3P9SC9G;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "DictAItor needs microphone access to transcribe your speech.";
@@ -391,6 +399,14 @@
 				kind = branch;
 			};
 		};
+		4EADEEA62F19A6A500D0B62B /* XCRemoteSwiftPackageReference "aws-sdk-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/awslabs/aws-sdk-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.6.35;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -408,6 +424,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4EADEE002F19595100D0B62B /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudioTTS;
+		};
+		4EADEEA72F19A6A500D0B62B /* AWSBedrock */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4EADEEA62F19A6A500D0B62B /* XCRemoteSwiftPackageReference "aws-sdk-swift" */;
+			productName = AWSBedrock;
+		};
+		4EADEEA92F19A6A500D0B62B /* AWSBedrockRuntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4EADEEA62F19A6A500D0B62B /* XCRemoteSwiftPackageReference "aws-sdk-swift" */;
+			productName = AWSBedrockRuntime;
+		};
+		4EADEEAB2F19A6A500D0B62B /* AWSSDKIdentity */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4EADEEA62F19A6A500D0B62B /* XCRemoteSwiftPackageReference "aws-sdk-swift" */;
+			productName = AWSSDKIdentity;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -16,10 +16,16 @@ struct HotkeyConfig: Codable, Equatable {
     let keyCode: UInt32
     let modifiers: UInt32
 
-    /// Default hotkey: Control+Shift+Space
+    /// Default dictation hotkey: Control+Shift+Space
     static let `default` = HotkeyConfig(
         keyCode: UInt32(kVK_Space),
         modifiers: UInt32(controlKey) | UInt32(shiftKey)
+    )
+
+    /// Default conversation hotkey: Control+Option+Space
+    static let conversationDefault = HotkeyConfig(
+        keyCode: UInt32(kVK_Space),
+        modifiers: UInt32(controlKey) | UInt32(optionKey)
     )
 
     /// Convert to HotKey library Key type for registration.

@@ -13,11 +13,17 @@ import Foundation
 @MainActor
 @Observable
 final class SettingsService {
-    /// Current hotkey configuration.
+    /// Current dictation hotkey configuration.
     private(set) var hotkeyConfig: HotkeyConfig
 
-    /// Called when hotkey configuration changes (for re-registration).
+    /// Current conversation hotkey configuration.
+    private(set) var conversationHotkeyConfig: HotkeyConfig
+
+    /// Called when dictation hotkey configuration changes (for re-registration).
     var onHotkeyChanged: (() -> Void)?
+
+    /// Called when conversation hotkey configuration changes (for re-registration).
+    var onConversationHotkeyChanged: (() -> Void)?
 
     /// Called when hotkey recording starts (to pause global hotkeys).
     var onHotkeyRecordingStarted: (() -> Void)?
@@ -27,10 +33,20 @@ final class SettingsService {
 
     private let defaults: UserDefaults
     private let hotkeyKey = "settings.hotkeyConfig"
+    private let conversationHotkeyKey = "settings.conversationHotkeyConfig"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.hotkeyConfig = Self.loadHotkeyConfig(from: defaults, key: "settings.hotkeyConfig")
+        self.hotkeyConfig = Self.loadHotkeyConfig(
+            from: defaults,
+            key: "settings.hotkeyConfig",
+            defaultValue: .default
+        )
+        self.conversationHotkeyConfig = Self.loadHotkeyConfig(
+            from: defaults,
+            key: "settings.conversationHotkeyConfig",
+            defaultValue: .conversationDefault
+        )
     }
 
     /// Updates the hotkey configuration and persists it.
@@ -44,6 +60,19 @@ final class SettingsService {
     /// Resets hotkey to default value.
     func resetHotkeyToDefault() {
         updateHotkey(.default)
+    }
+
+    /// Updates the conversation hotkey configuration and persists it.
+    func updateConversationHotkey(_ config: HotkeyConfig) {
+        guard config != conversationHotkeyConfig else { return }
+        conversationHotkeyConfig = config
+        saveConversationHotkeyConfig()
+        onConversationHotkeyChanged?()
+    }
+
+    /// Resets conversation hotkey to default value.
+    func resetConversationHotkeyToDefault() {
+        updateConversationHotkey(.conversationDefault)
     }
 
     /// Call when starting to record a new hotkey.
@@ -67,10 +96,21 @@ private extension SettingsService {
         defaults.set(data, forKey: hotkeyKey)
     }
 
-    static func loadHotkeyConfig(from defaults: UserDefaults, key: String) -> HotkeyConfig {
+    func saveConversationHotkeyConfig() {
+        guard let data = try? JSONEncoder().encode(conversationHotkeyConfig) else {
+            return
+        }
+        defaults.set(data, forKey: conversationHotkeyKey)
+    }
+
+    static func loadHotkeyConfig(
+        from defaults: UserDefaults,
+        key: String,
+        defaultValue: HotkeyConfig
+    ) -> HotkeyConfig {
         guard let data = defaults.data(forKey: key),
               let config = try? JSONDecoder().decode(HotkeyConfig.self, from: data) else {
-            return .default
+            return defaultValue
         }
         return config
     }

@@ -17,6 +17,12 @@ import AVFAudio
 struct AudioChunk: Sendable {
     let samples: [Float]
     let sampleRate: Double
+
+    /// Duration of this chunk in seconds.
+    var duration: TimeInterval {
+        guard sampleRate > 0 else { return 0 }
+        return TimeInterval(samples.count) / sampleRate
+    }
 }
 
 /// Recording statistics returned on stop.
