@@ -8,7 +8,7 @@
 #if os(macOS)
 import SwiftUI
 
-/// Panel view displayed during conversation.
+/// Panel view displayed during conversation - unified layout with visualization and chat.
 struct ConversationPanelView: View {
     var state: ConversationState
     let hotkeyHint: String
@@ -23,90 +23,65 @@ struct ConversationPanelView: View {
                 )
 
             VStack(spacing: 0) {
-                topArea
-                    .frame(height: 32)
-                    .padding(.top, 10)
-                Spacer(minLength: 0)
-                HStack {
-                    phaseIndicator
-                    Spacer()
-                    statusText
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
+                // Status bar at top
+                statusBar
+
+                Divider()
+
+                // Visualization area (always visible, fixed height)
+                visualizationArea
+                    .frame(height: 60)
+
+                Divider()
+
+                // Messages list (scrollable, takes remaining space)
+                messagesArea
+
+                Divider()
+
+                // Hint bar at bottom
+                hintBar
             }
         }
-        .frame(width: 340, height: 88)
+        .frame(width: 400, height: 400)
     }
 
-    @ViewBuilder
-    private var topArea: some View {
-        switch state.phase {
-        case .idle:
-            Text("Press \(hotkeyHint)")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        case .listening:
-            audioWaveform
-        case .processing:
-            Text(state.transcript.isEmpty ? "Processing..." : state.transcript)
-                .font(.caption)
-                .lineLimit(2)
-                .foregroundStyle(.secondary)
-        case .responding:
-            Text(state.response)
-                .font(.caption)
-                .lineLimit(2)
-                .foregroundStyle(.primary)
-        case .done:
-            Text(state.transcript.isEmpty ? "No speech detected" : "You: \(state.transcript)")
-                .font(.caption)
-                .lineLimit(2)
-                .foregroundStyle(.secondary)
-        case .error:
-            Color.clear
+    // MARK: - Status Bar
+
+    private var statusBar: some View {
+        HStack {
+            phaseIndicator
+            Spacer()
+            statusText
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     @ViewBuilder
     private var phaseIndicator: some View {
-        switch state.phase {
-        case .listening:
-            HStack(spacing: 4) {
+        HStack(spacing: 6) {
+            switch state.phase {
+            case .listening:
                 Circle()
                     .fill(.red)
                     .frame(width: 8, height: 8)
-                Text("Agent")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        case .processing:
-            HStack(spacing: 4) {
+            case .processing:
                 ProgressView()
                     .scaleEffect(0.5)
                     .frame(width: 8, height: 8)
-                Text("Agent")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        case .responding:
-            HStack(spacing: 4) {
+            case .responding:
                 Image(systemName: "speaker.wave.2.fill")
                     .font(.caption2)
                     .foregroundStyle(.blue)
-                Text("Agent")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        default:
-            HStack(spacing: 4) {
+            default:
                 Image(systemName: "bubble.left.and.bubble.right")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                Text("Agent")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
+            Text("Agent")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -117,24 +92,19 @@ struct ConversationPanelView: View {
             Text("Ready")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-
         case .listening:
             Text("Listening...")
                 .font(.subheadline)
-
         case .processing:
             Text("Thinking...")
                 .font(.subheadline)
-
         case .responding:
             Text("Speaking...")
                 .font(.subheadline)
-
         case .done:
             Text("Done")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-
         case .error(let message):
             Text(message)
                 .font(.caption)
@@ -142,19 +112,167 @@ struct ConversationPanelView: View {
         }
     }
 
-    private var audioWaveform: some View {
-        SpectrumView(spectrum: state.spectrum, level: CGFloat(state.audioLevel))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 8)
+    // MARK: - Visualization Area
+
+    @ViewBuilder
+    private var visualizationArea: some View {
+        switch state.phase {
+        case .listening:
+            SpectrumView(spectrum: state.spectrum, level: CGFloat(state.audioLevel))
+                .padding(.horizontal, 16)
+        case .processing:
+            VStack(spacing: 4) {
+                if !state.transcript.isEmpty {
+                    Text(state.transcript)
+                        .font(.callout)
+                        .lineLimit(2)
+                        .foregroundStyle(.primary)
+                } else {
+                    ProgressView()
+                    Text("Processing...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        case .responding:
+            HStack(spacing: 8) {
+                Image(systemName: "speaker.wave.2.fill")
+                    .foregroundStyle(.blue)
+                    .symbolEffect(.variableColor.iterative)
+                Text("Speaking response...")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        case .idle, .done:
+            if state.messages.isEmpty {
+                Text("Press \(hotkeyHint) to start")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Press \(hotkeyHint) to continue")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        case .error:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.title2)
+                .foregroundStyle(.red)
+        }
+    }
+
+    // MARK: - Messages Area
+
+    private var messagesArea: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                if state.messages.isEmpty {
+                    emptyMessagesView
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(state.messages) { message in
+                            MessageBubbleView(message: message)
+                                .id(message.id)
+                        }
+                    }
+                    .padding()
+                }
+            }
+            .onChange(of: state.messages.count) { _, _ in
+                // Small delay to let layout settle before scrolling
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    if let lastId = state.messages.last?.id {
+                        withAnimation {
+                            proxy.scrollTo(lastId, anchor: .bottom)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var emptyMessagesView: some View {
+        VStack(spacing: 8) {
+            Spacer()
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.largeTitle)
+                .foregroundStyle(.quaternary)
+            Text("No messages yet")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Hint Bar
+
+    private var hintBar: some View {
+        HStack {
+            Text(hintText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text("ESC to close")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    private var hintText: String {
+        switch state.phase {
+        case .listening:
+            return "Press \(hotkeyHint) to stop"
+        default:
+            return "Press \(hotkeyHint) to speak"
+        }
     }
 }
 
-#Preview("Idle") {
+// MARK: - Message Bubble View
+
+/// A single message bubble in the conversation
+struct MessageBubbleView: View {
+    let message: DisplayMessage
+
+    private var isUser: Bool {
+        message.role == .user
+    }
+
+    var body: some View {
+        HStack {
+            if isUser { Spacer(minLength: 40) }
+
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
+                Text(isUser ? "You" : "Assistant")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                Text(message.content)
+                    .font(.callout)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(isUser ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.15))
+                    )
+                    .foregroundStyle(.primary)
+            }
+
+            if !isUser { Spacer(minLength: 40) }
+        }
+    }
+}
+
+// MARK: - Previews
+
+#Preview("Idle - Empty") {
     ConversationPanelView(
         state: ConversationState(),
         hotkeyHint: "Cmd+Shift+Space"
     )
-    .frame(width: 360, height: 100)
     .background(.black.opacity(0.5))
 }
 
@@ -162,11 +280,11 @@ struct ConversationPanelView: View {
     let state = ConversationState()
     state.phase = .listening
     state.audioLevel = 0.6
+    state.spectrum = Array(repeating: 0.3, count: 32)
     return ConversationPanelView(
         state: state,
         hotkeyHint: "Cmd+Shift+Space"
     )
-    .frame(width: 360, height: 100)
     .background(.black.opacity(0.5))
 }
 
@@ -174,23 +292,41 @@ struct ConversationPanelView: View {
     let state = ConversationState()
     state.phase = .processing
     state.transcript = "What's the weather like today?"
+    state.messages = [
+        DisplayMessage(role: .user, content: "What's the weather like today?")
+    ]
     return ConversationPanelView(
         state: state,
         hotkeyHint: "Cmd+Shift+Space"
     )
-    .frame(width: 360, height: 100)
     .background(.black.opacity(0.5))
 }
 
-#Preview("Responding") {
+#Preview("Multi-turn Conversation") {
     let state = ConversationState()
-    state.phase = .responding
-    state.response = "The weather is sunny with a high of 72 degrees."
+    state.messages = [
+        DisplayMessage(role: .user, content: "What's the weather like today?"),
+        DisplayMessage(role: .assistant, content: "I don't have access to real-time weather data, but I'd be happy to help if you tell me your location!"),
+        DisplayMessage(role: .user, content: "I'm in San Francisco"),
+        DisplayMessage(role: .assistant, content: "San Francisco typically has mild weather year-round. For current conditions, I'd recommend checking a weather app.")
+    ]
+    state.phase = .idle
     return ConversationPanelView(
         state: state,
         hotkeyHint: "Cmd+Shift+Space"
     )
-    .frame(width: 360, height: 100)
     .background(.black.opacity(0.5))
+}
+
+#Preview("Message Bubble - User") {
+    MessageBubbleView(message: DisplayMessage(role: .user, content: "What's the weather like today?"))
+        .padding()
+        .frame(width: 350)
+}
+
+#Preview("Message Bubble - Assistant") {
+    MessageBubbleView(message: DisplayMessage(role: .assistant, content: "The weather is sunny with a high of 72 degrees Fahrenheit."))
+        .padding()
+        .frame(width: 350)
 }
 #endif

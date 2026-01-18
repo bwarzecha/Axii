@@ -55,6 +55,15 @@ struct DictAItorApp: App {
                 }
         }
         .windowResizability(.contentSize)
+
+        // History window
+        Window("History", id: "history") {
+            HistoryView(historyService: controller.historyService)
+                .onAppear {
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+        }
+        .defaultSize(width: 700, height: 500)
     }
 
     private var menuBarIcon: String {
@@ -81,6 +90,10 @@ struct MenuBarView: View {
                 .foregroundStyle(.tertiary)
 
             Divider()
+
+            Button("History...") {
+                showWindow(title: "History", id: "history")
+            }
 
             Button("Settings...") {
                 showWindow(title: "Settings", id: "settings")

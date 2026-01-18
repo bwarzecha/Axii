@@ -23,9 +23,13 @@ final class ConversationFeature: Feature {
     private let llmService: LLMService
     private let ttsService: TextToSpeechService
     private let playbackService: AudioPlaybackService
+    private let historyService: HistoryService
 
     // VAD for auto-stop on silence
     private var vad = VoiceActivityDetector()
+
+    // Current conversation being built (for history)
+    private var currentConversationId: UUID?
 
     init(
         audioService: AudioCaptureService,
@@ -34,7 +38,8 @@ final class ConversationFeature: Feature {
         settings: SettingsService,
         llmService: LLMService,
         ttsService: TextToSpeechService,
-        playbackService: AudioPlaybackService
+        playbackService: AudioPlaybackService,
+        historyService: HistoryService
     ) {
         self.audioService = audioService
         self.transcriptionService = transcriptionService
@@ -43,6 +48,7 @@ final class ConversationFeature: Feature {
         self.llmService = llmService
         self.ttsService = ttsService
         self.playbackService = playbackService
+        self.historyService = historyService
     }
 
     // MARK: - Feature Protocol
@@ -80,7 +86,7 @@ final class ConversationFeature: Feature {
             _ = audioService.stopCapture()
         }
         playbackService.stop()
-        resetState()
+        resetState(clearConversation: true)
         isActive = false
     }
 
@@ -92,9 +98,18 @@ final class ConversationFeature: Feature {
             startListeningIfReady()
         case .listening:
             stopListening()
-        case .processing, .responding, .done, .error:
+        case .responding:
+            // Interrupt TTS and continue conversation (multi-turn)
+            interruptAndContinue()
+        case .processing, .done, .error:
             cancelAndDeactivate()
         }
+    }
+
+    /// Interrupt current TTS playback and start listening for next turn
+    private func interruptAndContinue() {
+        playbackService.stop()
+        startListening()
     }
 
     func handleEscape() {
@@ -147,7 +162,7 @@ final class ConversationFeature: Feature {
         // Reset VAD for new session
         vad.reset()
 
-        // Wire audio chunk handling for this session
+        // Wire audio chunk handling for this session (visualization only, no auto-stop)
         audioService.onChunk = { [weak self] chunk in
             guard let self, self.state.isListening else { return }
 
@@ -156,11 +171,7 @@ final class ConversationFeature: Feature {
             let normalized = min(sqrt(result.rms) * 3.0, 1.0)
             self.state.audioLevel = normalized
             self.state.spectrum = SpectrumAnalyzer.calculateSpectrum(chunk.samples)
-
-            // Auto-stop when speech ends
-            if result.didEndSpeech {
-                self.stopListening()
-            }
+            // Manual stop only - user presses hotkey again to stop
         }
 
         do {
@@ -198,16 +209,38 @@ final class ConversationFeature: Feature {
                 }
 
                 state.transcript = text
+                state.addUserMessage(text)
 
-                // Get LLM response
-                let response = try await llmService.send(message: text)
+                // Save user message to history immediately
+                let conversationId = await saveUserMessage(text)
+                currentConversationId = conversationId
+
+                // Get LLM response with full conversation context
+                let response: String
+                if let conversationId = conversationId,
+                   let messages = await loadConversationMessages(conversationId: conversationId),
+                   messages.count > 1 {
+                    // Multi-turn: send full history
+                    response = try await llmService.send(messages: messages)
+                } else {
+                    // Single turn or no history: send just this message
+                    response = try await llmService.send(message: text)
+                }
                 state.response = response
+                state.addAssistantMessage(response)
                 state.phase = .responding
+
+                // Update history with assistant response
+                if let conversationId {
+                    await updateWithAssistantMessage(conversationId: conversationId, message: response)
+                }
 
                 // Synthesize and play TTS response
                 let audioData = try await ttsService.synthesize(text: response)
+
                 try playbackService.play(wavData: audioData) { [weak self] in
-                    self?.cancelAndDeactivate()
+                    // Natural completion - keep conversation for multi-turn
+                    self?.deactivateKeepingConversation()
                 }
 
             } catch {
@@ -224,23 +257,36 @@ final class ConversationFeature: Feature {
         }
     }
 
+    /// Cancel current operation and start fresh (clears conversation)
     private func cancelAndDeactivate() {
         if audioService.isRecording {
             _ = audioService.stopCapture()
         }
         playbackService.stop()
-        resetState()
+        resetState(clearConversation: true)
         isActive = false
         context?.onDeactivate?()
     }
 
-    private func resetState() {
+    /// Deactivate but keep conversation for multi-turn continuation
+    private func deactivateKeepingConversation() {
+        playbackService.stop()
+        resetState(clearConversation: false)
+        isActive = false
+        context?.onDeactivate?()
+    }
+
+    private func resetState(clearConversation: Bool) {
         state.phase = .idle
         state.audioLevel = 0
         state.spectrum = []
         state.transcript = ""
         state.response = ""
         vad.reset()
+        if clearConversation {
+            currentConversationId = nil
+            state.clearMessages()
+        }
     }
 
     private func scheduleDeactivation(delay: TimeInterval) {
@@ -249,5 +295,76 @@ final class ConversationFeature: Feature {
         }
     }
 
+    // MARK: - History
+
+    /// Save user message immediately after transcription, returns conversation ID
+    /// If continuing an existing conversation, appends to it; otherwise creates new
+    private func saveUserMessage(_ text: String) async -> UUID? {
+        guard historyService.isEnabled else { return currentConversationId }
+
+        do {
+            // Continue existing conversation if available
+            if let existingId = currentConversationId {
+                let interaction = try await historyService.loadInteraction(id: existingId)
+                guard case .conversation(var conversation) = interaction else {
+                    return await createNewConversation(with: text)
+                }
+                conversation.addMessage(Message(role: .user, content: text))
+                try await historyService.save(.conversation(conversation))
+                return existingId
+            }
+
+            // Create new conversation
+            return await createNewConversation(with: text)
+        } catch {
+            print("ConversationFeature: Failed to save user message: \(error)")
+            return nil
+        }
+    }
+
+    private func createNewConversation(with text: String) async -> UUID? {
+        let conversation = Conversation(
+            messages: [Message(role: .user, content: text)]
+        )
+
+        do {
+            try await historyService.save(.conversation(conversation))
+            return conversation.id
+        } catch {
+            print("ConversationFeature: Failed to create conversation: \(error)")
+            return nil
+        }
+    }
+
+    /// Update conversation with assistant response
+    private func updateWithAssistantMessage(conversationId: UUID, message: String) async {
+        guard historyService.isEnabled else { return }
+
+        do {
+            // Load existing conversation
+            let interaction = try await historyService.loadInteraction(id: conversationId)
+            guard case .conversation(var conversation) = interaction else { return }
+
+            // Add assistant message
+            conversation.addMessage(Message(role: .assistant, content: message))
+
+            // Save updated conversation
+            try await historyService.save(.conversation(conversation))
+        } catch {
+            print("ConversationFeature: Failed to update with assistant message: \(error)")
+        }
+    }
+
+    /// Load all messages from a conversation for LLM context
+    private func loadConversationMessages(conversationId: UUID) async -> [Message]? {
+        do {
+            let interaction = try await historyService.loadInteraction(id: conversationId)
+            guard case .conversation(let conversation) = interaction else { return nil }
+            return conversation.messages
+        } catch {
+            print("ConversationFeature: Failed to load conversation messages: \(error)")
+            return nil
+        }
+    }
 }
 #endif

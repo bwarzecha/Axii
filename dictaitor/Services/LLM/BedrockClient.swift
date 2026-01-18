@@ -111,7 +111,52 @@ final class BedrockClient: @unchecked Sendable {
         )
         let response = try await client.converse(input: input)
 
-        // Extract text from response
+        return try extractResponseText(from: response)
+    }
+
+    /// Send a conversation (multiple messages) and get a response using Converse API.
+    func sendConversation(
+        messages: [Message],
+        config: AWSBedrockConfig,
+        modelId: String = defaultModelId,
+        systemPrompt: String? = nil
+    ) async throws -> String {
+        let client = try await getOrCreateRuntimeClient(config: config)
+
+        // Convert Message array to Bedrock format
+        let bedrockMessages = messages.compactMap { message -> BedrockRuntimeClientTypes.Message? in
+            // Skip system and tool messages for now
+            guard message.role == .user || message.role == .assistant else { return nil }
+
+            let role: BedrockRuntimeClientTypes.ConversationRole = message.role == .user ? .user : .assistant
+            return BedrockRuntimeClientTypes.Message(
+                content: [.text(message.content)],
+                role: role
+            )
+        }
+
+        guard !bedrockMessages.isEmpty else {
+            throw BedrockError.emptyConversation
+        }
+
+        // Build system prompt if provided
+        var systemPrompts: [BedrockRuntimeClientTypes.SystemContentBlock]?
+        if let systemPrompt {
+            systemPrompts = [.text(systemPrompt)]
+        }
+
+        let input = ConverseInput(
+            messages: bedrockMessages,
+            modelId: modelId,
+            system: systemPrompts
+        )
+        let response = try await client.converse(input: input)
+
+        return try extractResponseText(from: response)
+    }
+
+    /// Extract text content from Converse API response.
+    private func extractResponseText(from response: ConverseOutput) throws -> String {
         guard let output = response.output,
               case .message(let responseMessage) = output,
               let content = responseMessage.content else {
@@ -186,6 +231,7 @@ final class BedrockClient: @unchecked Sendable {
 
 enum BedrockError: LocalizedError {
     case emptyResponse
+    case emptyConversation
     case invalidCredentials
     case modelNotAvailable(String)
 
@@ -193,6 +239,8 @@ enum BedrockError: LocalizedError {
         switch self {
         case .emptyResponse:
             return "Bedrock returned empty response"
+        case .emptyConversation:
+            return "No messages to send"
         case .invalidCredentials:
             return "AWS credentials invalid or expired"
         case .modelNotAvailable(let modelId):

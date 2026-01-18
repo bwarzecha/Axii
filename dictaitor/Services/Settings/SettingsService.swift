@@ -19,6 +19,14 @@ final class SettingsService {
     /// Current conversation hotkey configuration.
     private(set) var conversationHotkeyConfig: HotkeyConfig
 
+    /// Whether history saving is enabled (default: true)
+    var isHistoryEnabled: Bool {
+        didSet {
+            defaults.set(isHistoryEnabled, forKey: historyEnabledKey)
+            onHistorySettingChanged?(isHistoryEnabled)
+        }
+    }
+
     /// Called when dictation hotkey configuration changes (for re-registration).
     var onHotkeyChanged: (() -> Void)?
 
@@ -31,9 +39,13 @@ final class SettingsService {
     /// Called when hotkey recording stops (to resume global hotkeys).
     var onHotkeyRecordingStopped: (() -> Void)?
 
+    /// Called when history setting changes
+    var onHistorySettingChanged: ((Bool) -> Void)?
+
     private let defaults: UserDefaults
     private let hotkeyKey = "settings.hotkeyConfig"
     private let conversationHotkeyKey = "settings.conversationHotkeyConfig"
+    private let historyEnabledKey = "settings.isHistoryEnabled"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -47,6 +59,8 @@ final class SettingsService {
             key: "settings.conversationHotkeyConfig",
             defaultValue: .conversationDefault
         )
+        // History is enabled by default
+        self.isHistoryEnabled = defaults.object(forKey: "settings.isHistoryEnabled") as? Bool ?? true
     }
 
     /// Updates the hotkey configuration and persists it.

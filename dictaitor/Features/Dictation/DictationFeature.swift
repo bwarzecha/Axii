@@ -25,6 +25,7 @@ final class DictationFeature: Feature {
     private let microphoneSelection: MicrophoneSelectionService
     private let pasteService: PasteService
     private let settings: SettingsService
+    private let historyService: HistoryService
 
     // State for focus tracking
     private var focusSnapshot: FocusSnapshot?
@@ -35,7 +36,8 @@ final class DictationFeature: Feature {
         micPermission: MicrophonePermissionService,
         microphoneSelection: MicrophoneSelectionService,
         pasteService: PasteService,
-        settings: SettingsService
+        settings: SettingsService,
+        historyService: HistoryService
     ) {
         self.audioService = audioService
         self.transcriptionService = transcriptionService
@@ -43,6 +45,7 @@ final class DictationFeature: Feature {
         self.microphoneSelection = microphoneSelection
         self.pasteService = pasteService
         self.settings = settings
+        self.historyService = historyService
 
         // Wire audio chunk handling - calculate spectrum for visualization
         self.audioService.onChunk = { [weak self] chunk in
@@ -188,6 +191,7 @@ final class DictationFeature: Feature {
             do {
                 let text = try await transcriptionService.transcribe(samples: samples, sampleRate: stats.sampleRate)
 
+                var pastedToApp: String?
                 if text.isEmpty {
                     state.phase = .done(text: "No speech detected")
                 } else {
@@ -195,6 +199,7 @@ final class DictationFeature: Feature {
                     switch outcome {
                     case .pasted:
                         state.phase = .done(text: text)
+                        pastedToApp = focusSnapshot?.bundleIdentifier
                     case .copiedFallback(let reason):
                         state.phase = .done(text: "\(text)\n(Copied: \(reason))")
                     case .skipped:
@@ -204,6 +209,16 @@ final class DictationFeature: Feature {
 
                 focusSnapshot = nil
                 scheduleDeactivation(delay: 2.0)
+
+                // Save to history asynchronously (don't block UI)
+                if !text.isEmpty {
+                    await saveTranscriptionToHistory(
+                        text: text,
+                        samples: samples,
+                        sampleRate: stats.sampleRate,
+                        pastedTo: pastedToApp
+                    )
+                }
             } catch let error as TranscriptionError {
                 let message = error.errorDescription ?? "Transcription failed"
                 state.phase = .error(message: message)
@@ -212,6 +227,47 @@ final class DictationFeature: Feature {
                 state.phase = .error(message: "Transcription failed")
                 scheduleDeactivation(delay: 2.0)
             }
+        }
+    }
+
+    private func saveTranscriptionToHistory(
+        text: String,
+        samples: [Float],
+        sampleRate: Double,
+        pastedTo: String?
+    ) async {
+        guard historyService.isEnabled else { return }
+
+        do {
+            // Create transcription first (without audio)
+            let transcription = Transcription(
+                text: text,
+                pastedTo: pastedTo
+            )
+
+            // Save to get folder created
+            try await historyService.save(.transcription(transcription))
+
+            // Save audio recording
+            let audioRecording = try await historyService.saveAudio(
+                samples: samples,
+                sampleRate: sampleRate,
+                for: transcription.id
+            )
+
+            // Update transcription with audio reference
+            let updatedTranscription = Transcription(
+                id: transcription.id,
+                text: text,
+                audioRecording: audioRecording,
+                pastedTo: pastedTo,
+                createdAt: transcription.createdAt
+            )
+
+            // Save again with audio reference
+            try await historyService.save(.transcription(updatedTranscription))
+        } catch {
+            print("DictationFeature: Failed to save transcription to history: \(error)")
         }
     }
 

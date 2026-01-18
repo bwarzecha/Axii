@@ -9,7 +9,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    let settings: SettingsService
+    @Bindable var settings: SettingsService
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -27,10 +27,25 @@ struct SettingsView: View {
                 onStopRecording: { settings.stopHotkeyRecording() }
             )
 
+            Divider()
+
+            // History settings
+            VStack(alignment: .leading, spacing: 8) {
+                Text("History")
+                    .font(.headline)
+
+                Toggle("Save interaction history", isOn: $settings.isHistoryEnabled)
+                    .toggleStyle(.switch)
+
+                Text("When enabled, dictations and conversations are saved for later review.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Spacer()
         }
         .padding(24)
-        .frame(width: 400, height: 200)
+        .frame(width: 400, height: 280)
     }
 }
 #endif

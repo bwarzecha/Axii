@@ -50,6 +50,22 @@ final class LLMService {
             throw LLMServiceError.providerNotImplemented(.anthropic)
         }
     }
+
+    /// Send a conversation (multiple messages) and get a response from the configured LLM.
+    func send(messages: [Message]) async throws -> String {
+        switch settings.selectedProvider {
+        case .awsBedrock:
+            return try await bedrockClient.sendConversation(
+                messages: messages,
+                config: settings.awsBedrockConfig,
+                systemPrompt: systemPrompt
+            )
+        case .openAI:
+            throw LLMServiceError.providerNotImplemented(.openAI)
+        case .anthropic:
+            throw LLMServiceError.providerNotImplemented(.anthropic)
+        }
+    }
 }
 
 enum LLMServiceError: LocalizedError {

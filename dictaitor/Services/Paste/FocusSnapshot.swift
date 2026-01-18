@@ -45,6 +45,11 @@ struct FocusSnapshot: Equatable {
     let elementSignature: ElementSignature
     let selectionSignature: String?
 
+    /// Bundle identifier of the frontmost app (e.g., "com.apple.Safari")
+    var bundleIdentifier: String? {
+        NSRunningApplication(processIdentifier: appPID)?.bundleIdentifier
+    }
+
     private static let windowNumberAttribute: CFString = "AXWindowNumber" as CFString
 
     static func capture() -> FocusSnapshot? {

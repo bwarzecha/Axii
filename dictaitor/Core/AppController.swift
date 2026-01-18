@@ -30,6 +30,7 @@ final class AppController {
     private let llmService: LLMService
     private let ttsService: TextToSpeechService
     private let playbackService: AudioPlaybackService
+    let historyService: HistoryService
 
     // Features
     let dictationFeature: DictationFeature
@@ -50,6 +51,7 @@ final class AppController {
         llmService = LLMService(settings: llmSettings)
         ttsService = TextToSpeechService()
         playbackService = AudioPlaybackService()
+        historyService = HistoryService()
         pasteService = PasteService(
             clipboard: clipboardService,
             accessibilityPermission: accessibilityPermission
@@ -62,7 +64,8 @@ final class AppController {
             micPermission: micPermission,
             microphoneSelection: microphoneSelection,
             pasteService: pasteService,
-            settings: settings
+            settings: settings,
+            historyService: historyService
         )
         conversationFeature = ConversationFeature(
             audioService: audioService,
@@ -71,7 +74,8 @@ final class AppController {
             settings: settings,
             llmService: llmService,
             ttsService: ttsService,
-            playbackService: playbackService
+            playbackService: playbackService,
+            historyService: historyService
         )
 
         // Setup
@@ -79,8 +83,12 @@ final class AppController {
         registerFeatures()
         wireSettingsCallbacks()
 
-        // Start background model download
+        // Sync history enabled state
+        historyService.isEnabled = settings.isHistoryEnabled
+
+        // Start background tasks
         startModelDownload()
+        startHistoryLoad()
     }
 
     private func wireSettingsCallbacks() {
@@ -90,6 +98,16 @@ final class AppController {
         }
         settings.onHotkeyRecordingStopped = { [weak self] in
             self?.hotkeyService.resume()
+        }
+        // Sync history setting to service
+        settings.onHistorySettingChanged = { [weak self] enabled in
+            self?.historyService.isEnabled = enabled
+        }
+    }
+
+    private func startHistoryLoad() {
+        Task {
+            await historyService.loadAllMetadata()
         }
     }
 
