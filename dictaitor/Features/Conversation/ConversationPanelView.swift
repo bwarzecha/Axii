@@ -169,23 +169,21 @@ struct ConversationPanelView: View {
                 if state.messages.isEmpty {
                     emptyMessagesView
                 } else {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 12) {
                         ForEach(state.messages) { message in
                             MessageBubbleView(message: message)
-                                .id(message.id)
                         }
+                        // Invisible anchor at the bottom for reliable scrolling
+                        Color.clear
+                            .frame(height: 1)
+                            .id("messagesBottom")
                     }
                     .padding()
                 }
             }
             .onChange(of: state.messages.count) { _, _ in
-                // Small delay to let layout settle before scrolling
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    if let lastId = state.messages.last?.id {
-                        withAnimation {
-                            proxy.scrollTo(lastId, anchor: .bottom)
-                        }
-                    }
+                withAnimation {
+                    proxy.scrollTo("messagesBottom", anchor: .bottom)
                 }
             }
         }
