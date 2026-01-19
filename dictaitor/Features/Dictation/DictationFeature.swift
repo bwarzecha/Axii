@@ -46,14 +46,6 @@ final class DictationFeature: Feature {
         self.pasteService = pasteService
         self.settings = settings
         self.historyService = historyService
-
-        // Wire audio chunk handling - calculate spectrum for visualization
-        self.audioService.onChunk = { [weak self] chunk in
-            let rms = Self.calculateRMS(chunk.samples)
-            let normalized = min(sqrt(rms) * 3.0, 1.0)
-            self?.state.audioLevel = normalized
-            self?.state.spectrum = SpectrumAnalyzer.calculateSpectrum(chunk.samples)
-        }
     }
 
     // MARK: - Feature Protocol
@@ -168,6 +160,15 @@ final class DictationFeature: Feature {
 
         // Capture focus before recording
         focusSnapshot = FocusSnapshot.capture()
+
+        // Wire audio chunk handling for visualization
+        audioService.onChunk = { [weak self] chunk in
+            guard let self, self.state.isRecording else { return }
+            let rms = Self.calculateRMS(chunk.samples)
+            let normalized = min(sqrt(rms) * 3.0, 1.0)
+            self.state.audioLevel = normalized
+            self.state.spectrum = SpectrumAnalyzer.calculateSpectrum(chunk.samples)
+        }
 
         do {
             try audioService.startCapture()

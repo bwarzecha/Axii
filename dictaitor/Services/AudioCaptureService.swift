@@ -61,17 +61,18 @@ final class AudioCaptureService {
         startTime = Date()
 
         let inputNode = engine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
 
-        guard format.sampleRate > 0 && format.channelCount > 0 else {
-            throw AudioCaptureError.invalidFormat
+        // Use nil format - lets system pick format matching current hardware state
+        // (TTS model may change hardware sample rate, this adapts to it)
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
+            self?.processBuffer(buffer)
         }
 
-        sampleRate = format.sampleRate
-
-        // Buffer size of 4096 ensures we always have enough samples for FFT (needs 1024 minimum)
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
-            self?.processBuffer(buffer)
+        // Get actual sample rate after tap is installed
+        sampleRate = inputNode.outputFormat(forBus: 0).sampleRate
+        guard sampleRate > 0 else {
+            inputNode.removeTap(onBus: 0)
+            throw AudioCaptureError.invalidFormat
         }
 
         try engine.start()

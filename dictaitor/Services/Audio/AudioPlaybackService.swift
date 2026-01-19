@@ -28,6 +28,9 @@ final class AudioPlaybackService: NSObject {
         player?.delegate = self
         completionHandler = onComplete
 
+        // Preload buffers to reduce latency at start
+        player?.prepareToPlay()
+
         guard player?.play() == true else {
             throw PlaybackError.playbackFailed
         }
