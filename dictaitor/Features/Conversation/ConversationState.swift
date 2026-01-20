@@ -47,6 +47,9 @@ final class ConversationState {
     var response: String = ""       // Current turn: agent's response
     var messages: [DisplayMessage] = []  // Full conversation history for UI
 
+    /// True when waiting for Bluetooth device to produce signal.
+    var isWaitingForSignal: Bool = false
+
     var isListening: Bool {
         if case .listening = phase { return true }
         return false

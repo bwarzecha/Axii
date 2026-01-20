@@ -24,6 +24,18 @@ final class DictationState {
     var audioLevel: Float = 0
     var spectrum: [Float] = []
 
+    /// True when waiting for Bluetooth device to produce signal.
+    /// Used to show "Waiting for signal..." feedback during Bluetooth warm-up.
+    var isWaitingForSignal: Bool = false
+
+    #if os(macOS)
+    /// Available microphones (updated when devices connect/disconnect).
+    var availableMicrophones: [AudioDevice] = []
+
+    /// Currently selected microphone (nil = system default).
+    var selectedMicrophone: AudioDevice?
+    #endif
+
     var isRecording: Bool {
         if case .recording = phase { return true }
         return false

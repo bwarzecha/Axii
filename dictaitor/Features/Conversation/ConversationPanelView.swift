@@ -64,7 +64,7 @@ struct ConversationPanelView: View {
             switch state.phase {
             case .listening:
                 Circle()
-                    .fill(.red)
+                    .fill(state.isWaitingForSignal ? .orange : .red)
                     .frame(width: 8, height: 8)
             case .processing:
                 ProgressView()
@@ -93,8 +93,14 @@ struct ConversationPanelView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         case .listening:
-            Text("Listening...")
-                .font(.subheadline)
+            if state.isWaitingForSignal {
+                Text("Bluetooth warming up")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+            } else {
+                Text("Listening...")
+                    .font(.subheadline)
+            }
         case .processing:
             Text("Thinking...")
                 .font(.subheadline)
@@ -118,8 +124,18 @@ struct ConversationPanelView: View {
     private var visualizationArea: some View {
         switch state.phase {
         case .listening:
-            SpectrumView(spectrum: state.spectrum, level: CGFloat(state.audioLevel))
-                .padding(.horizontal, 16)
+            if state.isWaitingForSignal {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                    Text("Waiting for signal...")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                SpectrumView(spectrum: state.spectrum, level: CGFloat(state.audioLevel))
+                    .padding(.horizontal, 16)
+            }
         case .processing:
             VStack(spacing: 4) {
                 if !state.transcript.isEmpty {

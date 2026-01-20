@@ -3,6 +3,7 @@
 //  dictaitor
 //
 //  Self-contained conversation/agent feature. Registers hotkey, manages state machine.
+//  Uses RecordingSessionHelper for microphone capture.
 //
 
 #if os(macOS)
@@ -16,7 +17,6 @@ final class ConversationFeature: Feature {
     private(set) var isActive = false
 
     // Services
-    private let audioService: AudioCaptureService
     private let transcriptionService: TranscriptionService
     private let micPermission: MicrophonePermissionService
     private let settings: SettingsService
@@ -25,14 +25,13 @@ final class ConversationFeature: Feature {
     private let playbackService: AudioPlaybackService
     private let historyService: HistoryService
 
-    // VAD for auto-stop on silence
-    private var vad = VoiceActivityDetector()
+    // Recording helper (created per recording)
+    private var recordingHelper: RecordingSessionHelper?
 
     // Current conversation being built (for history)
     private var currentConversationId: UUID?
 
     init(
-        audioService: AudioCaptureService,
         transcriptionService: TranscriptionService,
         micPermission: MicrophonePermissionService,
         settings: SettingsService,
@@ -41,7 +40,6 @@ final class ConversationFeature: Feature {
         playbackService: AudioPlaybackService,
         historyService: HistoryService
     ) {
-        self.audioService = audioService
         self.transcriptionService = transcriptionService
         self.micPermission = micPermission
         self.settings = settings
@@ -82,9 +80,8 @@ final class ConversationFeature: Feature {
     }
 
     func cancel() {
-        if audioService.isRecording {
-            _ = audioService.stopCapture()
-        }
+        recordingHelper?.cancel()
+        recordingHelper = nil
         playbackService.stop()
         resetState(clearConversation: true)
         isActive = false
@@ -99,14 +96,12 @@ final class ConversationFeature: Feature {
         case .listening:
             stopListening()
         case .responding:
-            // Interrupt TTS and continue conversation (multi-turn)
             interruptAndContinue()
         case .processing, .done, .error:
             cancelAndDeactivate()
         }
     }
 
-    /// Interrupt current TTS playback and start listening for next turn
     private func interruptAndContinue() {
         playbackService.stop()
         startListening()
@@ -133,7 +128,7 @@ final class ConversationFeature: Feature {
     private func waitForModelAndListen() {
         isActive = true
         context?.onActivate?(self)
-        state.phase = .processing  // Show "loading" state
+        state.phase = .processing
 
         Task {
             do {
@@ -147,58 +142,72 @@ final class ConversationFeature: Feature {
     }
 
     private func startListening() {
-        // Check mic permission first
-        guard micPermission.state.isAuthorized else {
-            if micPermission.state.needsPrompt {
-                Task { await micPermission.requestAccess() }
-            } else if micPermission.state.isBlocked {
-                micPermission.openSystemSettings()
+        let helper = RecordingSessionHelper()
+        recordingHelper = helper
+
+        // Wire up callbacks
+        helper.onVisualizationUpdate = { [weak self] update in
+            guard self?.state.isListening == true else { return }
+            self?.state.audioLevel = update.audioLevel
+            self?.state.spectrum = update.spectrum
+        }
+
+        helper.onSignalStateChanged = { [weak self] isWaiting in
+            self?.state.isWaitingForSignal = isWaiting
+        }
+
+        helper.onError = { [weak self] error in
+            self?.handleSessionError(error)
+        }
+
+        Task {
+            do {
+                try await helper.start(source: .systemDefault)
+                state.phase = .listening
+                isActive = true
+                context?.onActivate?(self)
+            } catch let error as AudioSessionError {
+                handleSessionError(error)
+            } catch {
+                state.phase = .error(message: "Microphone error")
+                scheduleDeactivation(delay: 2.0)
             }
-            state.phase = .error(message: "Microphone permission required")
-            scheduleDeactivation(delay: 2.0)
-            return
-        }
-
-        // Reset VAD for new session
-        vad.reset()
-
-        // Wire audio chunk handling for this session (visualization only, no auto-stop)
-        audioService.onChunk = { [weak self] chunk in
-            guard let self, self.state.isListening else { return }
-
-            // Update UI visualization
-            let result = self.vad.process(chunk: chunk)
-            let normalized = min(sqrt(result.rms) * 3.0, 1.0)
-            self.state.audioLevel = normalized
-            self.state.spectrum = SpectrumAnalyzer.calculateSpectrum(chunk.samples)
-            // Manual stop only - user presses hotkey again to stop
-        }
-
-        do {
-            try audioService.startCapture()
-            state.phase = .listening
-            isActive = true
-            context?.onActivate?(self)
-        } catch {
-            state.phase = .error(message: "Microphone error")
-            scheduleDeactivation(delay: 2.0)
         }
     }
 
-    private func stopListening() {
-        guard state.isListening else { return }
+    private func handleSessionError(_ error: AudioSessionError) {
+        switch error {
+        case .permissionDenied:
+            if micPermission.state.isBlocked {
+                micPermission.openSystemSettings()
+            }
+            state.phase = .error(message: "Microphone permission required")
+        case .deviceUnavailable:
+            state.phase = .error(message: "Microphone unavailable")
+        case .configurationFailed(let reason):
+            state.phase = .error(message: reason)
+        case .captureFailure(let reason):
+            state.phase = .error(message: reason)
+        }
+        scheduleDeactivation(delay: 2.0)
+    }
 
-        let (samples, stats) = audioService.stopCapture()
+    private func stopListening() {
+        guard state.isListening, let helper = recordingHelper else { return }
+
+        let (samples, sampleRate) = helper.stop()
+        recordingHelper = nil
+
         state.audioLevel = 0
         state.spectrum = []
+        state.isWaitingForSignal = false
         state.phase = .processing
 
         Task {
             do {
-                // Transcribe user speech
                 let text = try await transcriptionService.transcribe(
                     samples: samples,
-                    sampleRate: stats.sampleRate
+                    sampleRate: sampleRate
                 )
 
                 if text.isEmpty {
@@ -211,35 +220,28 @@ final class ConversationFeature: Feature {
                 state.transcript = text
                 state.addUserMessage(text)
 
-                // Save user message to history immediately
                 let conversationId = await saveUserMessage(text)
                 currentConversationId = conversationId
 
-                // Get LLM response with full conversation context
                 let response: String
                 if let conversationId = conversationId,
                    let messages = await loadConversationMessages(conversationId: conversationId),
                    messages.count > 1 {
-                    // Multi-turn: send full history
                     response = try await llmService.send(messages: messages)
                 } else {
-                    // Single turn or no history: send just this message
                     response = try await llmService.send(message: text)
                 }
                 state.response = response
                 state.addAssistantMessage(response)
                 state.phase = .responding
 
-                // Update history with assistant response
                 if let conversationId {
                     await updateWithAssistantMessage(conversationId: conversationId, message: response)
                 }
 
-                // Synthesize and play TTS response
                 let audioData = try await ttsService.synthesize(text: response)
 
                 try playbackService.play(wavData: audioData) { [weak self] in
-                    // Natural completion - keep conversation for multi-turn
                     self?.deactivateKeepingConversation()
                 }
 
@@ -257,18 +259,15 @@ final class ConversationFeature: Feature {
         }
     }
 
-    /// Cancel current operation and start fresh (clears conversation)
     private func cancelAndDeactivate() {
-        if audioService.isRecording {
-            _ = audioService.stopCapture()
-        }
+        recordingHelper?.cancel()
+        recordingHelper = nil
         playbackService.stop()
         resetState(clearConversation: true)
         isActive = false
         context?.onDeactivate?()
     }
 
-    /// Deactivate but keep conversation for multi-turn continuation
     private func deactivateKeepingConversation() {
         playbackService.stop()
         resetState(clearConversation: false)
@@ -282,7 +281,7 @@ final class ConversationFeature: Feature {
         state.spectrum = []
         state.transcript = ""
         state.response = ""
-        vad.reset()
+        state.isWaitingForSignal = false
         if clearConversation {
             currentConversationId = nil
             state.clearMessages()
@@ -297,13 +296,10 @@ final class ConversationFeature: Feature {
 
     // MARK: - History
 
-    /// Save user message immediately after transcription, returns conversation ID
-    /// If continuing an existing conversation, appends to it; otherwise creates new
     private func saveUserMessage(_ text: String) async -> UUID? {
         guard historyService.isEnabled else { return currentConversationId }
 
         do {
-            // Continue existing conversation if available
             if let existingId = currentConversationId {
                 let interaction = try await historyService.loadInteraction(id: existingId)
                 guard case .conversation(var conversation) = interaction else {
@@ -314,7 +310,6 @@ final class ConversationFeature: Feature {
                 return existingId
             }
 
-            // Create new conversation
             return await createNewConversation(with: text)
         } catch {
             print("ConversationFeature: Failed to save user message: \(error)")
@@ -336,26 +331,21 @@ final class ConversationFeature: Feature {
         }
     }
 
-    /// Update conversation with assistant response
     private func updateWithAssistantMessage(conversationId: UUID, message: String) async {
         guard historyService.isEnabled else { return }
 
         do {
-            // Load existing conversation
             let interaction = try await historyService.loadInteraction(id: conversationId)
             guard case .conversation(var conversation) = interaction else { return }
 
-            // Add assistant message
             conversation.addMessage(Message(role: .assistant, content: message))
 
-            // Save updated conversation
             try await historyService.save(.conversation(conversation))
         } catch {
             print("ConversationFeature: Failed to update with assistant message: \(error)")
         }
     }
 
-    /// Load all messages from a conversation for LLM context
     private func loadConversationMessages(conversationId: UUID) async -> [Message]? {
         do {
             let interaction = try await historyService.loadInteraction(id: conversationId)

@@ -19,11 +19,9 @@ final class AppController {
 
     // Services (exposed for onboarding and settings)
     private let transcriptionService: TranscriptionService
-    private let audioService: AudioCaptureService
     private let clipboardService: ClipboardService
     let micPermission: MicrophonePermissionService
     let accessibilityPermission: AccessibilityPermissionService
-    let microphoneSelection: MicrophoneSelectionService
     private let pasteService: PasteService
     let settings: SettingsService
     let llmSettings: LLMSettingsService
@@ -41,11 +39,9 @@ final class AppController {
         hotkeyService = HotkeyService()
         featureManager = FeatureManager(hotkeyService: hotkeyService)
         transcriptionService = TranscriptionService()
-        audioService = AudioCaptureService()
         clipboardService = ClipboardService()
         micPermission = MicrophonePermissionService()
         accessibilityPermission = AccessibilityPermissionService()
-        microphoneSelection = MicrophoneSelectionService()
         settings = SettingsService()
         llmSettings = LLMSettingsService()
         llmService = LLMService(settings: llmSettings)
@@ -58,17 +54,15 @@ final class AppController {
         )
 
         // Create features with injected services
+        // Features use AudioSession internally (single-use per recording)
         dictationFeature = DictationFeature(
-            audioService: audioService,
             transcriptionService: transcriptionService,
             micPermission: micPermission,
-            microphoneSelection: microphoneSelection,
             pasteService: pasteService,
             settings: settings,
             historyService: historyService
         )
         conversationFeature = ConversationFeature(
-            audioService: audioService,
             transcriptionService: transcriptionService,
             micPermission: micPermission,
             settings: settings,

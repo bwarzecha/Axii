@@ -11,9 +11,8 @@ import SwiftUI
 /// Panel view displayed during dictation.
 struct DictationPanelView: View {
     var state: DictationState
-    var microphoneSelection: MicrophoneSelectionService
     let hotkeyHint: String
-    var onMicrophoneSwitch: ((AudioInputDevice) -> Void)?
+    var onMicrophoneSwitch: ((AudioDevice?) -> Void)?
 
     var body: some View {
         ZStack {
@@ -60,7 +59,17 @@ struct DictationPanelView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         case .recording:
-            audioWaveform
+            if state.isWaitingForSignal {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                    Text("Waiting for signal...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                audioWaveform
+            }
         default:
             Color.clear
         }
@@ -80,8 +89,14 @@ struct DictationPanelView: View {
                 .foregroundStyle(.secondary)
 
         case .recording:
-            Text("Listening...")
-                .font(.subheadline)
+            if state.isWaitingForSignal {
+                Text("Bluetooth warming up")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+            } else {
+                Text("Listening...")
+                    .font(.subheadline)
+            }
 
         case .transcribing:
             Text("Transcribing...")
@@ -106,21 +121,64 @@ struct DictationPanelView: View {
             .padding(.horizontal, 8)
     }
 
+    /// Selected device name for display.
+    private var selectedDeviceName: String {
+        state.selectedMicrophone?.name ?? "System Default"
+    }
+
+    /// Icon for transport type.
+    private func transportIcon(for device: AudioDevice?) -> String {
+        guard let device = device else { return "mic" }
+
+        switch device.transportType {
+        case .bluetooth, .bluetoothLE:
+            return "wave.3.right"
+        case .usb:
+            return "cable.connector"
+        case .builtIn:
+            return "laptopcomputer"
+        case .aggregate, .virtual:
+            return "rectangle.stack"
+        case .unknown:
+            return "mic"
+        }
+    }
+
     private var microphonePicker: some View {
         HStack(spacing: 4) {
-            Image(systemName: state.phase == .recording ? "mic.fill" : "mic")
+            Image(systemName: micIcon)
                 .font(.caption2)
-                .foregroundStyle(state.phase == .recording ? Color.red : Color.secondary)
+                .foregroundStyle(micIconColor)
             Menu {
-                ForEach(microphoneSelection.availableDevices) { device in
+                // System Default option
+                Button {
+                    if state.selectedMicrophone != nil {
+                        onMicrophoneSwitch?(nil)
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "gear")
+                        Text("System Default")
+                        if state.selectedMicrophone == nil {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+
+                Divider()
+
+                // Available devices
+                ForEach(state.availableMicrophones) { device in
                     Button {
-                        if device != microphoneSelection.selectedDevice {
+                        if device.uid != state.selectedMicrophone?.uid {
                             onMicrophoneSwitch?(device)
                         }
                     } label: {
                         HStack {
+                            Image(systemName: transportIcon(for: device))
                             Text(device.name)
-                            if device == microphoneSelection.selectedDevice {
+                            if device.uid == state.selectedMicrophone?.uid {
                                 Spacer()
                                 Image(systemName: "checkmark")
                             }
@@ -129,7 +187,7 @@ struct DictationPanelView: View {
                 }
             } label: {
                 HStack(spacing: 4) {
-                    Text(microphoneSelection.selectedDevice.name)
+                    Text(selectedDeviceName)
                         .font(.caption)
                         .lineLimit(1)
                     Image(systemName: "chevron.up.chevron.down")
@@ -141,12 +199,31 @@ struct DictationPanelView: View {
             .fixedSize()
         }
     }
+
+    private var micIcon: String {
+        if state.phase == .recording {
+            if state.selectedMicrophone?.isBluetooth == true {
+                return "wave.3.right"
+            }
+            return "mic.fill"
+        }
+        return "mic"
+    }
+
+    private var micIconColor: Color {
+        if state.phase == .recording {
+            if state.isWaitingForSignal {
+                return .orange
+            }
+            return .red
+        }
+        return .secondary
+    }
 }
 
 #Preview("Idle") {
     DictationPanelView(
         state: DictationState(),
-        microphoneSelection: MicrophoneSelectionService(),
         hotkeyHint: "Control+Shift+Space"
     )
     .frame(width: 360, height: 100)
@@ -159,7 +236,18 @@ struct DictationPanelView: View {
     state.audioLevel = 0.6
     return DictationPanelView(
         state: state,
-        microphoneSelection: MicrophoneSelectionService(),
+        hotkeyHint: "Control+Shift+Space"
+    )
+    .frame(width: 360, height: 100)
+    .background(.black.opacity(0.5))
+}
+
+#Preview("Waiting for Signal") {
+    let state = DictationState()
+    state.phase = .recording
+    state.isWaitingForSignal = true
+    return DictationPanelView(
+        state: state,
         hotkeyHint: "Control+Shift+Space"
     )
     .frame(width: 360, height: 100)
@@ -175,7 +263,6 @@ struct DictationPanelView: View {
         var body: some View {
             DictationPanelView(
                 state: state,
-                microphoneSelection: MicrophoneSelectionService(),
                 hotkeyHint: "Control+Shift+Space"
             )
             .frame(width: 360, height: 100)
@@ -186,7 +273,6 @@ struct DictationPanelView: View {
                     phase += 0.3
                     let level = Float.random(in: 0.3...0.9)
                     state.audioLevel = level
-                    // Simulate spectrum with flowing wave
                     state.spectrum = (0..<64).map { i in
                         let wave = sin(Float(i) * 0.15 + phase) * 0.5 + 0.5
                         let noise = Float.random(in: 0.8...1.2)

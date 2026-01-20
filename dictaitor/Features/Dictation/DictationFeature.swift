@@ -3,10 +3,10 @@
 //  dictaitor
 //
 //  Self-contained dictation feature. Registers hotkey, manages state machine.
+//  Uses RecordingSessionHelper for microphone capture.
 //
 
 #if os(macOS)
-import Accelerate
 import AppKit
 import HotKey
 import SwiftUI
@@ -19,30 +19,37 @@ final class DictationFeature: Feature {
     private(set) var isActive = false
 
     // Services
-    private let audioService: AudioCaptureService
     private let transcriptionService: TranscriptionService
     private let micPermission: MicrophonePermissionService
-    private let microphoneSelection: MicrophoneSelectionService
     private let pasteService: PasteService
     private let settings: SettingsService
     private let historyService: HistoryService
 
+    // Recording helper (created per recording)
+    private var recordingHelper: RecordingSessionHelper?
+
+    // Device selection persistence
+    private let deviceUIDKey = "selectedMicrophoneUID"
+    private var selectedDeviceUID: String? {
+        get { UserDefaults.standard.string(forKey: deviceUIDKey) }
+        set { UserDefaults.standard.set(newValue, forKey: deviceUIDKey) }
+    }
+
     // State for focus tracking
     private var focusSnapshot: FocusSnapshot?
 
+    // Device list monitor (for UI refresh when devices connect/disconnect)
+    private let deviceListMonitor = DeviceMonitor()
+
     init(
-        audioService: AudioCaptureService,
         transcriptionService: TranscriptionService,
         micPermission: MicrophonePermissionService,
-        microphoneSelection: MicrophoneSelectionService,
         pasteService: PasteService,
         settings: SettingsService,
         historyService: HistoryService
     ) {
-        self.audioService = audioService
         self.transcriptionService = transcriptionService
         self.micPermission = micPermission
-        self.microphoneSelection = microphoneSelection
         self.pasteService = pasteService
         self.settings = settings
         self.historyService = historyService
@@ -53,12 +60,17 @@ final class DictationFeature: Feature {
     var panelContent: AnyView {
         AnyView(DictationPanelView(
             state: state,
-            microphoneSelection: microphoneSelection,
             hotkeyHint: settings.hotkeyConfig.displayString,
             onMicrophoneSwitch: { [weak self] device in
                 self?.switchMicrophone(to: device)
             }
         ))
+    }
+
+    /// Currently selected microphone (or nil for system default).
+    private var selectedMicrophone: AudioDevice? {
+        guard let uid = selectedDeviceUID else { return nil }
+        return state.availableMicrophones.first { $0.uid == uid }
     }
 
     func register(with context: FeatureContext) {
@@ -71,6 +83,19 @@ final class DictationFeature: Feature {
         settings.onHotkeyChanged = { [weak self] in
             self?.registerHotkey()
         }
+
+        // Initialize device list and monitor for changes
+        refreshDeviceList()
+        deviceListMonitor.onDeviceListChanged = { [weak self] in
+            Task { @MainActor in
+                self?.refreshDeviceList()
+            }
+        }
+    }
+
+    private func refreshDeviceList() {
+        state.availableMicrophones = AudioSession.availableMicrophones()
+        state.selectedMicrophone = selectedMicrophone
     }
 
     private func registerHotkey() {
@@ -86,11 +111,11 @@ final class DictationFeature: Feature {
     }
 
     func cancel() {
-        if audioService.isRecording {
-            _ = audioService.stopCapture()
-        }
+        recordingHelper?.cancel()
+        recordingHelper = nil
         state.phase = .idle
         state.audioLevel = 0
+        state.isWaitingForSignal = false
         isActive = false
     }
 
@@ -101,7 +126,6 @@ final class DictationFeature: Feature {
         case .idle:
             startRecordingIfReady()
         case .loadingModel:
-            // Ignore - wait for model to load
             break
         case .recording:
             stopRecording()
@@ -117,80 +141,93 @@ final class DictationFeature: Feature {
     // MARK: - Recording Flow
 
     private func startRecordingIfReady() {
+        startRecording()
+
         Task {
             let isReady = await transcriptionService.isReady
-
-            if isReady {
-                startRecording()
-            } else {
-                waitForModelAndRecord()
-            }
-        }
-    }
-
-    private func waitForModelAndRecord() {
-        isActive = true
-        context?.onActivate?(self)
-        state.phase = .loadingModel
-
-        Task {
-            do {
-                try await transcriptionService.prepare()
-                // Model ready - start recording automatically
-                startRecording()
-            } catch {
-                state.phase = .error(message: "Model loading failed")
-                scheduleDeactivation(delay: 3.0)
+            if !isReady {
+                try? await transcriptionService.prepare()
             }
         }
     }
 
     private func startRecording() {
-        // Check mic permission first
-        guard micPermission.state.isAuthorized else {
-            if micPermission.state.needsPrompt {
-                Task { await micPermission.requestAccess() }
-            } else if micPermission.state.isBlocked {
-                micPermission.openSystemSettings()
-            }
-            state.phase = .error(message: "Microphone permission required")
-            scheduleDeactivation(delay: 2.0)
-            return
-        }
-
-        // Capture focus before recording
         focusSnapshot = FocusSnapshot.capture()
 
-        // Wire audio chunk handling for visualization
-        audioService.onChunk = { [weak self] chunk in
-            guard let self, self.state.isRecording else { return }
-            let rms = Self.calculateRMS(chunk.samples)
-            let normalized = min(sqrt(rms) * 3.0, 1.0)
-            self.state.audioLevel = normalized
-            self.state.spectrum = SpectrumAnalyzer.calculateSpectrum(chunk.samples)
+        let helper = RecordingSessionHelper()
+        recordingHelper = helper
+
+        // Wire up callbacks
+        helper.onVisualizationUpdate = { [weak self] update in
+            guard self?.state.isRecording == true else { return }
+            self?.state.audioLevel = update.audioLevel
+            self?.state.spectrum = update.spectrum
         }
 
-        do {
-            try audioService.startCapture()
-            state.phase = .recording
-            isActive = true
-            context?.onActivate?(self)
-        } catch {
-            state.phase = .error(message: "Microphone error")
-            scheduleDeactivation(delay: 2.0)
+        helper.onSignalStateChanged = { [weak self] isWaiting in
+            self?.state.isWaitingForSignal = isWaiting
+        }
+
+        helper.onError = { [weak self] error in
+            self?.handleSessionError(error)
+        }
+
+        // Determine source
+        let source: AudioSource
+        if let device = selectedMicrophone {
+            source = .microphone(device)
+        } else {
+            source = .systemDefault
+        }
+
+        Task {
+            do {
+                try await helper.start(source: source)
+                state.phase = .recording
+                isActive = true
+                context?.onActivate?(self)
+            } catch let error as AudioSessionError {
+                handleSessionError(error)
+            } catch {
+                state.phase = .error(message: "Microphone error")
+                scheduleDeactivation(delay: 2.0)
+            }
         }
     }
 
-    private func stopRecording() {
-        guard state.isRecording else { return }
+    private func handleSessionError(_ error: AudioSessionError) {
+        switch error {
+        case .permissionDenied:
+            if micPermission.state.isBlocked {
+                micPermission.openSystemSettings()
+            }
+            state.phase = .error(message: "Microphone permission required")
+        case .deviceUnavailable:
+            state.phase = .error(message: "Microphone unavailable")
+        case .configurationFailed(let reason):
+            state.phase = .error(message: reason)
+        case .captureFailure(let reason):
+            state.phase = .error(message: reason)
+        }
+        scheduleDeactivation(delay: 2.0)
+    }
 
-        let (samples, stats) = audioService.stopCapture()
+    private func stopRecording() {
+        guard state.isRecording, let helper = recordingHelper else { return }
+
+        let (samples, sampleRate) = helper.stop()
+        recordingHelper = nil
+
         state.audioLevel = 0
+        state.isWaitingForSignal = false
         state.phase = .transcribing
 
         Task {
             do {
-                let text = try await transcriptionService.transcribe(samples: samples, sampleRate: stats.sampleRate)
+                let text = try await transcriptionService.transcribe(
+                    samples: samples,
+                    sampleRate: sampleRate
+                )
 
                 var pastedToApp: String?
                 if text.isEmpty {
@@ -211,12 +248,11 @@ final class DictationFeature: Feature {
                 focusSnapshot = nil
                 scheduleDeactivation(delay: 2.0)
 
-                // Save to history asynchronously (don't block UI)
                 if !text.isEmpty {
                     await saveTranscriptionToHistory(
                         text: text,
                         samples: samples,
-                        sampleRate: stats.sampleRate,
+                        sampleRate: sampleRate,
                         pastedTo: pastedToApp
                     )
                 }
@@ -240,23 +276,19 @@ final class DictationFeature: Feature {
         guard historyService.isEnabled else { return }
 
         do {
-            // Create transcription first (without audio)
             let transcription = Transcription(
                 text: text,
                 pastedTo: pastedTo
             )
 
-            // Save to get folder created
             try await historyService.save(.transcription(transcription))
 
-            // Save audio recording
             let audioRecording = try await historyService.saveAudio(
                 samples: samples,
                 sampleRate: sampleRate,
                 for: transcription.id
             )
 
-            // Update transcription with audio reference
             let updatedTranscription = Transcription(
                 id: transcription.id,
                 text: text,
@@ -265,7 +297,6 @@ final class DictationFeature: Feature {
                 createdAt: transcription.createdAt
             )
 
-            // Save again with audio reference
             try await historyService.save(.transcription(updatedTranscription))
         } catch {
             print("DictationFeature: Failed to save transcription to history: \(error)")
@@ -273,11 +304,11 @@ final class DictationFeature: Feature {
     }
 
     private func cancelAndDeactivate() {
-        if audioService.isRecording {
-            _ = audioService.stopCapture()
-        }
+        recordingHelper?.cancel()
+        recordingHelper = nil
         state.phase = .idle
         state.audioLevel = 0
+        state.isWaitingForSignal = false
         isActive = false
         context?.onDeactivate?()
     }
@@ -290,34 +321,24 @@ final class DictationFeature: Feature {
 
     // MARK: - Microphone Switching
 
-    private func switchMicrophone(to device: AudioInputDevice) {
-        let wasRecording = audioService.isRecording
+    private func switchMicrophone(to device: AudioDevice?) {
+        let wasRecording = state.isRecording
 
-        // Stop recording if active (discard samples - user is switching mic)
         if wasRecording {
-            _ = audioService.stopCapture()
+            recordingHelper?.cancel()
+            recordingHelper = nil
             state.audioLevel = 0
+            state.isWaitingForSignal = false
         }
 
-        // Switch to new device
-        microphoneSelection.selectDevice(device)
+        selectedDeviceUID = device?.uid
+        state.selectedMicrophone = device
 
-        // Restart recording if it was active
         if wasRecording {
-            // Small delay to let the audio system switch
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 self?.startRecording()
             }
         }
-    }
-
-    // MARK: - Audio Processing
-
-    private static func calculateRMS(_ samples: [Float]) -> Float {
-        guard !samples.isEmpty else { return 0 }
-        var rms: Float = 0
-        vDSP_rmsqv(samples, 1, &rms, vDSP_Length(samples.count))
-        return rms
     }
 }
 #endif
