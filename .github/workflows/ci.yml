@@ -36,14 +36,12 @@ jobs:
 
       - name: Resolve packages
         run: |
-          cd Axii
           xcodebuild -resolvePackageDependencies \
             -project Axii.xcodeproj \
             -scheme Axii
 
       - name: Build (Debug)
         run: |
-          cd Axii
           xcodebuild build \
             -project Axii.xcodeproj \
             -scheme Axii \
@@ -54,7 +52,6 @@ jobs:
 
       - name: Build (Release)
         run: |
-          cd Axii
           xcodebuild build \
             -project Axii.xcodeproj \
             -scheme Axii \

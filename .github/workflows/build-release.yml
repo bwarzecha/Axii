@@ -71,7 +71,6 @@ jobs:
 
       - name: Resolve Swift packages
         run: |
-          cd Axii
           xcodebuild -resolvePackageDependencies \
             -project $PROJECT \
             -scheme $SCHEME
@@ -80,7 +79,6 @@ jobs:
         env:
           TEAM_ID: ${{ secrets.TEAM_ID }}
         run: |
-          cd Axii
           xcodebuild clean build \
             -project $PROJECT \
             -scheme $SCHEME \
@@ -95,8 +93,6 @@ jobs:
       - name: Prepare app for distribution
         id: prepare
         run: |
-          cd Axii
-
           # Find the built app
           APP_PATH=$(find build -name "Axii.app" -type d | head -1)
           echo "Found app at: $APP_PATH"
@@ -114,7 +110,7 @@ jobs:
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "build=$BUILD" >> $GITHUB_OUTPUT
-          echo "app_path=Axii/dist/Axii.app" >> $GITHUB_OUTPUT
+          echo "app_path=dist/Axii.app" >> $GITHUB_OUTPUT
 
       - name: Notarize application
         env:
@@ -122,7 +118,7 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           TEAM_ID: ${{ secrets.TEAM_ID }}
         run: |
-          cd Axii/dist
+          cd dist
 
           # Create ZIP for notarization
           ditto -c -k --keepParent "Axii.app" "Axii-notarize.zip"
@@ -148,7 +144,7 @@ jobs:
 
       - name: Create DMG
         run: |
-          cd Axii/dist
+          cd dist
 
           # Create DMG
           hdiutil create -volname "Axii" -srcfolder "Axii.app" -ov -format UDZO "Axii.dmg"
@@ -161,8 +157,8 @@ jobs:
         with:
           name: Axii-${{ steps.prepare.outputs.version }}
           path: |
-            Axii/dist/Axii.dmg
-            Axii/dist/Axii.zip
+            dist/Axii.dmg
+            dist/Axii.zip
           if-no-files-found: error
 
       - name: Create GitHub Release
@@ -186,8 +182,8 @@ jobs:
             ### What's New
             See [CHANGELOG.md](CHANGELOG.md) for details.
           files: |
-            Axii/dist/Axii.dmg
-            Axii/dist/Axii.zip
+            dist/Axii.dmg
+            dist/Axii.zip
           draft: false
           prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
         env:
