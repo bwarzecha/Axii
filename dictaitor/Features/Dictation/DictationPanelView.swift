@@ -8,117 +8,207 @@
 #if os(macOS)
 import SwiftUI
 
-/// Panel view displayed during dictation.
+/// Panel view displayed during dictation - vertical layout like macOS dictation.
 struct DictationPanelView: View {
     var state: DictationState
     let hotkeyHint: String
     var onMicrophoneSwitch: ((AudioDevice?) -> Void)?
 
+    private let panelWidth: CGFloat = 200
+    private let panelHeight: CGFloat = 220
+
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(.ultraThinMaterial)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(.white.opacity(0.2), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(.white.opacity(0.15), lineWidth: 1)
                 )
 
-            VStack(spacing: 0) {
-                topArea
-                    .frame(height: 32)
-                    .padding(.top, 10)
-                Spacer(minLength: 0)
-                HStack {
-                    if showMicrophonePicker {
-                        microphonePicker
-                    }
-                    Spacer()
-                    statusText
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-            }
-        }
-        .frame(width: 340, height: 88)
-    }
+            VStack(spacing: 8) {
+                // Main visualization area (fixed height)
+                mainContent
+                    .frame(height: 120)
 
-    private var showMicrophonePicker: Bool {
-        switch state.phase {
-        case .idle, .recording, .loadingModel:
-            return true
-        default:
-            return false
+                // Status/mic row (fixed height to prevent shifting)
+                statusRow
+                    .frame(height: 20)
+
+                // Keyboard hints (fixed height to prevent shifting)
+                keyboardHints
+                    .frame(height: 20)
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
         }
+        .frame(width: panelWidth, height: panelHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     @ViewBuilder
-    private var topArea: some View {
+    private var mainContent: some View {
+        ZStack {
+            // Single RadialBarIndicator that stays in place - only parameters change
+            RadialBarIndicator(
+                level: indicatorLevel,
+                noSignal: indicatorNoSignal,
+                spinning: indicatorSpinning,
+                colorOverride: indicatorColor,
+                size: 120
+            )
+            .opacity(indicatorOpacity)
+
+            // Overlays for specific states
+            overlay
+        }
+    }
+
+    private var indicatorLevel: CGFloat {
         switch state.phase {
         case .idle, .loadingModel:
-            Text("Press \(hotkeyHint)")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            return 0
         case .recording:
-            if state.isWaitingForSignal {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                    Text("Waiting for signal...")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                audioWaveform
-            }
+            return state.isWaitingForSignal ? 0.3 : CGFloat(state.audioLevel)
+        case .transcribing:
+            return 0.5
+        case .done:
+            return 1.0
+        case .error:
+            return 0
+        }
+    }
+
+    private var indicatorNoSignal: Bool {
+        if case .error = state.phase { return true }
+        return false
+    }
+
+    private var indicatorSpinning: Bool {
+        if case .recording = state.phase {
+            return state.isWaitingForSignal
+        }
+        return false
+    }
+
+    private var indicatorColor: Color? {
+        if case .done = state.phase { return .green }
+        return nil
+    }
+
+    private var indicatorOpacity: Double {
+        switch state.phase {
+        case .idle, .loadingModel:
+            return 0.5
+        case .transcribing:
+            return 0.6
+        case .error:
+            return 0.3
         default:
-            Color.clear
+            return 1.0
         }
     }
 
     @ViewBuilder
-    private var statusText: some View {
+    private var overlay: some View {
         switch state.phase {
-        case .idle:
-            Text("Ready")
-                .font(.subheadline)
+        case .recording where state.isWaitingForSignal:
+            Text("Warming up...")
+                .font(.caption2)
                 .foregroundStyle(.secondary)
 
-        case .loadingModel:
-            Text("Loading...")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        case .transcribing:
+            ProgressView()
+                .scaleEffect(0.8)
 
-        case .recording:
-            if state.isWaitingForSignal {
-                Text("Bluetooth warming up")
-                    .font(.subheadline)
-                    .foregroundStyle(.orange)
-            } else {
-                Text("Listening...")
-                    .font(.subheadline)
-            }
+        case .done:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 40))
+                .foregroundStyle(.green)
+
+        case .error:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 40))
+                .foregroundStyle(.red)
+
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var statusRow: some View {
+        switch state.phase {
+        case .idle, .loadingModel, .recording:
+            microphonePicker
 
         case .transcribing:
             Text("Transcribing...")
-                .font(.subheadline)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
         case .done(let text):
             Text(text)
                 .font(.caption)
-                .lineLimit(2)
+                .lineLimit(1)
                 .foregroundStyle(.secondary)
 
         case .error(let message):
             Text(message)
                 .font(.caption)
+                .lineLimit(1)
                 .foregroundStyle(.red)
         }
     }
 
-    private var audioWaveform: some View {
-        SpectrumView(spectrum: state.spectrum, level: CGFloat(state.audioLevel))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 8)
+    @ViewBuilder
+    private var keyboardHints: some View {
+        switch state.phase {
+        case .idle, .loadingModel:
+            HStack(spacing: 4) {
+                KeyCap(hotkeyHint)
+                Text("to start")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
+        case .recording:
+            // Always show both hints to prevent layout shift
+            HStack(spacing: 12) {
+                HStack(spacing: 4) {
+                    KeyCap(hotkeyHint)
+                    Text("Finish")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 4) {
+                    KeyCap("esc")
+                    Text("Cancel")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+        case .error:
+            // Match recording layout for consistency
+            HStack(spacing: 12) {
+                HStack(spacing: 4) {
+                    KeyCap(hotkeyHint)
+                    Text("Retry")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 4) {
+                    KeyCap("esc")
+                    Text("Dismiss")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+        default:
+            Color.clear
+        }
     }
 
     /// Selected device name for display.
@@ -145,88 +235,104 @@ struct DictationPanelView: View {
     }
 
     private var microphonePicker: some View {
-        HStack(spacing: 4) {
-            Image(systemName: micIcon)
-                .font(.caption2)
-                .foregroundStyle(micIconColor)
-            Menu {
-                // System Default option
+        Menu {
+            // System Default option
+            Button {
+                if state.selectedMicrophone != nil {
+                    onMicrophoneSwitch?(nil)
+                }
+            } label: {
+                HStack {
+                    Image(systemName: "gear")
+                    Text("System Default")
+                    if state.selectedMicrophone == nil {
+                        Spacer()
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+
+            Divider()
+
+            // Available devices
+            ForEach(state.availableMicrophones) { device in
                 Button {
-                    if state.selectedMicrophone != nil {
-                        onMicrophoneSwitch?(nil)
+                    if device.uid != state.selectedMicrophone?.uid {
+                        onMicrophoneSwitch?(device)
                     }
                 } label: {
                     HStack {
-                        Image(systemName: "gear")
-                        Text("System Default")
-                        if state.selectedMicrophone == nil {
+                        Image(systemName: transportIcon(for: device))
+                        Text(device.name)
+                        if device.uid == state.selectedMicrophone?.uid {
                             Spacer()
                             Image(systemName: "checkmark")
                         }
                     }
                 }
-
-                Divider()
-
-                // Available devices
-                ForEach(state.availableMicrophones) { device in
-                    Button {
-                        if device.uid != state.selectedMicrophone?.uid {
-                            onMicrophoneSwitch?(device)
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: transportIcon(for: device))
-                            Text(device.name)
-                            if device.uid == state.selectedMicrophone?.uid {
-                                Spacer()
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(selectedDeviceName)
-                        .font(.caption)
-                        .lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2)
-                }
-                .foregroundStyle(.secondary)
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "mic")
+                    .font(.caption)
+                Text("Mic: \(shortDeviceName)")
+                    .font(.caption)
+            }
+            .foregroundStyle(.secondary)
         }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
-    private var micIcon: String {
-        if state.phase == .recording {
-            if state.selectedMicrophone?.isBluetooth == true {
-                return "wave.3.right"
+    /// Short device name for display.
+    private var shortDeviceName: String {
+        if let device = state.selectedMicrophone {
+            // Shorten common names
+            if device.name.contains("MacBook") { return "Built-in" }
+            if device.name.contains("Built-in") { return "Built-in" }
+            if device.name.count > 15 {
+                return String(device.name.prefix(12)) + "..."
             }
-            return "mic.fill"
+            return device.name
         }
-        return "mic"
+        return "Default"
     }
 
-    private var micIconColor: Color {
-        if state.phase == .recording {
-            if state.isWaitingForSignal {
-                return .orange
-            }
-            return .red
-        }
-        return .secondary
+}
+
+// MARK: - Key Cap View
+
+/// Styled keyboard key cap.
+private struct KeyCap: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .medium, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color.white.opacity(0.15))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
+            )
     }
 }
 
 #Preview("Idle") {
     DictationPanelView(
         state: DictationState(),
-        hotkeyHint: "Control+Shift+Space"
+        hotkeyHint: "⌃⇧␣"
     )
-    .frame(width: 360, height: 100)
+    .padding(20)
     .background(.black.opacity(0.5))
 }
 
@@ -236,25 +342,13 @@ struct DictationPanelView: View {
     state.audioLevel = 0.6
     return DictationPanelView(
         state: state,
-        hotkeyHint: "Control+Shift+Space"
+        hotkeyHint: "⌃⇧␣"
     )
-    .frame(width: 360, height: 100)
+    .padding(20)
     .background(.black.opacity(0.5))
 }
 
-#Preview("Waiting for Signal") {
-    let state = DictationState()
-    state.phase = .recording
-    state.isWaitingForSignal = true
-    return DictationPanelView(
-        state: state,
-        hotkeyHint: "Control+Shift+Space"
-    )
-    .frame(width: 360, height: 100)
-    .background(.black.opacity(0.5))
-}
-
-#Preview("Spectrum Animated") {
+#Preview("Recording Animated") {
     struct AnimatedPreview: View {
         let state = DictationState()
         @State private var timer: Timer?
@@ -263,21 +357,18 @@ struct DictationPanelView: View {
         var body: some View {
             DictationPanelView(
                 state: state,
-                hotkeyHint: "Control+Shift+Space"
+                hotkeyHint: "⌃⇧␣"
             )
-            .frame(width: 360, height: 100)
+            .padding(20)
             .background(.black.opacity(0.8))
             .onAppear {
                 state.phase = .recording
-                timer = Timer.scheduledTimer(withTimeInterval: 0.04, repeats: true) { _ in
-                    phase += 0.3
-                    let level = Float.random(in: 0.3...0.9)
-                    state.audioLevel = level
-                    state.spectrum = (0..<64).map { i in
-                        let wave = sin(Float(i) * 0.15 + phase) * 0.5 + 0.5
-                        let noise = Float.random(in: 0.8...1.2)
-                        return wave * level * noise
-                    }
+                timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+                    phase += 0.2
+                    let base = sin(phase) * 0.3 + 0.5
+                    let burst = sin(phase * 3) * 0.15
+                    let noise = Float.random(in: -0.1...0.1)
+                    state.audioLevel = max(0.1, min(1, base + burst + noise))
                 }
             }
             .onDisappear {
@@ -286,5 +377,16 @@ struct DictationPanelView: View {
         }
     }
     return AnimatedPreview()
+}
+
+#Preview("Transcribing") {
+    let state = DictationState()
+    state.phase = .transcribing
+    return DictationPanelView(
+        state: state,
+        hotkeyHint: "⌃⇧␣"
+    )
+    .padding(20)
+    .background(.black.opacity(0.5))
 }
 #endif

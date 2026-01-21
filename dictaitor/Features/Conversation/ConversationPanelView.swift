@@ -124,56 +124,54 @@ struct ConversationPanelView: View {
     private var visualizationArea: some View {
         switch state.phase {
         case .listening:
-            if state.isWaitingForSignal {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                    Text("Waiting for signal...")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                SpectrumView(spectrum: state.spectrum, level: CGFloat(state.audioLevel))
-                    .padding(.horizontal, 16)
+            HStack(spacing: 12) {
+                RadialBarIndicator(
+                    level: state.isWaitingForSignal ? 0.3 : CGFloat(state.audioLevel),
+                    spinning: state.isWaitingForSignal,
+                    size: 50
+                )
+
+                Text(state.isWaitingForSignal ? "Warming up..." : "Listening...")
+                    .font(.callout)
+                    .foregroundStyle(state.isWaitingForSignal ? .secondary : .primary)
             }
         case .processing:
-            VStack(spacing: 4) {
-                if !state.transcript.isEmpty {
-                    Text(state.transcript)
-                        .font(.callout)
-                        .lineLimit(2)
-                        .foregroundStyle(.primary)
-                } else {
-                    ProgressView()
-                    Text("Processing...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+            HStack(spacing: 12) {
+                ProgressView()
+                    .scaleEffect(0.8)
+                Text(state.transcript.isEmpty ? "Processing..." : state.transcript)
+                    .font(.callout)
+                    .lineLimit(2)
+                    .foregroundStyle(state.transcript.isEmpty ? .secondary : .primary)
             }
-            .frame(maxWidth: .infinity)
         case .responding:
-            HStack(spacing: 8) {
+            HStack(spacing: 12) {
                 Image(systemName: "speaker.wave.2.fill")
+                    .font(.title2)
                     .foregroundStyle(.blue)
                     .symbolEffect(.variableColor.iterative)
-                Text("Speaking response...")
+                Text("Speaking...")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
         case .idle, .done:
-            if state.messages.isEmpty {
-                Text("Press \(hotkeyHint) to start")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Press \(hotkeyHint) to continue")
+            HStack(spacing: 12) {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.title2)
+                    .foregroundStyle(.tertiary)
+                Text(state.messages.isEmpty ? "Ready to chat" : "Ready to continue")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
         case .error:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.title2)
-                .foregroundStyle(.red)
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.red)
+                Text("Error occurred")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
         }
     }
 
@@ -222,26 +220,59 @@ struct ConversationPanelView: View {
     // MARK: - Hint Bar
 
     private var hintBar: some View {
-        HStack {
-            Text(hintText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        HStack(spacing: 16) {
+            HStack(spacing: 4) {
+                KeyCap(hotkeyHint)
+                Text(hotkeyAction)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
-            Text("ESC to close")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                KeyCap("esc")
+                Text("Close")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
     }
 
-    private var hintText: String {
+    private var hotkeyAction: String {
         switch state.phase {
         case .listening:
-            return "Press \(hotkeyHint) to stop"
+            return "Finish"
         default:
-            return "Press \(hotkeyHint) to speak"
+            return "Speak"
         }
+    }
+}
+
+// MARK: - Key Cap View
+
+/// Styled keyboard key cap.
+private struct KeyCap: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .medium, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color.white.opacity(0.15))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
+            )
     }
 }
 
@@ -285,7 +316,7 @@ struct MessageBubbleView: View {
 #Preview("Idle - Empty") {
     ConversationPanelView(
         state: ConversationState(),
-        hotkeyHint: "Cmd+Shift+Space"
+        hotkeyHint: "⌃⌥␣"
     )
     .background(.black.opacity(0.5))
 }
@@ -297,7 +328,7 @@ struct MessageBubbleView: View {
     state.spectrum = Array(repeating: 0.3, count: 32)
     return ConversationPanelView(
         state: state,
-        hotkeyHint: "Cmd+Shift+Space"
+        hotkeyHint: "⌃⌥␣"
     )
     .background(.black.opacity(0.5))
 }
@@ -311,7 +342,7 @@ struct MessageBubbleView: View {
     ]
     return ConversationPanelView(
         state: state,
-        hotkeyHint: "Cmd+Shift+Space"
+        hotkeyHint: "⌃⌥␣"
     )
     .background(.black.opacity(0.5))
 }
@@ -327,7 +358,7 @@ struct MessageBubbleView: View {
     state.phase = .idle
     return ConversationPanelView(
         state: state,
-        hotkeyHint: "Cmd+Shift+Space"
+        hotkeyHint: "⌃⌥␣"
     )
     .background(.black.opacity(0.5))
 }

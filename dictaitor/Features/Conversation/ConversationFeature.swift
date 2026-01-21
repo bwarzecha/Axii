@@ -54,7 +54,7 @@ final class ConversationFeature: Feature {
     var panelContent: AnyView {
         AnyView(ConversationPanelView(
             state: state,
-            hotkeyHint: settings.conversationHotkeyConfig.displayString
+            hotkeyHint: settings.conversationHotkeyConfig.symbolString
         ))
     }
 

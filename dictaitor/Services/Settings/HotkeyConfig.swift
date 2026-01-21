@@ -61,6 +61,21 @@ struct HotkeyConfig: Codable, Equatable {
         return parts.joined(separator: "+")
     }
 
+    /// Compact symbol string (e.g., "⌃⇧␣" for Control+Shift+Space).
+    var symbolString: String {
+        var symbols = ""
+
+        // Modifiers in standard macOS order
+        if modifiers & UInt32(controlKey) != 0 { symbols += "⌃" }
+        if modifiers & UInt32(optionKey) != 0 { symbols += "⌥" }
+        if modifiers & UInt32(shiftKey) != 0 { symbols += "⇧" }
+        if modifiers & UInt32(cmdKey) != 0 { symbols += "⌘" }
+
+        symbols += keyCodeToSymbol(keyCode)
+
+        return symbols
+    }
+
     /// Create from NSEvent (used by hotkey recorder).
     init(from event: NSEvent) {
         self.keyCode = UInt32(event.keyCode)
@@ -88,6 +103,24 @@ private extension HotkeyConfig {
         if flags.contains(.shift) { carbon |= UInt32(shiftKey) }
         if flags.contains(.command) { carbon |= UInt32(cmdKey) }
         return carbon
+    }
+
+    func keyCodeToSymbol(_ code: UInt32) -> String {
+        switch Int(code) {
+        case kVK_Space: return "␣"
+        case kVK_Return: return "↵"
+        case kVK_Tab: return "⇥"
+        case kVK_Delete: return "⌫"
+        case kVK_ForwardDelete: return "⌦"
+        case kVK_Escape: return "⎋"
+        case kVK_LeftArrow: return "←"
+        case kVK_RightArrow: return "→"
+        case kVK_UpArrow: return "↑"
+        case kVK_DownArrow: return "↓"
+        default:
+            // Fall back to string name for letters/numbers
+            return keyCodeToString(code) ?? "?"
+        }
     }
 
     func keyCodeToString(_ code: UInt32) -> String? {

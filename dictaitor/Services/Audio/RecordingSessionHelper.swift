@@ -35,6 +35,10 @@ final class RecordingSessionHelper {
     private var audioSession: AudioSession?
     private var chunkTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
+    private var warmupTimeoutTask: Task<Void, Never>?
+
+    // Timeout for Bluetooth warmup (seconds)
+    private let warmupTimeout: TimeInterval = 5.0
 
     /// Start recording from the specified source.
     func start(source: AudioSource) async throws {
@@ -73,18 +77,38 @@ final class RecordingSessionHelper {
             onDeviceDisconnect: .fallbackToDefault
         ))
 
-        // If Bluetooth, start in waiting-for-signal state
+        // If Bluetooth, start in waiting-for-signal state with timeout
         if currentDevice?.isBluetooth == true {
             onSignalStateChanged?(true)
+            startWarmupTimeout()
         }
+    }
+
+    /// Start timeout for Bluetooth warmup - fires error if signal not received in time.
+    private func startWarmupTimeout() {
+        warmupTimeoutTask?.cancel()
+        warmupTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(self?.warmupTimeout ?? 5.0))
+            guard !Task.isCancelled else { return }
+            // Still waiting for signal after timeout
+            self?.onError?(.captureFailure(underlying: "Bluetooth microphone failed to start. Try again or switch to a different mic."))
+        }
+    }
+
+    /// Cancel warmup timeout (called when signal is received).
+    private func cancelWarmupTimeout() {
+        warmupTimeoutTask?.cancel()
+        warmupTimeoutTask = nil
     }
 
     /// Stop recording and return accumulated samples.
     func stop() -> (samples: [Float], sampleRate: Double) {
         chunkTask?.cancel()
         eventTask?.cancel()
+        warmupTimeoutTask?.cancel()
         chunkTask = nil
         eventTask = nil
+        warmupTimeoutTask = nil
         audioSession?.stop()
         audioSession = nil
 
@@ -120,9 +144,11 @@ final class RecordingSessionHelper {
         switch event {
         case .signalState(let signalState):
             if signalState == .signal {
+                cancelWarmupTimeout()
                 onSignalStateChanged?(false)
             } else if currentDevice?.isBluetooth == true {
                 onSignalStateChanged?(true)
+                startWarmupTimeout()
             }
 
         case .deviceDisconnected(let device):

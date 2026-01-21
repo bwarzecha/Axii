@@ -60,7 +60,7 @@ final class DictationFeature: Feature {
     var panelContent: AnyView {
         AnyView(DictationPanelView(
             state: state,
-            hotkeyHint: settings.hotkeyConfig.displayString,
+            hotkeyHint: settings.hotkeyConfig.symbolString,
             onMicrophoneSwitch: { [weak self] device in
                 self?.switchMicrophone(to: device)
             }
