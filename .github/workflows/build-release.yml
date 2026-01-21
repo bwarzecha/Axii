@@ -210,8 +210,16 @@ jobs:
         run: |
           cd dist
 
+          # Create DMG staging folder with Applications symlink
+          mkdir -p dmg-staging
+          cp -R "Axii.app" dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+
           # Create DMG
-          hdiutil create -volname "Axii" -srcfolder "Axii.app" -ov -format UDZO "Axii.dmg"
+          hdiutil create -volname "Axii" -srcfolder dmg-staging -ov -format UDZO "Axii.dmg"
+
+          # Clean up staging
+          rm -rf dmg-staging
 
           # Also create a ZIP for direct download
           ditto -c -k --keepParent "Axii.app" "Axii.zip"
