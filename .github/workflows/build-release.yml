@@ -30,6 +30,8 @@ jobs:
   build:
     name: Build and Sign
     runs-on: macos-15
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
