@@ -246,7 +246,7 @@ final class DictationFeature: Feature {
                 }
 
                 focusSnapshot = nil
-                scheduleDeactivation(delay: 20.0)
+                scheduleDeactivation(delay: 2.0)
 
                 if !text.isEmpty {
                     await saveTranscriptionToHistory(

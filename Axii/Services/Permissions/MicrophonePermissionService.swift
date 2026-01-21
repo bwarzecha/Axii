@@ -65,11 +65,11 @@ final class MicrophonePermissionService {
     }
 
     func requestAccess() async -> Bool {
-        guard state.needsPrompt else { return state.isAuthorized }
-
-        // On macOS, AVCaptureDevice.requestAccess(for: .audio) doesn't reliably
-        // trigger the permission dialog. We need to actually create a capture
-        // session to force TCC to prompt and register the app in System Settings.
+        // Always try to trigger the permission, even if state says denied.
+        // On macOS, TCC can silently deny apps without showing a dialog,
+        // leaving the app in a "denied" state that the user never consented to.
+        // By always attempting access, we force TCC to either show the dialog
+        // or confirm the denial.
         let granted = await triggerMicrophonePermission()
         refresh()
         return granted
