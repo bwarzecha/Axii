@@ -26,7 +26,7 @@ struct MeetingPanelView: View {
                 .fill(.ultraThinMaterial)
                 .overlay(
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                        .strokeBorder(.primary.opacity(0.1), lineWidth: 1)
                 )
 
             VStack(spacing: 0) {
@@ -37,14 +37,14 @@ struct MeetingPanelView: View {
                     .padding(.bottom, 12)
 
                 Divider()
-                    .background(.white.opacity(0.1))
+                    .background(.primary.opacity(0.1))
 
                 // Transcript segments
                 segmentsList
                     .frame(maxHeight: .infinity)
 
                 Divider()
-                    .background(.white.opacity(0.1))
+                    .background(.primary.opacity(0.1))
 
                 // Footer with controls
                 footerView

@@ -23,7 +23,7 @@ struct DictationPanelView: View {
                 .fill(.ultraThinMaterial)
                 .overlay(
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                        .strokeBorder(.primary.opacity(0.1), lineWidth: 1)
                 )
 
             VStack(spacing: 8) {
@@ -313,16 +313,16 @@ private struct KeyCap: View {
     var body: some View {
         Text(text)
             .font(.system(size: 10, weight: .medium, design: .rounded))
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
             .padding(.horizontal, 5)
             .padding(.vertical, 3)
             .background(
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(Color.white.opacity(0.15))
+                    .fill(Color.primary.opacity(0.1))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
+                    .strokeBorder(.primary.opacity(0.15), lineWidth: 0.5)
             )
     }
 }

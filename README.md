@@ -14,6 +14,13 @@ Axii is a macOS menu bar app for voice-to-text dictation. Press a hotkey, speak,
 - **Speaker diarization** - Identify different speakers in conversations
 - **Conversation mode** - Continuous transcription for meetings and notes
 
+## Screenshots
+
+| Listening | Transcribed |
+|:-:|:-:|
+| ![Listening mode](assets/screenshot-listening.png) | ![Transcribed](assets/screenshot-transcribed.png) |
+| *Press hotkey to start recording* | *Text transcribed and entered automatically* |
+
 ## Requirements
 
 - macOS 15.0+
