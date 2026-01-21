@@ -21,11 +21,18 @@ Axii is a macOS menu bar app for voice-to-text dictation. Press a hotkey, speak,
 
 ## Installation
 
-Download the latest release or build from source:
+### Download (Recommended)
+
+1. Download the latest `Axii.dmg` from [Releases](https://github.com/bwarzecha/Axii/releases)
+2. Open the DMG and drag Axii to Applications
+3. Launch Axii from Applications
+4. Grant microphone and accessibility permissions when prompted
+
+### Build from Source
 
 ```bash
-git clone https://github.com/anthropics/axii.git
-cd axii
+git clone https://github.com/bwarzecha/Axii.git
+cd Axii
 open Axii.xcodeproj
 ```
 
@@ -33,7 +40,7 @@ open Axii.xcodeproj
 
 Axii is built on the shoulders of these excellent projects:
 
-- [FluidAudio](https://github.com/fluid-audio/FluidAudio) - Swift ASR framework
+- [FluidAudio](https://github.com/FluidInference/FluidAudio) - Swift ASR framework
 - [NVIDIA Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) - Speech recognition model
 - [HotKey](https://github.com/soffes/HotKey) - Global hotkey handling by Sam Soffes
 - [AWS SDK for Swift](https://github.com/awslabs/aws-sdk-swift) - Bedrock integration
