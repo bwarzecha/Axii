@@ -1,6 +1,8 @@
-# Axii
+<p align="center">
+  <img src="assets/Axii-GitHub-Social.png" alt="Axii - Your voice, your command, your privacy" width="100%">
+</p>
 
-**Your voice, your command, your privacy.**
+# Axii
 
 Axii is a macOS menu bar app for voice-to-text dictation. Press a hotkey, speak, and your words are transcribed and pasted wherever your cursor is. Everything runs locally on your Mac - no cloud, no subscriptions, no data leaving your device.
 

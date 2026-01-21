@@ -22,12 +22,15 @@ struct AxiiApp: App {
 
     var body: some Scene {
         // Menu bar for status and quit
-        MenuBarExtra("Axii", systemImage: menuBarIcon) {
+        MenuBarExtra {
             MenuBarView(
                 dictationState: controller.dictationFeature.state,
                 hotkeyDisplay: controller.settings.hotkeyConfig.displayString,
                 onShowOnboarding: { openWindow(id: "onboarding") }
             )
+        } label: {
+            Image("MenuBarIcon")
+                .renderingMode(.template)
         }
         .menuBarExtraStyle(.menu)
 
@@ -79,9 +82,6 @@ struct AxiiApp: App {
         .windowResizability(.contentSize)
     }
 
-    private var menuBarIcon: String {
-        controller.dictationFeature.isActive ? "waveform" : "mic"
-    }
 }
 
 /// Menu bar dropdown content.
