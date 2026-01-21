@@ -139,22 +139,21 @@ private struct MicrophonePage: View {
                 PermissionGrantedBadge(text: "Microphone access granted")
             } else {
                 VStack(spacing: 12) {
-                    // Always show request button - it will trigger the permission
-                    // dialog or force TCC to register the app
-                    Button("Request Microphone Access") {
-                        requestPermission()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isRequesting)
-
-                    // Also show settings button if permission appears blocked
-                    if permission.state.isBlocked {
+                    if permission.state.needsPrompt {
+                        Button("Request Microphone Access") {
+                            requestPermission()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isRequesting)
+                    } else {
                         Button("Open Microphone Settings") {
                             permission.openSystemSettings()
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.borderedProminent)
+                    }
 
-                        Text("If no dialog appears, enable manually in System Settings")
+                    if permission.state.isBlocked {
+                        Text("Enable in System Settings > Privacy & Security > Microphone")
                             .font(.caption)
                             .foregroundStyle(.orange)
                             .multilineTextAlignment(.center)
