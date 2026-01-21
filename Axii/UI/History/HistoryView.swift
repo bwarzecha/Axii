@@ -1,0 +1,243 @@
+//
+//  HistoryView.swift
+//  Axii
+//
+//  Main history browsing view with list and detail.
+//
+
+#if os(macOS)
+import SwiftUI
+
+struct HistoryView: View {
+    let historyService: HistoryService
+
+    @State private var selectedId: UUID?
+    @State private var searchText = ""
+    @State private var filterType: InteractionType?
+
+    var body: some View {
+        NavigationSplitView {
+            listView
+                .navigationSplitViewColumnWidth(min: 250, ideal: 300)
+        } detail: {
+            detailView
+        }
+        .frame(minWidth: 600, minHeight: 400)
+        .task {
+            // Ensure history is loaded when view appears
+            if !historyService.isLoaded {
+                await historyService.loadAllMetadata()
+            }
+        }
+    }
+
+    private var listView: some View {
+        VStack(spacing: 0) {
+            // Search and filter bar
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search", text: $searchText)
+                    .textFieldStyle(.plain)
+
+                Picker("Filter", selection: $filterType) {
+                    Text("All").tag(nil as InteractionType?)
+                    Text("Dictations").tag(InteractionType.transcription as InteractionType?)
+                    Text("Conversations").tag(InteractionType.conversation as InteractionType?)
+                }
+                .pickerStyle(.menu)
+                .frame(width: 130)
+            }
+            .padding(8)
+            .background(.bar)
+
+            Divider()
+
+            // List content
+            if !historyService.isLoaded {
+                loadingView
+            } else if filteredItems.isEmpty {
+                emptyStateView
+            } else {
+                List(filteredItems, selection: $selectedId) { item in
+                    HistoryRowView(metadata: item)
+                        .tag(item.id)
+                }
+                .listStyle(.plain)
+            }
+        }
+    }
+
+    private var loadingView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("Loading history...")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        if let selectedId, let metadata = historyService.cache[selectedId] {
+            HistoryDetailView(
+                metadata: metadata,
+                historyService: historyService,
+                onDelete: {
+                    self.selectedId = nil
+                }
+            )
+        } else {
+            Text("Select an item to view details")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text("No history yet")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            Text("Your dictations and conversations will appear here.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+
+    private var filteredItems: [InteractionMetadata] {
+        var items = historyService.listMetadata()
+
+        // Filter by type
+        if let filterType {
+            items = items.filter { $0.type == filterType }
+        }
+
+        // Filter by search text
+        if !searchText.isEmpty {
+            items = items.filter { $0.preview.localizedCaseInsensitiveContains(searchText) }
+        }
+
+        return items
+    }
+}
+#endif
+
+// MARK: - Preview
+
+/// Preview-only history view with mock data (no HistoryService dependency)
+private struct PreviewHistoryView: View {
+    @State private var selectedId: UUID?
+    @State private var searchText = ""
+    @State private var filterType: InteractionType?
+
+    let items: [InteractionMetadata]
+
+    var body: some View {
+        NavigationSplitView {
+            VStack(spacing: 0) {
+                // Search and filter bar
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search", text: $searchText)
+                        .textFieldStyle(.plain)
+
+                    Picker("Filter", selection: $filterType) {
+                        Text("All").tag(nil as InteractionType?)
+                        Text("Dictations").tag(InteractionType.transcription as InteractionType?)
+                        Text("Conversations").tag(InteractionType.conversation as InteractionType?)
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 130)
+                }
+                .padding(8)
+                .background(.bar)
+
+                Divider()
+
+                List(filteredItems, selection: $selectedId) { item in
+                    HistoryRowView(metadata: item)
+                        .tag(item.id)
+                }
+                .listStyle(.plain)
+            }
+            .navigationSplitViewColumnWidth(min: 250, ideal: 300)
+        } detail: {
+            if let selectedId, let item = items.first(where: { $0.id == selectedId }) {
+                PreviewDetailContent(metadata: item)
+            } else {
+                Text("Select an item to view details")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(minWidth: 600, minHeight: 400)
+    }
+
+    private var filteredItems: [InteractionMetadata] {
+        var result = items
+
+        if let filterType {
+            result = result.filter { $0.type == filterType }
+        }
+
+        if !searchText.isEmpty {
+            result = result.filter { $0.preview.localizedCaseInsensitiveContains(searchText) }
+        }
+
+        return result
+    }
+}
+
+private struct PreviewDetailContent: View {
+    let metadata: InteractionMetadata
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Image(systemName: metadata.type == .transcription ? "mic.fill" : "bubble.left.and.bubble.right.fill")
+                    .foregroundStyle(metadata.type == .transcription ? .blue : .purple)
+                Text(metadata.type == .transcription ? "Transcription" : "Conversation")
+                    .font(.headline)
+            }
+
+            Text(metadata.preview)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Spacer()
+
+            HStack {
+                Button {} label: {
+                    Label("Play Audio", systemImage: "play.fill")
+                }
+                Spacer()
+                Button(role: .destructive) {} label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+        .padding()
+    }
+}
+
+#Preview("History View - With Items") {
+    PreviewHistoryView(items: [
+        .previewTranscription,
+        .previewConversation,
+        .previewLongTranscription
+    ])
+    .frame(width: 700, height: 500)
+}
+
+#Preview("History View - Empty") {
+    PreviewHistoryView(items: [])
+        .frame(width: 700, height: 500)
+}
