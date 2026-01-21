@@ -55,8 +55,13 @@ final class ModelDownloadService {
 
     /// Check what's already downloaded
     func checkExistingDownloads() async {
-        asrState = .checking
-        diarizationState = .checking
+        // Don't regress from completed state (avoids triggering onboarding flash)
+        if !asrState.isComplete {
+            asrState = .checking
+        }
+        if !diarizationState.isComplete {
+            diarizationState = .checking
+        }
 
         // Small delay to show checking state
         try? await Task.sleep(nanoseconds: 100_000_000)
