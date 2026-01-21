@@ -9,6 +9,7 @@
 
 #if os(macOS)
 import AVFoundation
+import CoreGraphics
 import Foundation
 
 /// MainActor-isolated audio session for microphone capture.
@@ -58,6 +59,7 @@ final class AudioSession {
     private let eventContinuation: AsyncStream<AudioEvent>.Continuation
 
     private var capture: MicrophoneCapture?
+    private var systemCapture: SystemAudioCapture?
     private var deviceMonitor: DeviceMonitor?
     private var config: SessionConfig?
     private var currentDevice: AudioDevice?
@@ -91,13 +93,29 @@ final class AudioSession {
 
         self.config = config
 
-        // Check permission first
+        switch config.source {
+        case .systemDefault, .microphone:
+            try await startMicrophoneOnly(config: config)
+
+        case .systemAudio(let apps):
+            try await startSystemAudioOnly(apps: apps)
+
+        case .combined(let micSource, let apps):
+            try await startCombined(micSource: micSource, apps: apps, config: config)
+        }
+
+        isRunning = true
+    }
+
+    // MARK: - Source-Specific Start Methods
+
+    private func startMicrophoneOnly(config: SessionConfig) async throws {
+        // Check microphone permission
         let status = Self.microphonePermissionStatus()
         switch status {
         case .denied:
             throw AudioSessionError.permissionDenied
         case .notDetermined:
-            // Request permission
             let granted = await AVCaptureDevice.requestAccess(for: .audio)
             if !granted {
                 throw AudioSessionError.permissionDenied
@@ -110,9 +128,11 @@ final class AudioSession {
         let targetDevice: AudioDevice?
         switch config.source {
         case .systemDefault:
-            targetDevice = nil  // MicrophoneCapture will use system default
+            targetDevice = nil
         case .microphone(let device):
             targetDevice = device
+        default:
+            targetDevice = nil
         }
 
         // Setup device monitor
@@ -125,7 +145,7 @@ final class AudioSession {
         }
         deviceMonitor = monitor
 
-        // Setup capture
+        // Setup and start microphone capture
         let mic = MicrophoneCapture()
         mic.onChunk = { [weak self] chunk in
             self?.handleChunk(chunk)
@@ -138,16 +158,85 @@ final class AudioSession {
         }
         capture = mic
 
-        // Start capture
         do {
             try mic.start(device: targetDevice)
             currentDevice = targetDevice ?? DeviceMonitor.systemDefaultDevice()
-            isRunning = true
         } catch let error as AudioSessionError {
             throw error
         } catch {
             throw AudioSessionError.captureFailure(underlying: error.localizedDescription)
         }
+    }
+
+    private func startSystemAudioOnly(apps: AppSelection) async throws {
+        // Check screen recording permission
+        guard CGPreflightScreenCaptureAccess() else {
+            throw AudioSessionError.configurationFailed("Screen recording permission required")
+        }
+
+        // Setup and start system audio capture
+        let sys = SystemAudioCapture()
+        sys.onChunk = { [weak self] chunk in
+            self?.handleChunk(chunk)
+        }
+        sys.onError = { [weak self] error in
+            self?.handleError(error)
+        }
+        systemCapture = sys
+
+        try await sys.start(apps: apps, includeMicrophone: false)
+    }
+
+    private func startCombined(micSource: AudioSource.MicrophoneSource, apps: AppSelection, config: SessionConfig) async throws {
+        // Check both permissions
+        let micStatus = Self.microphonePermissionStatus()
+        switch micStatus {
+        case .denied:
+            throw AudioSessionError.permissionDenied
+        case .notDetermined:
+            let granted = await AVCaptureDevice.requestAccess(for: .audio)
+            if !granted {
+                throw AudioSessionError.permissionDenied
+            }
+        case .authorized:
+            break
+        }
+
+        guard CGPreflightScreenCaptureAccess() else {
+            throw AudioSessionError.configurationFailed("Screen recording permission required")
+        }
+
+        // Determine mic device
+        let micDevice: AudioDevice?
+        switch micSource {
+        case .systemDefault:
+            micDevice = nil
+        case .specific(let device):
+            micDevice = device
+        }
+
+        // Setup device monitor for mic
+        let monitor = DeviceMonitor()
+        monitor.onDeviceDisconnected = { [weak self] device in
+            self?.handleDeviceDisconnected(device)
+        }
+        if let device = micDevice {
+            monitor.monitorDevice(device)
+        }
+        deviceMonitor = monitor
+        currentDevice = micDevice ?? DeviceMonitor.systemDefaultDevice()
+
+        // Use SystemAudioCapture with combined mode (macOS 14.4+)
+        let sys = SystemAudioCapture()
+        sys.onChunk = { [weak self] chunk in
+            self?.handleChunk(chunk)
+        }
+        sys.onError = { [weak self] error in
+            self?.handleError(error)
+        }
+        systemCapture = sys
+
+        try await sys.start(apps: apps, includeMicrophone: true, micDevice: micDevice)
     }
 
     /// Stop capturing, streams finish.
@@ -156,6 +245,8 @@ final class AudioSession {
 
         capture?.stop()
         capture = nil
+        systemCapture?.stop()
+        systemCapture = nil
         deviceMonitor = nil
         isRunning = false
 

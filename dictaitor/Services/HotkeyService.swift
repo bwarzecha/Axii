@@ -13,6 +13,7 @@ import HotKey
 enum HotkeyID: String, CaseIterable {
     case togglePanel    // Dictation feature
     case conversation   // Conversation/Agent feature
+    case meeting        // Meeting transcription feature
     case escape
 }
 

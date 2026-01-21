@@ -19,9 +19,11 @@ final class AppController {
 
     // Services (exposed for onboarding and settings)
     private let transcriptionService: TranscriptionService
+    private let diarizationService: DiarizationService
     private let clipboardService: ClipboardService
     let micPermission: MicrophonePermissionService
     let accessibilityPermission: AccessibilityPermissionService
+    let screenPermission: ScreenRecordingPermissionService
     private let pasteService: PasteService
     let settings: SettingsService
     let llmSettings: LLMSettingsService
@@ -33,15 +35,18 @@ final class AppController {
     // Features
     let dictationFeature: DictationFeature
     let conversationFeature: ConversationFeature
+    let meetingFeature: MeetingFeature
 
     init() {
         // Create services
         hotkeyService = HotkeyService()
         featureManager = FeatureManager(hotkeyService: hotkeyService)
         transcriptionService = TranscriptionService()
+        diarizationService = DiarizationService()
         clipboardService = ClipboardService()
         micPermission = MicrophonePermissionService()
         accessibilityPermission = AccessibilityPermissionService()
+        screenPermission = ScreenRecordingPermissionService()
         settings = SettingsService()
         llmSettings = LLMSettingsService()
         llmService = LLMService(settings: llmSettings)
@@ -69,6 +74,13 @@ final class AppController {
             llmService: llmService,
             ttsService: ttsService,
             playbackService: playbackService,
+            historyService: historyService
+        )
+        meetingFeature = MeetingFeature(
+            transcriptionService: transcriptionService,
+            screenPermission: screenPermission,
+            micPermission: micPermission,
+            settings: settings,
             historyService: historyService
         )
 
@@ -113,6 +125,7 @@ final class AppController {
     private func registerFeatures() {
         featureManager.register(dictationFeature)
         featureManager.register(conversationFeature)
+        featureManager.register(meetingFeature)
     }
 
     private func startModelDownload() {
@@ -130,6 +143,14 @@ final class AppController {
                 print("TTS model ready")
             } catch {
                 print("TTS model loading failed: \(error)")
+            }
+        }
+        Task {
+            do {
+                try await diarizationService.prepare()
+                print("Diarization model ready")
+            } catch {
+                print("Diarization model loading failed: \(error)")
             }
         }
     }

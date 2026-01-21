@@ -45,12 +45,16 @@ final class RecordingSessionHelper {
         // Reset state
         samples = []
 
-        // Resolve current device
+        // Resolve current device (RecordingSessionHelper only supports microphone sources)
         switch source {
         case .microphone(let device):
             currentDevice = device
         case .systemDefault:
             currentDevice = AudioSession.systemDefaultDevice()
+        case .systemAudio, .combined:
+            // RecordingSessionHelper is designed for mic-only use (Dictation, Conversation)
+            // For combined capture, use AudioSession directly
+            fatalError("RecordingSessionHelper does not support system audio sources")
         }
 
         // Create new audio session

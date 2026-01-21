@@ -126,6 +126,33 @@ struct SessionConfig: Sendable {
     }
 }
 
+// MARK: - AudioApp
+
+/// An application that can produce audio.
+struct AudioApp: Sendable, Equatable, Identifiable, Hashable {
+    let pid: pid_t
+    let bundleIdentifier: String?
+    let name: String
+
+    var id: pid_t { pid }
+}
+
+// MARK: - AppSelection
+
+/// Which applications to capture system audio from.
+enum AppSelection: Sendable {
+    /// Capture audio from all applications.
+    case all
+
+    /// Capture audio only from these specific apps.
+    case only([AudioApp])
+
+    /// Capture audio from all apps except these.
+    case excluding([AudioApp])
+}
+
+// MARK: - AudioSource
+
 /// Audio source specification.
 enum AudioSource: Sendable {
     /// Follow system default microphone.
@@ -134,8 +161,17 @@ enum AudioSource: Sendable {
     /// Specific microphone device by UID.
     case microphone(AudioDevice)
 
-    // Future: case systemAudio(apps: AppSelection)
-    // Future: case combined(microphone: MicrophoneSource, apps: AppSelection)
+    /// System audio only (requires screen recording permission).
+    case systemAudio(apps: AppSelection)
+
+    /// Combined: microphone + system audio (macOS 14.4+ for native support).
+    case combined(microphone: MicrophoneSource, apps: AppSelection)
+
+    /// Microphone source for combined mode.
+    enum MicrophoneSource: Sendable {
+        case systemDefault
+        case specific(AudioDevice)
+    }
 }
 
 /// Behavior when selected device disconnects.
