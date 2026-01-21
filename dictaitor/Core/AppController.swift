@@ -31,11 +31,22 @@ final class AppController {
     private let ttsService: TextToSpeechService
     private let playbackService: AudioPlaybackService
     let historyService: HistoryService
+    let modelDownloadService: ModelDownloadService
 
     // Features
     let dictationFeature: DictationFeature
     let conversationFeature: ConversationFeature
     let meetingFeature: MeetingFeature
+
+    // Track if features have been activated
+    private var featuresActivated = false
+
+    /// True if onboarding should be shown (models not downloaded or permissions missing)
+    var needsOnboarding: Bool {
+        !modelDownloadService.isASRReady
+            || !micPermission.state.isAuthorized
+            || !accessibilityPermission.isTrusted
+    }
 
     init() {
         // Create services
@@ -53,6 +64,7 @@ final class AppController {
         ttsService = TextToSpeechService()
         playbackService = AudioPlaybackService()
         historyService = HistoryService()
+        modelDownloadService = ModelDownloadService()
         pasteService = PasteService(
             clipboard: clipboardService,
             accessibilityPermission: accessibilityPermission
@@ -86,15 +98,16 @@ final class AppController {
 
         // Setup
         setupPanel()
-        registerFeatures()
         wireSettingsCallbacks()
 
         // Sync history enabled state
         historyService.isEnabled = settings.isHistoryEnabled
 
         // Start background tasks
-        startModelDownload()
         startHistoryLoad()
+
+        // Always check downloads and try to activate features
+        startModelDownload()
     }
 
     private func wireSettingsCallbacks() {
@@ -123,35 +136,112 @@ final class AppController {
     }
 
     private func registerFeatures() {
+        guard !featuresActivated else { return }
+        featuresActivated = true
+
         featureManager.register(dictationFeature)
         featureManager.register(conversationFeature)
         featureManager.register(meetingFeature)
+        print("Features activated")
+    }
+
+    /// Check if all requirements are met to activate features
+    private var canActivateFeatures: Bool {
+        micPermission.state.isAuthorized
+            && accessibilityPermission.isTrusted
+            && modelDownloadService.isASRReady
+    }
+
+    /// Try to activate features if all requirements are met
+    private func activateFeaturesIfReady() {
+        guard canActivateFeatures else {
+            print("Cannot activate features yet - mic: \(micPermission.state.isAuthorized), accessibility: \(accessibilityPermission.isTrusted), ASR: \(modelDownloadService.isASRReady)")
+            return
+        }
+        registerFeatures()
     }
 
     private func startModelDownload() {
         Task {
-            do {
-                try await transcriptionService.prepare()
-                print("Transcription model ready")
-            } catch {
-                print("Transcription model loading failed: \(error)")
+            // Check what's already downloaded
+            await modelDownloadService.checkExistingDownloads()
+
+            // If ASR already downloaded, prepare transcription service
+            if modelDownloadService.isASRReady {
+                do {
+                    try await transcriptionService.prepare(
+                        modelsDirectory: modelDownloadService.modelsDirectory
+                    )
+                    print("Transcription model ready")
+                    activateFeaturesIfReady()
+                } catch {
+                    print("Transcription model loading failed: \(error)")
+                }
+            }
+
+            // If TTS already downloaded, prepare TTS service
+            if modelDownloadService.isTTSReady {
+                do {
+                    try await ttsService.prepare()
+                    print("TTS model ready")
+                } catch {
+                    print("TTS model loading failed: \(error)")
+                }
+            }
+
+            // If Diarization already downloaded, prepare diarization service
+            if modelDownloadService.isDiarizationReady {
+                do {
+                    try await diarizationService.prepare(
+                        modelsDirectory: modelDownloadService.modelsDirectory
+                    )
+                    print("Diarization model ready")
+                } catch {
+                    print("Diarization model loading failed: \(error)")
+                }
             }
         }
+    }
+
+    /// Called after onboarding completes to initialize services and activate features
+    func initializeServicesAfterDownload() {
         Task {
-            do {
-                try await ttsService.prepare()
-                print("TTS model ready")
-            } catch {
-                print("TTS model loading failed: \(error)")
+            // Initialize ASR if downloaded (prepare() guards against double init)
+            if modelDownloadService.isASRReady {
+                do {
+                    try await transcriptionService.prepare(
+                        modelsDirectory: modelDownloadService.modelsDirectory
+                    )
+                    print("Transcription model ready (post-onboarding)")
+                } catch {
+                    print("Transcription model loading failed: \(error)")
+                }
             }
-        }
-        Task {
-            do {
-                try await diarizationService.prepare()
-                print("Diarization model ready")
-            } catch {
-                print("Diarization model loading failed: \(error)")
+
+            // Initialize TTS if downloaded
+            if modelDownloadService.isTTSReady {
+                do {
+                    try await ttsService.prepare()
+                    print("TTS model ready (post-onboarding)")
+                } catch {
+                    print("TTS model loading failed: \(error)")
+                }
             }
+
+            // Initialize Diarization if downloaded
+            if modelDownloadService.isDiarizationReady {
+                do {
+                    try await diarizationService.prepare(
+                        modelsDirectory: modelDownloadService.modelsDirectory
+                    )
+                    print("Diarization model ready (post-onboarding)")
+                } catch {
+                    print("Diarization model loading failed: \(error)")
+                }
+            }
+
+            // Activate features now that onboarding is complete
+            activateFeaturesIfReady()
         }
     }
 }

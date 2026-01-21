@@ -11,10 +11,11 @@ import SwiftUI
 struct OnboardingView: View {
     let micPermission: MicrophonePermissionService
     let accessibilityPermission: AccessibilityPermissionService
+    let downloadService: ModelDownloadService
     let onComplete: () -> Void
 
     @State private var currentPage = 0
-    private let totalPages = 3
+    private let totalPages = 4
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,8 +29,14 @@ struct OnboardingView: View {
                     MicrophonePage(permission: micPermission)
                         .transition(pageTransition)
                 case 2:
-                    AccessibilityPage(permission: accessibilityPermission, onComplete: onComplete)
+                    AccessibilityPage(permission: accessibilityPermission)
                         .transition(pageTransition)
+                case 3:
+                    ModelDownloadPage(
+                        downloadService: downloadService,
+                        onComplete: onComplete
+                    )
+                    .transition(pageTransition)
                 default:
                     EmptyView()
                 }
@@ -68,7 +75,7 @@ struct OnboardingView: View {
             }
             .padding(24)
         }
-        .frame(width: 500, height: 420)
+        .frame(width: 500, height: 580)
     }
 
     private var pageTransition: AnyTransition {
@@ -171,7 +178,6 @@ private struct MicrophonePage: View {
 
 private struct AccessibilityPage: View {
     let permission: AccessibilityPermissionService
-    let onComplete: () -> Void
 
     var body: some View {
         VStack(spacing: 24) {
@@ -194,12 +200,6 @@ private struct AccessibilityPage: View {
 
             if permission.isTrusted {
                 PermissionGrantedBadge(text: "Accessibility access granted")
-
-                Button("Get Started") {
-                    onComplete()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
             } else {
                 VStack(spacing: 12) {
                     Button("Open Accessibility Settings") {
@@ -254,11 +254,4 @@ private struct PermissionGrantedBadge: View {
     }
 }
 
-#Preview {
-    OnboardingView(
-        micPermission: MicrophonePermissionService(),
-        accessibilityPermission: AccessibilityPermissionService(),
-        onComplete: {}
-    )
-}
 #endif

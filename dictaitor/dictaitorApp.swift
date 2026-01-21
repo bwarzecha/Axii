@@ -12,8 +12,11 @@ import AppKit
 
 @main
 struct DictAItorApp: App {
-    @State private var controller = AppController()
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @State private var controller: AppController
+
+    init() {
+        _controller = State(initialValue: AppController())
+    }
 
     @Environment(\.openWindow) private var openWindow
 
@@ -28,13 +31,14 @@ struct DictAItorApp: App {
         }
         .menuBarExtraStyle(.menu)
 
-        // Onboarding window
+        // Onboarding window - show if models not downloaded
         Window("Setup", id: "onboarding") {
             OnboardingView(
                 micPermission: controller.micPermission,
                 accessibilityPermission: controller.accessibilityPermission,
+                downloadService: controller.modelDownloadService,
                 onComplete: {
-                    hasCompletedOnboarding = true
+                    controller.initializeServicesAfterDownload()
                     NSApp.keyWindow?.close()
                 }
             )
@@ -45,7 +49,7 @@ struct DictAItorApp: App {
         }
         .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
-        .defaultLaunchBehavior(hasCompletedOnboarding ? .suppressed : .presented)
+        .defaultLaunchBehavior(controller.needsOnboarding ? .presented : .suppressed)
 
         // Settings window
         Window("Settings", id: "settings") {

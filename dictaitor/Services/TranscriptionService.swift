@@ -37,17 +37,24 @@ actor TranscriptionService {
         modelState == .ready
     }
 
-    /// Prepare the transcription service by downloading and loading models.
-    /// Call this on app launch - models are cached after first download.
-    func prepare() async throws {
+    /// Prepare the transcription service by loading models.
+    /// - Parameter modelsDirectory: Optional directory containing pre-downloaded models.
+    ///   If nil, uses FluidAudio's default download behavior.
+    func prepare(modelsDirectory: URL? = nil) async throws {
         guard modelState != .ready && modelState != .loading else { return }
 
         modelState = .loading
 
         do {
-            // Download and load models (FluidAudio handles caching)
-            // Note: No progress callback available - download happens internally
-            let models = try await AsrModels.downloadAndLoad(version: .v3)
+            let models: AsrModels
+            if let directory = modelsDirectory {
+                // Load from pre-downloaded models directory
+                let modelPath = directory.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")
+                models = try await AsrModels.load(from: modelPath, version: .v3)
+            } else {
+                // Fall back to FluidAudio's download + load
+                models = try await AsrModels.downloadAndLoad(version: .v3)
+            }
 
             // Initialize the ASR manager
             let manager = AsrManager(config: .default)

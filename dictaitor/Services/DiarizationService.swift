@@ -18,8 +18,10 @@ actor DiarizationService {
         modelState == .ready
     }
 
-    /// Prepare the diarization service by downloading and loading models.
-    func prepare() async throws {
+    /// Prepare the diarization service by loading models.
+    /// - Parameter modelsDirectory: Optional directory containing pre-downloaded models.
+    ///   If nil, uses FluidAudio's default download behavior.
+    func prepare(modelsDirectory: URL? = nil) async throws {
         guard modelState != .ready && modelState != .loading else { return }
 
         modelState = .loading
@@ -38,7 +40,10 @@ actor DiarizationService {
             ).withSpeakers(min: 2)  // Force at least 2 speakers
 
             let diarizer = OfflineDiarizerManager(config: config)
-            try await diarizer.prepareModels()
+
+            // Load from custom directory or use default
+            let modelPath = modelsDirectory?.appendingPathComponent("speaker-diarization-coreml")
+            try await diarizer.prepareModels(directory: modelPath)
 
             self.offlineDiarizer = diarizer
             modelState = .ready
