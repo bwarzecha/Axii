@@ -45,3 +45,5 @@ Carthage/Build/
 # Secrets (if any)
 .env
 *.secrets
+signing-secrets.txt
+*.p12
