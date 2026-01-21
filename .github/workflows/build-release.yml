@@ -11,6 +11,10 @@ on:
         required: false
         default: 'false'
         type: boolean
+      tag:
+        description: 'Tag for manual release (e.g., v1.0.0)'
+        required: false
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -222,9 +226,10 @@ jobs:
           if-no-files-found: error
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.create_release == 'true'
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event.inputs.create_release == 'true' && github.event.inputs.tag != '')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: Axii v${{ steps.prepare.outputs.version }}
           body: |
             ## Axii v${{ steps.prepare.outputs.version }}
@@ -245,7 +250,7 @@ jobs:
             dist/Axii.dmg
             dist/Axii.zip
           draft: false
-          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+          prerelease: ${{ contains(github.event.inputs.tag || github.ref, 'beta') || contains(github.event.inputs.tag || github.ref, 'alpha') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
