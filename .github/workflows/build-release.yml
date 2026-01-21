@@ -132,9 +132,11 @@ jobs:
             codesign --force --timestamp --options runtime --deep --sign "$IDENTITY" "$framework" || true
           done
 
-          # Re-sign the main app with hardened runtime
-          echo "Signing main application..."
-          codesign --force --timestamp --options runtime --deep --sign "$IDENTITY" "dist/Axii.app"
+          # Re-sign the main app with hardened runtime and entitlements
+          echo "Signing main application with entitlements..."
+          codesign --force --timestamp --options runtime --deep \
+            --entitlements "Axii/Axii.entitlements" \
+            --sign "$IDENTITY" "dist/Axii.app"
 
           # Verify signature
           echo "Verifying signature..."
