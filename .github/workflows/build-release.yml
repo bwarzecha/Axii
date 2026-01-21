@@ -69,6 +69,10 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
 
+          # Verify certificate was imported
+          echo "Available signing identities:"
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+
       - name: Resolve Swift packages
         run: |
           xcodebuild -resolvePackageDependencies \
@@ -90,8 +94,10 @@ jobs:
             CODE_SIGN_IDENTITY="Developer ID Application" \
             OTHER_CODE_SIGN_FLAGS="--timestamp --options runtime"
 
-      - name: Prepare app for distribution
+      - name: Prepare and sign app for distribution
         id: prepare
+        env:
+          TEAM_ID: ${{ secrets.TEAM_ID }}
         run: |
           # Find the built app
           APP_PATH=$(find build -name "Axii.app" -type d | head -1)
@@ -103,6 +109,35 @@ jobs:
           # Copy app to dist
           cp -R "$APP_PATH" dist/
 
+          # Find signing identity
+          IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "Using identity: $IDENTITY"
+
+          # Deep sign all nested code with hardened runtime
+          echo "Signing nested frameworks and libraries..."
+          find "dist/Axii.app/Contents/Frameworks" -type f \( -name "*.dylib" -o -name "*.framework" \) 2>/dev/null | while read -r item; do
+            echo "Signing: $item"
+            codesign --force --timestamp --options runtime --sign "$IDENTITY" "$item" || true
+          done
+
+          # Sign any frameworks
+          find "dist/Axii.app/Contents/Frameworks" -name "*.framework" -type d 2>/dev/null | while read -r framework; do
+            echo "Signing framework: $framework"
+            codesign --force --timestamp --options runtime --deep --sign "$IDENTITY" "$framework" || true
+          done
+
+          # Re-sign the main app with hardened runtime
+          echo "Signing main application..."
+          codesign --force --timestamp --options runtime --deep --sign "$IDENTITY" "dist/Axii.app"
+
+          # Verify signature
+          echo "Verifying signature..."
+          codesign --verify --verbose=4 "dist/Axii.app"
+
+          # Check for hardened runtime
+          echo "Checking entitlements..."
+          codesign -d --entitlements - "dist/Axii.app" 2>&1 || true
+
           # Get version from Info.plist
           VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "dist/Axii.app/Contents/Info.plist")
           BUILD=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "dist/Axii.app/Contents/Info.plist")
@@ -113,6 +148,7 @@ jobs:
           echo "app_path=dist/Axii.app" >> $GITHUB_OUTPUT
 
       - name: Notarize application
+        id: notarize
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
@@ -123,21 +159,45 @@ jobs:
           # Create ZIP for notarization
           ditto -c -k --keepParent "Axii.app" "Axii-notarize.zip"
 
-          # Submit for notarization
+          # Submit for notarization and capture submission ID
           echo "Submitting for notarization..."
-          xcrun notarytool submit "Axii-notarize.zip" \
+          SUBMIT_OUTPUT=$(xcrun notarytool submit "Axii-notarize.zip" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$TEAM_ID" \
-            --wait
+            --wait 2>&1) || true
 
-          # Staple the notarization ticket
-          echo "Stapling notarization ticket..."
-          xcrun stapler staple "Axii.app"
+          echo "$SUBMIT_OUTPUT"
 
-          # Verify
-          echo "Verifying notarization..."
-          spctl --assess --type execute --verbose "Axii.app"
+          # Extract submission ID
+          SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
+          echo "Submission ID: $SUBMISSION_ID"
+
+          # Check if notarization succeeded
+          if echo "$SUBMIT_OUTPUT" | grep -q "status: Accepted"; then
+            echo "Notarization succeeded!"
+
+            # Staple the notarization ticket
+            echo "Stapling notarization ticket..."
+            xcrun stapler staple "Axii.app"
+
+            # Verify
+            echo "Verifying notarization..."
+            spctl --assess --type execute --verbose "Axii.app"
+          else
+            echo "Notarization failed. Fetching detailed log..."
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --team-id "$TEAM_ID" \
+              notarization-log.json || true
+
+            echo "=== Notarization Log ==="
+            cat notarization-log.json || true
+            echo "========================"
+
+            exit 1
+          fi
 
           # Clean up
           rm "Axii-notarize.zip"
