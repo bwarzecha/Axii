@@ -101,11 +101,7 @@ final class DictationFeature: Feature {
     private func registerHotkey() {
         guard let context else { return }
         let config = settings.hotkeyConfig
-        context.hotkeyService.register(
-            .togglePanel,
-            key: config.key,
-            modifiers: config.nsModifiers
-        ) { [weak self] in
+        context.registerHotkey(.togglePanel, config: config) { [weak self] in
             self?.handleHotkey()
         }
     }

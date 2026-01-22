@@ -14,6 +14,7 @@ import AppKit
 @MainActor
 final class AppController {
     private let hotkeyService: HotkeyService
+    private let advancedHotkeyService: AdvancedHotkeyService
     private let featureManager: FeatureManager
     private var panelController: FloatingPanelController?
 
@@ -24,6 +25,7 @@ final class AppController {
     let micPermission: MicrophonePermissionService
     let accessibilityPermission: AccessibilityPermissionService
     let screenPermission: ScreenRecordingPermissionService
+    let inputMonitoringPermission: InputMonitoringPermissionService
     private let pasteService: PasteService
     let settings: SettingsService
     let llmSettings: LLMSettingsService
@@ -48,16 +50,22 @@ final class AppController {
     }
 
     init() {
-        // Create services
+        // Create services (order matters due to dependencies)
+        settings = SettingsService()
         hotkeyService = HotkeyService()
-        featureManager = FeatureManager(hotkeyService: hotkeyService)
+        inputMonitoringPermission = InputMonitoringPermissionService()
+        advancedHotkeyService = AdvancedHotkeyService(permission: inputMonitoringPermission)
+        featureManager = FeatureManager(
+            hotkeyService: hotkeyService,
+            advancedHotkeyService: advancedHotkeyService,
+            settings: settings
+        )
         transcriptionService = TranscriptionService()
         diarizationService = DiarizationService()
         clipboardService = ClipboardService()
         micPermission = MicrophonePermissionService()
         accessibilityPermission = AccessibilityPermissionService()
         screenPermission = ScreenRecordingPermissionService()
-        settings = SettingsService()
         llmSettings = LLMSettingsService()
         llmService = LLMService(settings: llmSettings)
         playbackService = AudioPlaybackService()
@@ -111,13 +119,55 @@ final class AppController {
         // Pause/resume hotkeys during hotkey recording
         settings.onHotkeyRecordingStarted = { [weak self] in
             self?.hotkeyService.pause()
+            self?.advancedHotkeyService.pause()
         }
         settings.onHotkeyRecordingStopped = { [weak self] in
             self?.hotkeyService.resume()
+            self?.advancedHotkeyService.resume()
+        }
+        // Handle hotkey mode changes
+        settings.onHotkeyModeChanged = { [weak self] in
+            self?.handleHotkeyModeChange()
         }
         // Sync history setting to service
         settings.onHistorySettingChanged = { [weak self] enabled in
             self?.historyService.isEnabled = enabled
+        }
+        // Start advanced hotkey service when permission is granted (if in advanced mode)
+        inputMonitoringPermission.onPermissionGranted = { [weak self] in
+            self?.handleInputMonitoringPermissionGranted()
+        }
+    }
+
+    private func handleInputMonitoringPermissionGranted() {
+        // Only start if we're in advanced mode and the service isn't already running
+        guard settings.hotkeyMode == .advanced, !advancedHotkeyService.isActive else { return }
+
+        if advancedHotkeyService.start() {
+            print("Advanced hotkey mode started after permission granted")
+            // Re-register hotkeys with the now-active service
+            settings.onHotkeyChanged?()
+            settings.onConversationHotkeyChanged?()
+        }
+    }
+
+    private func handleHotkeyModeChange() {
+        // Clean up both services before switching
+        hotkeyService.unregisterAll()
+        advancedHotkeyService.stop()
+        advancedHotkeyService.unregisterAll()
+
+        // Start the appropriate service based on mode
+        // Features will re-register via onHotkeyChanged callback (fired after this)
+        switch settings.hotkeyMode {
+        case .standard:
+            print("Switched to Standard hotkey mode")
+        case .advanced:
+            if advancedHotkeyService.start() {
+                print("Switched to Advanced hotkey mode")
+            } else {
+                print("Failed to start Advanced hotkey mode - permission not granted")
+            }
         }
     }
 
@@ -135,6 +185,15 @@ final class AppController {
     private func registerFeatures() {
         guard !featuresActivated else { return }
         featuresActivated = true
+
+        // Start the appropriate hotkey service based on mode
+        if settings.hotkeyMode == .advanced {
+            if advancedHotkeyService.start() {
+                print("Advanced hotkey mode active")
+            } else {
+                print("Advanced hotkey mode failed to start - permission not granted")
+            }
+        }
 
         featureManager.register(dictationFeature)
         featureManager.register(conversationFeature)

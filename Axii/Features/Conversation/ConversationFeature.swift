@@ -67,11 +67,7 @@ final class ConversationFeature: Feature {
     private func registerHotkey() {
         guard let context else { return }
         let config = settings.conversationHotkeyConfig
-        context.hotkeyService.register(
-            .conversation,
-            key: config.key,
-            modifiers: config.nsModifiers
-        ) { [weak self] in
+        context.registerHotkey(.conversation, config: config) { [weak self] in
             self?.handleHotkey()
         }
     }

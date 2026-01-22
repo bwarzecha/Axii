@@ -17,6 +17,8 @@ import HotKey
 @MainActor
 final class FeatureManager {
     private let hotkeyService: HotkeyService
+    private let advancedHotkeyService: AdvancedHotkeyService?
+    private let settings: SettingsService
     private var features: [any Feature] = []
     private var activeFeature: (any Feature)?
     private var panelController: FloatingPanelController?
@@ -24,8 +26,14 @@ final class FeatureManager {
     /// Callback when panel content changes
     var onPanelContentChanged: ((AnyView?) -> Void)?
 
-    init(hotkeyService: HotkeyService) {
+    init(
+        hotkeyService: HotkeyService,
+        advancedHotkeyService: AdvancedHotkeyService? = nil,
+        settings: SettingsService
+    ) {
         self.hotkeyService = hotkeyService
+        self.advancedHotkeyService = advancedHotkeyService
+        self.settings = settings
     }
 
     /// Sets the panel controller for showing/hiding UI
@@ -35,7 +43,11 @@ final class FeatureManager {
 
     /// Registers a feature. The feature will register its own hotkeys.
     func register(_ feature: any Feature) {
-        let context = FeatureContext(hotkeyService: hotkeyService)
+        let context = FeatureContext(
+            hotkeyService: hotkeyService,
+            advancedHotkeyService: advancedHotkeyService,
+            settings: settings
+        )
 
         context.onActivate = { [weak self] feature in
             self?.activateFeature(feature)

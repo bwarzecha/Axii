@@ -15,17 +15,20 @@ import HotKey
 struct HotkeyConfig: Codable, Equatable {
     let keyCode: UInt32
     let modifiers: UInt32
+    let usesFnKey: Bool
 
     /// Default dictation hotkey: Control+Shift+Space
     static let `default` = HotkeyConfig(
         keyCode: UInt32(kVK_Space),
-        modifiers: UInt32(controlKey) | UInt32(shiftKey)
+        modifiers: UInt32(controlKey) | UInt32(shiftKey),
+        usesFnKey: false
     )
 
     /// Default conversation hotkey: Control+Option+Space
     static let conversationDefault = HotkeyConfig(
         keyCode: UInt32(kVK_Space),
-        modifiers: UInt32(controlKey) | UInt32(optionKey)
+        modifiers: UInt32(controlKey) | UInt32(optionKey),
+        usesFnKey: false
     )
 
     /// Convert to HotKey library Key type for registration.
@@ -44,9 +47,12 @@ struct HotkeyConfig: Codable, Equatable {
         return flags
     }
 
-    /// Human-readable display string (e.g., "Control+Shift+Space").
+    /// Human-readable display string (e.g., "Fn+Control+Shift+Space").
     var displayString: String {
         var parts: [String] = []
+
+        // Fn first if used
+        if usesFnKey { parts.append("Fn") }
 
         // Modifiers in standard macOS order
         if modifiers & UInt32(controlKey) != 0 { parts.append("Control") }
@@ -61,9 +67,12 @@ struct HotkeyConfig: Codable, Equatable {
         return parts.joined(separator: "+")
     }
 
-    /// Compact symbol string (e.g., "⌃⇧␣" for Control+Shift+Space).
+    /// Compact symbol string (e.g., "fn ⌃⇧␣" for Fn+Control+Shift+Space).
     var symbolString: String {
         var symbols = ""
+
+        // Fn first if used (with space separator for readability)
+        if usesFnKey { symbols += "fn " }
 
         // Modifiers in standard macOS order
         if modifiers & UInt32(controlKey) != 0 { symbols += "⌃" }
@@ -77,19 +86,44 @@ struct HotkeyConfig: Codable, Equatable {
     }
 
     /// Create from NSEvent (used by hotkey recorder).
-    init(from event: NSEvent) {
+    init(from event: NSEvent, usesFnKey: Bool = false) {
         self.keyCode = UInt32(event.keyCode)
         self.modifiers = Self.nsModifiersToCarbonModifiers(event.modifierFlags)
+        self.usesFnKey = usesFnKey
     }
 
-    init(keyCode: UInt32, modifiers: UInt32) {
+    init(keyCode: UInt32, modifiers: UInt32, usesFnKey: Bool = false) {
         self.keyCode = keyCode
         self.modifiers = modifiers
+        self.usesFnKey = usesFnKey
     }
 
-    /// Check if config has at least one modifier key.
+    /// Create from HotKey library types (for simple feature registration).
+    init(key: Key, modifiers: NSEvent.ModifierFlags, usesFnKey: Bool = false) {
+        self.keyCode = key.carbonKeyCode
+        self.modifiers = Self.nsModifiersToCarbonModifiers(modifiers)
+        self.usesFnKey = usesFnKey
+    }
+
+    /// Check if config has at least one modifier key (including Fn).
     var hasModifiers: Bool {
-        modifiers != 0
+        modifiers != 0 || usesFnKey
+    }
+
+    // MARK: - Codable (backward compatibility)
+
+    private enum CodingKeys: String, CodingKey {
+        case keyCode
+        case modifiers
+        case usesFnKey
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        keyCode = try container.decode(UInt32.self, forKey: .keyCode)
+        modifiers = try container.decode(UInt32.self, forKey: .modifiers)
+        // Default to false for old configs that don't have this field
+        usesFnKey = try container.decodeIfPresent(Bool.self, forKey: .usesFnKey) ?? false
     }
 }
 

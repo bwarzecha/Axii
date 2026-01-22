@@ -10,6 +10,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var settings: SettingsService
+    var inputMonitoringPermission: InputMonitoringPermissionService
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -19,12 +20,22 @@ struct SettingsView: View {
 
             Divider()
 
+            HotkeyModeSettingView(
+                currentMode: settings.hotkeyMode,
+                isPermissionGranted: inputMonitoringPermission.isGranted,
+                onModeChange: { settings.setHotkeyMode($0) },
+                onRequestPermission: { inputMonitoringPermission.requestAccess() }
+            )
+
+            Divider()
+
             HotkeySettingView(
                 hotkeyConfig: settings.hotkeyConfig,
                 onUpdate: { settings.updateHotkey($0) },
                 onReset: { settings.resetHotkeyToDefault() },
                 onStartRecording: { settings.startHotkeyRecording() },
-                onStopRecording: { settings.stopHotkeyRecording() }
+                onStopRecording: { settings.stopHotkeyRecording() },
+                allowFnKey: settings.hotkeyMode == .advanced
             )
 
             Divider()
@@ -45,7 +56,7 @@ struct SettingsView: View {
             Spacer()
         }
         .padding(24)
-        .frame(width: 400, height: 280)
+        .frame(width: 400, height: 400)
     }
 }
 #endif
