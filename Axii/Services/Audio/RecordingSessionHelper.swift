@@ -28,7 +28,7 @@ final class RecordingSessionHelper {
 
     // Callbacks
     var onVisualizationUpdate: ((VisualizationUpdate) -> Void)?
-    var onSignalStateChanged: ((Bool) -> Void)?  // isWaitingForSignal
+    var onSignalStateChanged: ((Bool) -> Void)?  // isWaitingForSignal (initial warmup)
     var onError: ((AudioSessionError) -> Void)?
 
     // Internal state
@@ -36,14 +36,18 @@ final class RecordingSessionHelper {
     private var chunkTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
     private var warmupTimeoutTask: Task<Void, Never>?
+    private var warmupWasStarted = false       // True once warmup phase began
+    private var initialWarmupComplete = false  // Track if initial Bluetooth warmup finished
 
     // Timeout for Bluetooth warmup (seconds)
-    private let warmupTimeout: TimeInterval = 5.0
+    private let warmupTimeout: TimeInterval = 20.0
 
     /// Start recording from the specified source.
     func start(source: AudioSource) async throws {
         // Reset state
         samples = []
+        warmupWasStarted = false
+        initialWarmupComplete = false
 
         // Resolve current device (RecordingSessionHelper only supports microphone sources)
         switch source {
@@ -83,6 +87,7 @@ final class RecordingSessionHelper {
 
         // If Bluetooth, start in waiting-for-signal state with timeout
         if currentDevice?.isBluetooth == true {
+            warmupWasStarted = true
             onSignalStateChanged?(true)
             startWarmupTimeout()
         }
@@ -147,13 +152,19 @@ final class RecordingSessionHelper {
     private func handleEvent(_ event: AudioEvent) {
         switch event {
         case .signalState(let signalState):
+            // Only process signal events for Bluetooth devices after warmup has been initiated
+            guard currentDevice?.isBluetooth == true, warmupWasStarted else { return }
+
             if signalState == .signal {
                 cancelWarmupTimeout()
                 onSignalStateChanged?(false)
-            } else if currentDevice?.isBluetooth == true {
+                initialWarmupComplete = true
+            } else if !initialWarmupComplete {
+                // Still in warmup phase
                 onSignalStateChanged?(true)
                 startWarmupTimeout()
             }
+            // After warmup complete, silence is normal - no action needed
 
         case .deviceDisconnected(let device):
             print("RecordingSessionHelper: Device disconnected: \(device.name)")

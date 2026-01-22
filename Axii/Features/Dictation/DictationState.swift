@@ -25,7 +25,7 @@ final class DictationState {
     var spectrum: [Float] = []
 
     /// True when waiting for Bluetooth device to produce signal.
-    /// Used to show "Waiting for signal..." feedback during Bluetooth warm-up.
+    /// Used to show "Warming up..." feedback during Bluetooth warm-up.
     var isWaitingForSignal: Bool = false
 
     #if os(macOS)
