@@ -15,6 +15,7 @@ struct HotkeySettingView: View {
     var onReset: () -> Void
     var onStartRecording: () -> Void
     var onStopRecording: () -> Void
+    var allowFnKey: Bool = false
 
     @State private var isRecording = false
 
@@ -37,6 +38,7 @@ struct HotkeySettingView: View {
                 .background {
                     if isRecording {
                         HotkeyRecorderView(
+                            allowFnKey: allowFnKey,
                             onKeyPressed: handleKeyPress,
                             onCancel: cancelRecording
                         )
@@ -52,9 +54,17 @@ struct HotkeySettingView: View {
                 }
             }
 
-            Text("Press a key combination with at least one modifier (Control, Option, Shift, or Command)")
+            Text(helpText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var helpText: String {
+        if allowFnKey {
+            return "Press a key with Fn, Control, Option, Shift, or Command."
+        } else {
+            return "Press a key combination with at least one modifier (Control, Option, Shift, or Command)"
         }
     }
 
@@ -63,8 +73,8 @@ struct HotkeySettingView: View {
         isRecording = true
     }
 
-    private func handleKeyPress(_ event: NSEvent) {
-        let newConfig = HotkeyConfig(from: event)
+    private func handleKeyPress(_ event: NSEvent, usesFnKey: Bool) {
+        let newConfig = HotkeyConfig(from: event, usesFnKey: usesFnKey)
         if newConfig.hasModifiers {
             onUpdate(newConfig)
         }
@@ -79,17 +89,20 @@ struct HotkeySettingView: View {
 
 /// NSViewRepresentable that captures key events via direct keyDown override.
 struct HotkeyRecorderView: NSViewRepresentable {
-    let onKeyPressed: (NSEvent) -> Void
+    let allowFnKey: Bool
+    let onKeyPressed: (NSEvent, Bool) -> Void
     let onCancel: () -> Void
 
     func makeNSView(context: Context) -> HotkeyRecorderNSView {
         let view = HotkeyRecorderNSView()
+        view.allowFnKey = allowFnKey
         view.onKeyPressed = onKeyPressed
         view.onCancel = onCancel
         return view
     }
 
     func updateNSView(_ nsView: HotkeyRecorderNSView, context: Context) {
+        nsView.allowFnKey = allowFnKey
         nsView.onKeyPressed = onKeyPressed
         nsView.onCancel = onCancel
 
@@ -102,7 +115,8 @@ struct HotkeyRecorderView: NSViewRepresentable {
 
 /// NSView that becomes first responder to capture key events.
 final class HotkeyRecorderNSView: NSView {
-    var onKeyPressed: ((NSEvent) -> Void)?
+    var allowFnKey: Bool = false
+    var onKeyPressed: ((NSEvent, Bool) -> Void)?
     var onCancel: (() -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
@@ -110,22 +124,29 @@ final class HotkeyRecorderNSView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil {
-            window?.makeFirstResponder(self)
+        if let window {
+            window.makeFirstResponder(self)
         }
     }
 
     override func keyDown(with event: NSEvent) {
+
         // Escape cancels recording
         if event.keyCode == 53 {
             onCancel?()
             return
         }
 
-        // Only accept keys with modifiers
-        let modifiers = event.modifierFlags.intersection([.control, .option, .shift, .command])
-        if !modifiers.isEmpty {
-            onKeyPressed?(event)
+        // Check for Fn key if allowed
+        let fnPressed = allowFnKey && event.modifierFlags.contains(.function)
+
+        // Check for standard modifiers
+        let standardModifiers = event.modifierFlags.intersection([.control, .option, .shift, .command])
+        let hasStandardModifier = !standardModifiers.isEmpty
+
+        // Accept if: has standard modifier OR (Fn is allowed AND Fn is pressed)
+        if hasStandardModifier || fnPressed {
+            onKeyPressed?(event, fnPressed)
             return
         }
 

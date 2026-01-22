@@ -56,10 +56,13 @@ struct AxiiApp: App {
 
         // Settings window
         Window("Settings", id: "settings") {
-            SettingsView(settings: controller.settings)
-                .onAppear {
-                    NSApp.activate(ignoringOtherApps: true)
-                }
+            SettingsView(
+                settings: controller.settings,
+                inputMonitoringPermission: controller.inputMonitoringPermission
+            )
+            .onAppear {
+                NSApp.activate(ignoringOtherApps: true)
+            }
         }
         .windowResizability(.contentSize)
 

@@ -8,6 +8,13 @@
 #if os(macOS)
 import Foundation
 
+/// Hotkey detection mode.
+/// Standard uses Carbon API (no Fn support), Advanced uses CGEventTap (Fn supported).
+enum HotkeyMode: String, Codable {
+    case standard
+    case advanced
+}
+
 /// Observable settings service with UserDefaults persistence.
 /// Changes notify listeners via callbacks for live updates.
 @MainActor
@@ -18,6 +25,9 @@ final class SettingsService {
 
     /// Current conversation hotkey configuration.
     private(set) var conversationHotkeyConfig: HotkeyConfig
+
+    /// Current hotkey mode (standard or advanced).
+    private(set) var hotkeyMode: HotkeyMode
 
     /// Whether history saving is enabled (default: true)
     var isHistoryEnabled: Bool {
@@ -42,10 +52,14 @@ final class SettingsService {
     /// Called when history setting changes
     var onHistorySettingChanged: ((Bool) -> Void)?
 
+    /// Called when hotkey mode changes (to switch between services).
+    var onHotkeyModeChanged: (() -> Void)?
+
     private let defaults: UserDefaults
     private let hotkeyKey = "settings.hotkeyConfig"
     private let conversationHotkeyKey = "settings.conversationHotkeyConfig"
     private let historyEnabledKey = "settings.isHistoryEnabled"
+    private let hotkeyModeKey = "settings.hotkeyMode"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -59,6 +73,7 @@ final class SettingsService {
             key: "settings.conversationHotkeyConfig",
             defaultValue: .conversationDefault
         )
+        self.hotkeyMode = Self.loadHotkeyMode(from: defaults)
         // History is enabled by default
         self.isHistoryEnabled = defaults.object(forKey: "settings.isHistoryEnabled") as? Bool ?? true
     }
@@ -98,6 +113,28 @@ final class SettingsService {
     func stopHotkeyRecording() {
         onHotkeyRecordingStopped?()
     }
+
+    /// Sets the hotkey mode and resets all hotkeys to defaults.
+    /// Switching modes requires re-registering hotkeys with different service.
+    func setHotkeyMode(_ mode: HotkeyMode) {
+        guard mode != hotkeyMode else { return }
+        hotkeyMode = mode
+        saveHotkeyMode()
+        // First: switch services (stop old, start new)
+        onHotkeyModeChanged?()
+        // Then: reset hotkeys which triggers re-registration with new service
+        resetAllHotkeysToDefaults()
+    }
+
+    /// Resets all hotkeys to their default values.
+    func resetAllHotkeysToDefaults() {
+        hotkeyConfig = .default
+        conversationHotkeyConfig = .conversationDefault
+        saveHotkeyConfig()
+        saveConversationHotkeyConfig()
+        onHotkeyChanged?()
+        onConversationHotkeyChanged?()
+    }
 }
 
 // MARK: - Persistence
@@ -127,6 +164,18 @@ private extension SettingsService {
             return defaultValue
         }
         return config
+    }
+
+    func saveHotkeyMode() {
+        defaults.set(hotkeyMode.rawValue, forKey: hotkeyModeKey)
+    }
+
+    static func loadHotkeyMode(from defaults: UserDefaults) -> HotkeyMode {
+        guard let rawValue = defaults.string(forKey: "settings.hotkeyMode"),
+              let mode = HotkeyMode(rawValue: rawValue) else {
+            return .standard
+        }
+        return mode
     }
 }
 #endif

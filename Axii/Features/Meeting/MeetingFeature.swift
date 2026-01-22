@@ -112,11 +112,7 @@ final class MeetingFeature: Feature {
         self.context = context
 
         // Register hotkey: Control+Option+T
-        context.hotkeyService.register(
-            .meeting,
-            key: .t,
-            modifiers: [.control, .option]
-        ) { [weak self] in
+        context.registerHotkey(.meeting, key: .t, modifiers: [.control, .option]) { [weak self] in
             self?.handleHotkey()
         }
 
