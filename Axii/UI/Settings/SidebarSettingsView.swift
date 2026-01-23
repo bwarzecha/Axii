@@ -1,0 +1,105 @@
+//
+//  SidebarSettingsView.swift
+//  Axii
+//
+//  Main settings container with sidebar navigation.
+//
+
+#if os(macOS)
+import SwiftUI
+
+struct SidebarSettingsView: View {
+    @Bindable var settings: SettingsService
+    var inputMonitoringPermission: InputMonitoringPermissionService
+
+    @State private var selectedSection: SettingsSection = .general
+
+    var body: some View {
+        NavigationSplitView {
+            List(selection: $selectedSection) {
+                ForEach(SettingsSection.allCases) { section in
+                    Label(section.title, systemImage: section.icon)
+                        .tag(section)
+                }
+            }
+            .navigationSplitViewColumnWidth(min: 150, ideal: 180, max: 220)
+        } detail: {
+            detailView
+                .navigationTitle(selectedSection.title)
+        }
+        .frame(width: 550, height: 400)
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch selectedSection {
+        case .general:
+            GeneralSettingsView(
+                settings: settings,
+                inputMonitoringPermission: inputMonitoringPermission
+            )
+        case .dictation:
+            DictationSettingsView(settings: settings)
+        case .conversation:
+            ConversationSettingsView(settings: settings)
+        }
+    }
+}
+
+// MARK: - Settings Section
+
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case general
+    case dictation
+    case conversation
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general: return "General"
+        case .dictation: return "Dictation"
+        case .conversation: return "Conversation"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general: return "gear"
+        case .dictation: return "mic"
+        case .conversation: return "bubble.left.and.bubble.right"
+        }
+    }
+}
+
+// MARK: - Placeholder for Conversation Settings
+
+struct ConversationSettingsView: View {
+    @Bindable var settings: SettingsService
+
+    var body: some View {
+        Form {
+            Section {
+                HotkeySettingView(
+                    hotkeyConfig: settings.conversationHotkeyConfig,
+                    onUpdate: { settings.updateConversationHotkey($0) },
+                    onReset: { settings.resetConversationHotkeyToDefault() },
+                    onStartRecording: { settings.startHotkeyRecording() },
+                    onStopRecording: { settings.stopHotkeyRecording() },
+                    allowFnKey: settings.hotkeyMode == .advanced
+                )
+            } header: {
+                Text("Hotkey")
+            }
+
+            Section {
+                Text("More conversation settings coming soon.")
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Coming Soon")
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+#endif

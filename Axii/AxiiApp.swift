@@ -56,7 +56,7 @@ struct AxiiApp: App {
 
         // Settings window
         Window("Settings", id: "settings") {
-            SettingsView(
+            SidebarSettingsView(
                 settings: controller.settings,
                 inputMonitoringPermission: controller.inputMonitoringPermission
             )
@@ -155,6 +155,8 @@ struct MenuBarView: View {
             return "Transcribing..."
         case .done:
             return "Done"
+        case .doneNeedsCopy:
+            return "Copy pending"
         case .error:
             return "Error"
         }

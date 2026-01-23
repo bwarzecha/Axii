@@ -13,6 +13,7 @@ struct DictationPanelView: View {
     var state: DictationState
     let hotkeyHint: String
     var onMicrophoneSwitch: ((AudioDevice?) -> Void)?
+    var onCopy: ((String) -> Void)?
 
     private let panelWidth: CGFloat = 200
     private let panelHeight: CGFloat = 220
@@ -72,7 +73,7 @@ struct DictationPanelView: View {
             return state.isWaitingForSignal ? 0.3 : CGFloat(state.audioLevel)
         case .transcribing:
             return 0.5
-        case .done:
+        case .done, .doneNeedsCopy:
             return 1.0
         case .error:
             return 0
@@ -92,8 +93,14 @@ struct DictationPanelView: View {
     }
 
     private var indicatorColor: Color? {
-        if case .done = state.phase { return .green }
-        return nil
+        switch state.phase {
+        case .done:
+            return .green
+        case .doneNeedsCopy:
+            return .orange
+        default:
+            return nil
+        }
     }
 
     private var indicatorOpacity: Double {
@@ -126,6 +133,11 @@ struct DictationPanelView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.green)
 
+        case .doneNeedsCopy:
+            Image(systemName: "doc.on.clipboard")
+                .font(.system(size: 40))
+                .foregroundStyle(.orange)
+
         case .error:
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 40))
@@ -148,6 +160,12 @@ struct DictationPanelView: View {
                 .foregroundStyle(.secondary)
 
         case .done(let text):
+            Text(text)
+                .font(.caption)
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+
+        case .doneNeedsCopy(let text, _):
             Text(text)
                 .font(.caption)
                 .lineLimit(1)
@@ -198,6 +216,22 @@ struct DictationPanelView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                HStack(spacing: 4) {
+                    KeyCap("esc")
+                    Text("Dismiss")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+        case .doneNeedsCopy(let text, _):
+            HStack(spacing: 12) {
+                Button("Copy") {
+                    onCopy?(text)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
                 HStack(spacing: 4) {
                     KeyCap("esc")
                     Text("Dismiss")

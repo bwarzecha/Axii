@@ -29,6 +29,12 @@ final class SettingsService {
     /// Current hotkey mode (standard or advanced).
     private(set) var hotkeyMode: HotkeyMode
 
+    /// Finish behavior for dictation (what to do with transcribed text).
+    private(set) var finishBehavior: FinishBehavior
+
+    /// What to do when insertion fails.
+    private(set) var insertionFailureBehavior: InsertionFailureBehavior
+
     /// Whether history saving is enabled (default: true)
     var isHistoryEnabled: Bool {
         didSet {
@@ -60,6 +66,8 @@ final class SettingsService {
     private let conversationHotkeyKey = "settings.conversationHotkeyConfig"
     private let historyEnabledKey = "settings.isHistoryEnabled"
     private let hotkeyModeKey = "settings.hotkeyMode"
+    private let finishBehaviorKey = "settings.finishBehavior"
+    private let insertionFailureBehaviorKey = "settings.insertionFailureBehavior"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -74,6 +82,8 @@ final class SettingsService {
             defaultValue: .conversationDefault
         )
         self.hotkeyMode = Self.loadHotkeyMode(from: defaults)
+        self.finishBehavior = Self.loadFinishBehavior(from: defaults)
+        self.insertionFailureBehavior = Self.loadInsertionFailureBehavior(from: defaults)
         // History is enabled by default
         self.isHistoryEnabled = defaults.object(forKey: "settings.isHistoryEnabled") as? Bool ?? true
     }
@@ -135,6 +145,20 @@ final class SettingsService {
         onHotkeyChanged?()
         onConversationHotkeyChanged?()
     }
+
+    /// Updates the finish behavior and persists it.
+    func setFinishBehavior(_ behavior: FinishBehavior) {
+        guard behavior != finishBehavior else { return }
+        finishBehavior = behavior
+        defaults.set(behavior.rawValue, forKey: finishBehaviorKey)
+    }
+
+    /// Updates the insertion failure behavior and persists it.
+    func setInsertionFailureBehavior(_ behavior: InsertionFailureBehavior) {
+        guard behavior != insertionFailureBehavior else { return }
+        insertionFailureBehavior = behavior
+        defaults.set(behavior.rawValue, forKey: insertionFailureBehaviorKey)
+    }
 }
 
 // MARK: - Persistence
@@ -176,6 +200,22 @@ private extension SettingsService {
             return .standard
         }
         return mode
+    }
+
+    static func loadFinishBehavior(from defaults: UserDefaults) -> FinishBehavior {
+        guard let rawValue = defaults.string(forKey: "settings.finishBehavior"),
+              let behavior = FinishBehavior(rawValue: rawValue) else {
+            return .insertAndCopy
+        }
+        return behavior
+    }
+
+    static func loadInsertionFailureBehavior(from defaults: UserDefaults) -> InsertionFailureBehavior {
+        guard let rawValue = defaults.string(forKey: "settings.insertionFailureBehavior"),
+              let behavior = InsertionFailureBehavior(rawValue: rawValue) else {
+            return .showCopyButton
+        }
+        return behavior
     }
 }
 #endif

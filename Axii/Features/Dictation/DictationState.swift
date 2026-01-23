@@ -14,6 +14,8 @@ enum DictationPhase: Equatable {
     case recording
     case transcribing
     case done(text: String)
+    /// Transcription complete but insertion failed. Shows copy button, waits for user action.
+    case doneNeedsCopy(text: String, reason: String)
     case error(message: String)
 }
 

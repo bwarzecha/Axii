@@ -22,6 +22,7 @@ final class DictationFeature: Feature {
     private let transcriptionService: TranscriptionService
     private let micPermission: MicrophonePermissionService
     private let pasteService: PasteService
+    private let clipboardService: ClipboardService
     private let settings: SettingsService
     private let historyService: HistoryService
 
@@ -45,12 +46,14 @@ final class DictationFeature: Feature {
         transcriptionService: TranscriptionService,
         micPermission: MicrophonePermissionService,
         pasteService: PasteService,
+        clipboardService: ClipboardService,
         settings: SettingsService,
         historyService: HistoryService
     ) {
         self.transcriptionService = transcriptionService
         self.micPermission = micPermission
         self.pasteService = pasteService
+        self.clipboardService = clipboardService
         self.settings = settings
         self.historyService = historyService
     }
@@ -63,6 +66,9 @@ final class DictationFeature: Feature {
             hotkeyHint: settings.hotkeyConfig.symbolString,
             onMicrophoneSwitch: { [weak self] device in
                 self?.switchMicrophone(to: device)
+            },
+            onCopy: { [weak self] text in
+                self?.copyAndDismiss(text)
             }
         ))
     }
@@ -127,6 +133,9 @@ final class DictationFeature: Feature {
             stopRecording()
         case .transcribing, .done, .error:
             cancelAndDeactivate()
+        case .doneNeedsCopy(let text, _):
+            // Hotkey during copy button state: copy and dismiss
+            copyAndDismiss(text)
         }
     }
 
@@ -226,23 +235,48 @@ final class DictationFeature: Feature {
                 )
 
                 var pastedToApp: String?
+                var shouldScheduleDeactivation = true
+
                 if text.isEmpty {
                     state.phase = .done(text: "No speech detected")
                 } else {
-                    let outcome = pasteService.paste(text: text, focusSnapshot: focusSnapshot)
+                    let outcome = await pasteService.paste(
+                        text: text,
+                        focusSnapshot: focusSnapshot,
+                        finishBehavior: settings.finishBehavior,
+                        failureBehavior: settings.insertionFailureBehavior
+                    )
+
                     switch outcome {
                     case .pasted:
                         state.phase = .done(text: text)
                         pastedToApp = focusSnapshot?.bundleIdentifier
+
+                    case .pastedAndCopied:
+                        state.phase = .done(text: text)
+                        pastedToApp = focusSnapshot?.bundleIdentifier
+
+                    case .copiedOnly:
+                        state.phase = .done(text: "\(text)\n(Copied to clipboard)")
+
                     case .copiedFallback(let reason):
                         state.phase = .done(text: "\(text)\n(Copied: \(reason))")
+
+                    case .needsManualCopy(let reason):
+                        // Don't auto-dismiss, wait for user to click Copy or Escape
+                        state.phase = .doneNeedsCopy(text: text, reason: reason)
+                        shouldScheduleDeactivation = false
+
                     case .skipped:
                         state.phase = .done(text: "No speech detected")
                     }
                 }
 
                 focusSnapshot = nil
-                scheduleDeactivation(delay: 2.0)
+
+                if shouldScheduleDeactivation {
+                    scheduleDeactivation(delay: 2.0)
+                }
 
                 if !text.isEmpty {
                     await saveTranscriptionToHistory(
@@ -313,6 +347,13 @@ final class DictationFeature: Feature {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.cancelAndDeactivate()
         }
+    }
+
+    /// Copy text to clipboard and dismiss the panel.
+    /// Used when user clicks the Copy button in doneNeedsCopy state.
+    private func copyAndDismiss(_ text: String) {
+        clipboardService.copy(text)
+        cancelAndDeactivate()
     }
 
     // MARK: - Microphone Switching

@@ -82,6 +82,7 @@ final class AppController {
             transcriptionService: transcriptionService,
             micPermission: micPermission,
             pasteService: pasteService,
+            clipboardService: clipboardService,
             settings: settings,
             historyService: historyService
         )
