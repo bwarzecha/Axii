@@ -19,6 +19,7 @@ struct HistoryDetailView: View {
     @State private var error: String?
     @State private var audioPlayer: AVAudioPlayer?
     @State private var isPlaying = false
+    @State private var showCopied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -69,6 +70,12 @@ struct HistoryDetailView: View {
                         } label: {
                             Label(isPlaying ? "Stop" : "Play Audio", systemImage: isPlaying ? "stop.fill" : "play.fill")
                         }
+                    }
+
+                    Button {
+                        copyText(from: interaction)
+                    } label: {
+                        Label(showCopied ? "Copied" : "Copy", systemImage: showCopied ? "checkmark" : "doc.on.doc")
                     }
 
                     Spacer()
@@ -214,6 +221,27 @@ struct HistoryDetailView: View {
             } catch {
                 print("Failed to delete: \(error)")
             }
+        }
+    }
+
+    private func copyText(from interaction: Interaction) {
+        let textToCopy: String
+        switch interaction {
+        case .transcription(let transcription):
+            textToCopy = transcription.text
+        case .conversation(let conversation):
+            textToCopy = conversation.messages.map { message in
+                let role = message.role == .user ? "You" : "Assistant"
+                return "\(role): \(message.content)"
+            }.joined(separator: "\n\n")
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(textToCopy, forType: .string)
+
+        showCopied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            showCopied = false
         }
     }
 }

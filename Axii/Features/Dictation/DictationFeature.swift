@@ -29,6 +29,9 @@ final class DictationFeature: Feature {
     // Recording helper (created per recording)
     private var recordingHelper: RecordingSessionHelper?
 
+    // Tracks scheduled deactivation so it can be cancelled
+    private var deactivationWorkItem: DispatchWorkItem?
+
     // Device selection persistence
     private let deviceUIDKey = "selectedMicrophoneUID"
     private var selectedDeviceUID: String? {
@@ -113,6 +116,7 @@ final class DictationFeature: Feature {
     }
 
     func cancel() {
+        cancelDeactivationTimer()
         recordingHelper?.cancel()
         recordingHelper = nil
         state.phase = .idle
@@ -131,7 +135,11 @@ final class DictationFeature: Feature {
             break
         case .recording:
             stopRecording()
-        case .transcribing, .done, .error:
+        case .done:
+            // User wants to continue dictating - start new recording
+            cancelDeactivationTimer()
+            startRecordingIfReady()
+        case .transcribing, .error:
             cancelAndDeactivate()
         case .doneNeedsCopy(let text, _):
             // Hotkey during copy button state: copy and dismiss
@@ -334,6 +342,7 @@ final class DictationFeature: Feature {
     }
 
     private func cancelAndDeactivate() {
+        cancelDeactivationTimer()
         recordingHelper?.cancel()
         recordingHelper = nil
         state.phase = .idle
@@ -343,10 +352,20 @@ final class DictationFeature: Feature {
         context?.onDeactivate?()
     }
 
+    private func cancelDeactivationTimer() {
+        deactivationWorkItem?.cancel()
+        deactivationWorkItem = nil
+    }
+
     private func scheduleDeactivation(delay: TimeInterval) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        cancelDeactivationTimer()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.deactivationWorkItem = nil
             self?.cancelAndDeactivate()
         }
+        deactivationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     /// Copy text to clipboard and dismiss the panel.

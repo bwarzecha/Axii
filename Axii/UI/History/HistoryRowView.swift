@@ -9,6 +9,10 @@ import SwiftUI
 
 struct HistoryRowView: View {
     let metadata: InteractionMetadata
+    var onCopy: (() -> Void)?
+
+    @State private var isHovering = false
+    @State private var showCopied = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -46,9 +50,29 @@ struct HistoryRowView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            // Copy button (shown on hover or after copy)
+            if let onCopy, isHovering || showCopied {
+                Button {
+                    onCopy()
+                    showCopied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        showCopied = false
+                    }
+                } label: {
+                    Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
+                        .font(.caption)
+                        .foregroundStyle(showCopied ? .green : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Copy to clipboard")
+            }
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovering = hovering
+        }
     }
 
     private var iconName: String {

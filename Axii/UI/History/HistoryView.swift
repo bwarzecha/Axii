@@ -60,8 +60,10 @@ struct HistoryView: View {
                 emptyStateView
             } else {
                 List(filteredItems, selection: $selectedId) { item in
-                    HistoryRowView(metadata: item)
-                        .tag(item.id)
+                    HistoryRowView(metadata: item) {
+                        copyInteraction(id: item.id)
+                    }
+                    .tag(item.id)
                 }
                 .listStyle(.plain)
             }
@@ -126,6 +128,31 @@ struct HistoryView: View {
         }
 
         return items
+    }
+
+    private func copyInteraction(id: UUID) {
+        Task {
+            do {
+                let interaction = try await historyService.loadInteraction(id: id)
+                let textToCopy = extractText(from: interaction)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(textToCopy, forType: .string)
+            } catch {
+                print("Failed to copy interaction: \(error)")
+            }
+        }
+    }
+
+    private func extractText(from interaction: Interaction) -> String {
+        switch interaction {
+        case .transcription(let transcription):
+            return transcription.text
+        case .conversation(let conversation):
+            return conversation.messages.map { message in
+                let role = message.role == .user ? "You" : "Assistant"
+                return "\(role): \(message.content)"
+            }.joined(separator: "\n\n")
+        }
     }
 }
 #endif
