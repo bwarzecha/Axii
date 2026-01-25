@@ -47,3 +47,4 @@ Carthage/Build/
 *.secrets
 signing-secrets.txt
 *.p12
+.claude/
