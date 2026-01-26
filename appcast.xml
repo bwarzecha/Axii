@@ -1,16 +1,10 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Axii Updates</title>
         <link>https://github.com/bwarzecha/Axii</link>
         <description>Most recent updates to Axii</description>
         <language>en</language>
-        <!--
-            New releases are added here by the CI workflow.
-            Each <item> represents a version with:
-            - sparkle:version: Build number (CFBundleVersion)
-            - sparkle:shortVersionString: Marketing version (CFBundleShortVersionString)
-            - sparkle:edSignature: EdDSA signature for secure updates
-        -->
-    </channel>
+        
+    <item><title>Version 1.0</title><pubDate /><sparkle:version>18</sparkle:version><sparkle:shortVersionString>1.0</sparkle:shortVersionString><sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion><description>See release notes at https://github.com/bwarzecha/Axii/releases/tag/v1.6.0</description><enclosure url="https://github.com/bwarzecha/Axii/releases/download/v1.6.0/Axii.zip" sparkle:edSignature="zYX3MTbC9el9s5FXb95pdsjWpZ/YiulYcYUpLyHRHaQLUDPdbXYPUwjbTZ3x8rTpLS5Nj+GmaHaTGUWWDw/4CQ==" length="9544413" type="application/octet-stream" /></item></channel>
 </rss>
