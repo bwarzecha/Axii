@@ -18,8 +18,10 @@ struct HistoryDetailView: View {
     @State private var isLoading = true
     @State private var error: String?
     @State private var audioPlayer: AVAudioPlayer?
+    @State private var audioDelegate: AudioPlayerDelegate?
     @State private var isPlaying = false
     @State private var showCopied = false
+    @State private var audioError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -63,27 +65,35 @@ struct HistoryDetailView: View {
                 Spacer()
 
                 // Actions
-                HStack {
-                    if let audioURL = getAudioURL(for: interaction) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        if let audioURL = getAudioURL(for: interaction) {
+                            Button {
+                                toggleAudio(url: audioURL)
+                            } label: {
+                                Label(isPlaying ? "Stop" : "Play Audio", systemImage: isPlaying ? "stop.fill" : "play.fill")
+                            }
+                        }
+
                         Button {
-                            toggleAudio(url: audioURL)
+                            copyText(from: interaction)
                         } label: {
-                            Label(isPlaying ? "Stop" : "Play Audio", systemImage: isPlaying ? "stop.fill" : "play.fill")
+                            Label(showCopied ? "Copied" : "Copy", systemImage: showCopied ? "checkmark" : "doc.on.doc")
+                        }
+
+                        Spacer()
+
+                        Button(role: .destructive) {
+                            deleteInteraction()
+                        } label: {
+                            Label("Delete", systemImage: "trash")
                         }
                     }
 
-                    Button {
-                        copyText(from: interaction)
-                    } label: {
-                        Label(showCopied ? "Copied" : "Copy", systemImage: showCopied ? "checkmark" : "doc.on.doc")
-                    }
-
-                    Spacer()
-
-                    Button(role: .destructive) {
-                        deleteInteraction()
-                    } label: {
-                        Label("Delete", systemImage: "trash")
+                    if let audioError {
+                        Text(audioError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
                     }
                 }
             }
@@ -195,21 +205,33 @@ struct HistoryDetailView: View {
     }
 
     private func playAudio(url: URL) {
+        audioError = nil
         do {
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer?.delegate = AudioPlayerDelegate { [self] in
+            let player = try AVAudioPlayer(contentsOf: url)
+            let delegate = AudioPlayerDelegate { [self] in
                 isPlaying = false
             }
-            audioPlayer?.play()
+            player.delegate = delegate
+            player.prepareToPlay()
+
+            guard player.play() else {
+                audioError = "Failed to start playback"
+                return
+            }
+
+            // Retain both player and delegate
+            audioPlayer = player
+            audioDelegate = delegate
             isPlaying = true
         } catch {
-            print("Failed to play audio: \(error)")
+            audioError = "Cannot play audio: \(error.localizedDescription)"
         }
     }
 
     private func stopAudio() {
         audioPlayer?.stop()
         audioPlayer = nil
+        audioDelegate = nil
         isPlaying = false
     }
 
