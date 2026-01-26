@@ -42,6 +42,13 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Set version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Setting version to: $VERSION"
+          agvtool new-marketing-version "$VERSION"
+          agvtool new-version -all ${{ github.run_number }}
+
       - name: Cache Swift Package Manager
         uses: actions/cache@v4
         with:
@@ -243,21 +250,17 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: Axii v${{ steps.prepare.outputs.version }}
+          generate_release_notes: true
           body: |
-            ## Axii v${{ steps.prepare.outputs.version }}
-
-            ### Installation
+            ## Installation
             1. Download `Axii.dmg` below
             2. Open the DMG and drag Axii to Applications
             3. Launch Axii from Applications
             4. Grant microphone and accessibility permissions when prompted
 
-            ### Requirements
-            - macOS 15.0 (Sequoia) or later
-            - Apple Silicon Mac (M1/M2/M3/M4)
+            **Requirements:** macOS 15.0+ (Sequoia), Apple Silicon (M1/M2/M3/M4)
 
-            ### What's New
-            See [CHANGELOG.md](CHANGELOG.md) for details.
+            ---
           files: |
             dist/Axii.dmg
             dist/Axii.zip
