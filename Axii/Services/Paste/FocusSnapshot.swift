@@ -69,11 +69,8 @@ struct FocusSnapshot: Equatable {
 
     static func capture() -> FocusSnapshot? {
         guard let app = NSWorkspace.shared.frontmostApplication else {
-            print("FocusSnapshot: No frontmost application")
             return nil
         }
-
-        print("FocusSnapshot: Frontmost app = \(app.localizedName ?? "unknown") (pid: \(app.processIdentifier))")
 
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         var focusedElement: CFTypeRef?
@@ -82,8 +79,6 @@ struct FocusSnapshot: Equatable {
             kAXFocusedUIElementAttribute as CFString,
             &focusedElement
         )
-
-        print("FocusSnapshot: AX status = \(status.rawValue), focusedElement = \(focusedElement != nil)")
 
         // Try to get focused element, but don't fail completely if unavailable
         var element: AXUIElement?
@@ -101,11 +96,22 @@ struct FocusSnapshot: Equatable {
         let windowTitle = element != nil
             ? captureWindowTitle(for: element!)
             : captureWindowTitleFromApp(appElement)
-        let surroundingText = element != nil
-            ? captureSurroundingText(for: element!)
-            : nil
 
-        print("FocusSnapshot: appName=\(appName ?? "nil"), windowTitle=\(windowTitle ?? "nil"), surroundingText=\(surroundingText != nil)")
+        // Capture surrounding text - try both methods and combine
+        var surroundingText: SurroundingText?
+        if let el = element {
+            let fullContext = captureSurroundingText(for: el)
+            let selectedOnly = captureSelectedTextOnly(for: el)
+
+            if let full = fullContext {
+                // Use full context, but prefer selected text from direct attribute if available
+                let selected = selectedOnly?.selected ?? full.selected
+                surroundingText = SurroundingText(before: full.before, selected: selected, after: full.after)
+            } else if let sel = selectedOnly {
+                // Only have selected text (e.g., Electron apps)
+                surroundingText = sel
+            }
+        }
 
         return FocusSnapshot(
             appPID: app.processIdentifier,
@@ -299,6 +305,16 @@ struct FocusSnapshot: Equatable {
         let after = nsString.substring(with: NSRange(location: selEnd, length: afterEnd - selEnd))
 
         return SurroundingText(before: before, selected: selected, after: after)
+    }
+
+    /// Fallback: get only the selected text (works in more apps including some Electron)
+    private static func captureSelectedTextOnly(for element: AXUIElement) -> SurroundingText? {
+        guard let selectedText = copyStringAttribute(element, kAXSelectedTextAttribute as CFString),
+              !selectedText.isEmpty else {
+            return nil
+        }
+
+        return SurroundingText(before: "", selected: selectedText, after: "")
     }
 }
 #endif

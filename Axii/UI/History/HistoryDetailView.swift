@@ -130,6 +130,77 @@ struct HistoryDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            // Focus context section
+            if let context = transcription.focusContext {
+                focusContextView(context)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func focusContextView(_ context: FocusContext) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+
+            Text("Context")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fontWeight(.semibold)
+
+            if let appName = context.appName {
+                HStack(spacing: 4) {
+                    Image(systemName: "app.fill")
+                        .foregroundStyle(.secondary)
+                    Text(appName)
+                        .font(.caption)
+                }
+            }
+
+            if let windowTitle = context.windowTitle, !windowTitle.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "macwindow")
+                        .foregroundStyle(.secondary)
+                    Text(windowTitle)
+                        .font(.caption)
+                        .lineLimit(2)
+                }
+            }
+
+            if let text = context.surroundingText {
+                VStack(alignment: .leading, spacing: 4) {
+                    if !text.before.isEmpty {
+                        Text("Before cursor:")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Text(text.before.suffix(100))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                    }
+                    if !text.selected.isEmpty {
+                        Text("Selected:")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Text(text.selected)
+                            .font(.caption)
+                            .foregroundStyle(.blue)
+                            .lineLimit(2)
+                    }
+                    if !text.after.isEmpty {
+                        Text("After cursor:")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Text(text.after.prefix(100))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                    }
+                }
+                .padding(8)
+                .background(.quaternary.opacity(0.5))
+                .cornerRadius(6)
+            }
         }
     }
 

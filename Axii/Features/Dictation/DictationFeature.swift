@@ -172,22 +172,6 @@ final class DictationFeature: Feature {
     private func startRecording() {
         focusSnapshot = FocusSnapshot.capture()
 
-        // Debug: Log captured context
-        if let snapshot = focusSnapshot {
-            print("FocusSnapshot captured:")
-            print("  appName: \(snapshot.appName ?? "nil")")
-            print("  windowTitle: \(snapshot.windowTitle ?? "nil")")
-            if let text = snapshot.surroundingText {
-                print("  surroundingText.before: \(text.before.prefix(50))...")
-                print("  surroundingText.selected: \(text.selected)")
-                print("  surroundingText.after: \(text.after.prefix(50))...")
-            } else {
-                print("  surroundingText: nil")
-            }
-        } else {
-            print("FocusSnapshot: capture returned nil")
-        }
-
         // Pause media if enabled
         if settings.pauseMediaDuringDictation {
             Task {
@@ -358,14 +342,9 @@ final class DictationFeature: Feature {
         pastedTo: String?,
         focusSnapshot: FocusSnapshot?
     ) async {
-        guard historyService.isEnabled else {
-            print("History: service disabled, skipping save")
-            return
-        }
+        guard historyService.isEnabled else { return }
 
-        // Convert snapshot to storable context
         let focusContext = focusSnapshot.map { FocusContext(from: $0) }
-        print("History: saving with focusContext=\(focusContext != nil ? "present" : "nil")")
 
         do {
             let transcription = Transcription(
