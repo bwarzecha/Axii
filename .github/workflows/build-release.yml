@@ -252,7 +252,7 @@ jobs:
 
           # Sign the ZIP with EdDSA
           echo "Signing ZIP with EdDSA..."
-          SIGNATURE=$(echo "$SPARKLE_PRIVATE_KEY" | ./bin/sign_update dist/Axii.zip)
+          SIGNATURE=$(echo "$SPARKLE_PRIVATE_KEY" | ./bin/sign_update --ed-key-file - -p dist/Axii.zip)
           echo "Signature: $SIGNATURE"
 
           echo "signature=$SIGNATURE" >> $GITHUB_OUTPUT
