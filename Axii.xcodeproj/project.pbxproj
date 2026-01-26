@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		4E023D652F185AB300284984 /* HotKey in Frameworks */ = {isa = PBXBuildFile; productRef = 4E023D642F185AB300284984 /* HotKey */; };
+		4E3FFC982F280EFE00F3ED71 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 4E3FFC972F280EFE00F3ED71 /* Sparkle */; };
 		4EADEE022F19595100D0B62B /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 4EADEE012F19595100D0B62B /* FluidAudio */; };
 		4EADEEA82F19A6A500D0B62B /* AWSBedrock in Frameworks */ = {isa = PBXBuildFile; productRef = 4EADEEA72F19A6A500D0B62B /* AWSBedrock */; };
 		4EADEEAA2F19A6A500D0B62B /* AWSBedrockRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 4EADEEA92F19A6A500D0B62B /* AWSBedrockRuntime */; };
@@ -34,6 +35,7 @@
 				4EADEE022F19595100D0B62B /* FluidAudio in Frameworks */,
 				4EADEEAC2F19A6A500D0B62B /* AWSSDKIdentity in Frameworks */,
 				4E023D652F185AB300284984 /* HotKey in Frameworks */,
+				4E3FFC982F280EFE00F3ED71 /* Sparkle in Frameworks */,
 				4EADEEAA2F19A6A500D0B62B /* AWSBedrockRuntime in Frameworks */,
 				4EADEEA82F19A6A500D0B62B /* AWSBedrock in Frameworks */,
 			);
@@ -83,6 +85,7 @@
 				4EADEEA72F19A6A500D0B62B /* AWSBedrock */,
 				4EADEEA92F19A6A500D0B62B /* AWSBedrockRuntime */,
 				4EADEEAB2F19A6A500D0B62B /* AWSSDKIdentity */,
+				4E3FFC972F280EFE00F3ED71 /* Sparkle */,
 			);
 			productName = Axii;
 			productReference = 4E023D552F1853FF00284984 /* Axii.app */;
@@ -116,6 +119,7 @@
 				4E023D632F185AB300284984 /* XCRemoteSwiftPackageReference "HotKey" */,
 				4EADEE002F19595100D0B62B /* XCRemoteSwiftPackageReference "FluidAudio" */,
 				4EADEEA62F19A6A500D0B62B /* XCRemoteSwiftPackageReference "aws-sdk-swift" */,
+				4E3FFC962F280EFE00F3ED71 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4E023D562F1853FF00284984 /* Products */;
@@ -277,6 +281,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Axii/Info.plist;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Axii needs microphone access to transcribe your speech.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -323,6 +328,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Axii/Info.plist;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Axii needs microphone access to transcribe your speech.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -388,6 +394,14 @@
 				kind = branch;
 			};
 		};
+		4E3FFC962F280EFE00F3ED71 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.8.1;
+			};
+		};
 		4EADEE002F19595100D0B62B /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/FluidInference/FluidAudio";
@@ -411,6 +425,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4E023D632F185AB300284984 /* XCRemoteSwiftPackageReference "HotKey" */;
 			productName = HotKey;
+		};
+		4E3FFC972F280EFE00F3ED71 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4E3FFC962F280EFE00F3ED71 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 		4EADEE012F19595100D0B62B /* FluidAudio */ = {
 			isa = XCSwiftPackageProductDependency;

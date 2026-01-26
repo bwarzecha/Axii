@@ -12,6 +12,7 @@ struct SidebarSettingsView: View {
     @Bindable var settings: SettingsService
     var inputMonitoringPermission: InputMonitoringPermissionService
     var mediaControlService: MediaControlService
+    @ObservedObject var updaterService: UpdaterService
 
     @State private var selectedSection: SettingsSection = .general
 
@@ -43,6 +44,8 @@ struct SidebarSettingsView: View {
             DictationSettingsView(settings: settings, mediaControlService: mediaControlService)
         case .conversation:
             ConversationSettingsView(settings: settings)
+        case .about:
+            AboutSettingsView(updaterService: updaterService)
         }
     }
 }
@@ -53,6 +56,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case general
     case dictation
     case conversation
+    case about
 
     var id: String { rawValue }
 
@@ -61,6 +65,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .general: return "General"
         case .dictation: return "Dictation"
         case .conversation: return "Conversation"
+        case .about: return "About"
         }
     }
 
@@ -69,6 +74,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .general: return "gear"
         case .dictation: return "mic"
         case .conversation: return "bubble.left.and.bubble.right"
+        case .about: return "info.circle"
         }
     }
 }

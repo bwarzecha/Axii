@@ -13,6 +13,7 @@ import AppKit
 @main
 struct AxiiApp: App {
     @State private var controller: AppController
+    @StateObject private var updaterService = UpdaterService()
 
     init() {
         _controller = State(initialValue: AppController())
@@ -26,7 +27,8 @@ struct AxiiApp: App {
             MenuBarView(
                 dictationState: controller.dictationFeature.state,
                 hotkeyDisplay: controller.settings.hotkeyConfig.displayString,
-                onShowOnboarding: { openWindow(id: "onboarding") }
+                onShowOnboarding: { openWindow(id: "onboarding") },
+                updaterService: updaterService
             )
         } label: {
             Image("MenuBarIcon")
@@ -59,7 +61,8 @@ struct AxiiApp: App {
             SidebarSettingsView(
                 settings: controller.settings,
                 inputMonitoringPermission: controller.inputMonitoringPermission,
-                mediaControlService: controller.mediaControlService
+                mediaControlService: controller.mediaControlService,
+                updaterService: updaterService
             )
             .onAppear {
                 NSApp.activate(ignoringOtherApps: true)
@@ -93,6 +96,7 @@ struct MenuBarView: View {
     var dictationState: DictationState
     var hotkeyDisplay: String
     var onShowOnboarding: () -> Void
+    @ObservedObject var updaterService: UpdaterService
 
     @Environment(\.openWindow) private var openWindow
 
@@ -124,6 +128,15 @@ struct MenuBarView: View {
             Button("Acknowledgments...") {
                 showWindow(title: "Acknowledgments", id: "credits")
             }
+
+            Divider()
+
+            Button("Check for Updates...") {
+                updaterService.checkForUpdates()
+            }
+            .disabled(!updaterService.canCheckForUpdates)
+
+            Divider()
 
             Button("Quit") {
                 NSApplication.shared.terminate(nil)

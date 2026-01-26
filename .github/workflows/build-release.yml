@@ -9,7 +9,7 @@ on:
       create_release:
         description: 'Create a GitHub release'
         required: false
-        default: 'false'
+        default: false
         type: boolean
       tag:
         description: 'Tag for manual release (e.g., v1.0.0)'
@@ -234,6 +234,99 @@ jobs:
 
           # Also create a ZIP for direct download
           ditto -c -k --keepParent "Axii.app" "Axii.zip"
+
+      - name: Sign update for Sparkle
+        id: sparkle_sign
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event.inputs.create_release == 'true' && github.event.inputs.tag != '')
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          # Download Sparkle tools
+          echo "Downloading Sparkle tools..."
+          curl -L -o sparkle.tar.xz https://github.com/sparkle-project/Sparkle/releases/download/2.8.0/Sparkle-2.8.0.tar.xz
+          tar -xf sparkle.tar.xz
+
+          # Get ZIP file size
+          ZIP_SIZE=$(stat -f%z dist/Axii.zip)
+          echo "ZIP size: $ZIP_SIZE bytes"
+
+          # Sign the ZIP with EdDSA
+          echo "Signing ZIP with EdDSA..."
+          SIGNATURE=$(echo "$SPARKLE_PRIVATE_KEY" | ./bin/sign_update dist/Axii.zip)
+          echo "Signature: $SIGNATURE"
+
+          echo "signature=$SIGNATURE" >> $GITHUB_OUTPUT
+          echo "zip_size=$ZIP_SIZE" >> $GITHUB_OUTPUT
+
+      - name: Update appcast.xml
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event.inputs.create_release == 'true' && github.event.inputs.tag != '')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.prepare.outputs.version }}
+          BUILD: ${{ steps.prepare.outputs.build }}
+          SIGNATURE: ${{ steps.sparkle_sign.outputs.signature }}
+          ZIP_SIZE: ${{ steps.sparkle_sign.outputs.zip_size }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          echo "Updating appcast.xml for version $VERSION (build $BUILD)"
+          PUB_DATE=$(date -R)
+
+          # Use Python to update appcast.xml (handles XML properly)
+          python3 << 'PYTHON_SCRIPT'
+          import os
+          import xml.etree.ElementTree as ET
+
+          # Register Sparkle namespace
+          ET.register_namespace('sparkle', 'http://www.andymatuschak.org/xml-namespaces/sparkle')
+          ET.register_namespace('dc', 'http://purl.org/dc/elements/1.1/')
+
+          version = os.environ['VERSION']
+          build = os.environ['BUILD']
+          signature = os.environ['SIGNATURE']
+          zip_size = os.environ['ZIP_SIZE']
+          tag = os.environ['TAG']
+          pub_date = os.environ.get('PUB_DATE', '')
+
+          # Read and parse appcast.xml
+          tree = ET.parse('appcast.xml')
+          root = tree.getroot()
+          channel = root.find('channel')
+
+          # Create new item
+          ns = {'sparkle': 'http://www.andymatuschak.org/xml-namespaces/sparkle'}
+
+          item = ET.SubElement(channel, 'item')
+          ET.SubElement(item, 'title').text = f'Version {version}'
+          ET.SubElement(item, 'pubDate').text = pub_date
+          ET.SubElement(item, '{http://www.andymatuschak.org/xml-namespaces/sparkle}version').text = build
+          ET.SubElement(item, '{http://www.andymatuschak.org/xml-namespaces/sparkle}shortVersionString').text = version
+          ET.SubElement(item, '{http://www.andymatuschak.org/xml-namespaces/sparkle}minimumSystemVersion').text = '15.0'
+
+          desc = ET.SubElement(item, 'description')
+          desc.text = f'See release notes at https://github.com/bwarzecha/Axii/releases/tag/{tag}'
+
+          enclosure = ET.SubElement(item, 'enclosure')
+          enclosure.set('url', f'https://github.com/bwarzecha/Axii/releases/download/{tag}/Axii.zip')
+          enclosure.set('{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature', signature)
+          enclosure.set('length', zip_size)
+          enclosure.set('type', 'application/octet-stream')
+
+          # Write back
+          tree.write('appcast.xml', encoding='utf-8', xml_declaration=True)
+          print(f'Updated appcast.xml for version {version}')
+          PYTHON_SCRIPT
+
+          echo "Updated appcast.xml:"
+          cat appcast.xml
+
+      - name: Commit and push appcast.xml
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event.inputs.create_release == 'true' && github.event.inputs.tag != '')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml
+          git commit -m "Update appcast.xml for v${{ steps.prepare.outputs.version }}"
+          git push origin HEAD:main
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/bwarzecha/Axii/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>vOmcJIjl9ioTUXrnta9kCaaWO3uhi7pMzWIDmKVDBig=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+</dict>
+</plist>
