@@ -35,6 +35,9 @@ final class SettingsService {
     /// What to do when insertion fails.
     private(set) var insertionFailureBehavior: InsertionFailureBehavior
 
+    /// Whether to pause media playback during dictation (default: false)
+    private(set) var pauseMediaDuringDictation: Bool
+
     /// Whether history saving is enabled (default: true)
     var isHistoryEnabled: Bool {
         didSet {
@@ -68,6 +71,7 @@ final class SettingsService {
     private let hotkeyModeKey = "settings.hotkeyMode"
     private let finishBehaviorKey = "settings.finishBehavior"
     private let insertionFailureBehaviorKey = "settings.insertionFailureBehavior"
+    private let pauseMediaKey = "settings.pauseMediaDuringDictation"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -84,6 +88,8 @@ final class SettingsService {
         self.hotkeyMode = Self.loadHotkeyMode(from: defaults)
         self.finishBehavior = Self.loadFinishBehavior(from: defaults)
         self.insertionFailureBehavior = Self.loadInsertionFailureBehavior(from: defaults)
+        // Pause media is disabled by default
+        self.pauseMediaDuringDictation = defaults.object(forKey: "settings.pauseMediaDuringDictation") as? Bool ?? false
         // History is enabled by default
         self.isHistoryEnabled = defaults.object(forKey: "settings.isHistoryEnabled") as? Bool ?? true
     }
@@ -158,6 +164,13 @@ final class SettingsService {
         guard behavior != insertionFailureBehavior else { return }
         insertionFailureBehavior = behavior
         defaults.set(behavior.rawValue, forKey: insertionFailureBehaviorKey)
+    }
+
+    /// Updates the pause media during dictation setting and persists it.
+    func setPauseMediaDuringDictation(_ enabled: Bool) {
+        guard enabled != pauseMediaDuringDictation else { return }
+        pauseMediaDuringDictation = enabled
+        defaults.set(enabled, forKey: pauseMediaKey)
     }
 }
 

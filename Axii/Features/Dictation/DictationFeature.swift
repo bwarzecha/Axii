@@ -25,6 +25,7 @@ final class DictationFeature: Feature {
     private let clipboardService: ClipboardService
     private let settings: SettingsService
     private let historyService: HistoryService
+    private let mediaControlService: MediaControlService
 
     // Recording helper (created per recording)
     private var recordingHelper: RecordingSessionHelper?
@@ -51,7 +52,8 @@ final class DictationFeature: Feature {
         pasteService: PasteService,
         clipboardService: ClipboardService,
         settings: SettingsService,
-        historyService: HistoryService
+        historyService: HistoryService,
+        mediaControlService: MediaControlService
     ) {
         self.transcriptionService = transcriptionService
         self.micPermission = micPermission
@@ -59,6 +61,7 @@ final class DictationFeature: Feature {
         self.clipboardService = clipboardService
         self.settings = settings
         self.historyService = historyService
+        self.mediaControlService = mediaControlService
     }
 
     // MARK: - Feature Protocol
@@ -123,6 +126,8 @@ final class DictationFeature: Feature {
         state.audioLevel = 0
         state.isWaitingForSignal = false
         isActive = false
+        // Reset media control state on cancel (don't resume)
+        mediaControlService.resetState()
     }
 
     // MARK: - Hotkey Handling
@@ -166,6 +171,29 @@ final class DictationFeature: Feature {
 
     private func startRecording() {
         focusSnapshot = FocusSnapshot.capture()
+
+        // Debug: Log captured context
+        if let snapshot = focusSnapshot {
+            print("FocusSnapshot captured:")
+            print("  appName: \(snapshot.appName ?? "nil")")
+            print("  windowTitle: \(snapshot.windowTitle ?? "nil")")
+            if let text = snapshot.surroundingText {
+                print("  surroundingText.before: \(text.before.prefix(50))...")
+                print("  surroundingText.selected: \(text.selected)")
+                print("  surroundingText.after: \(text.after.prefix(50))...")
+            } else {
+                print("  surroundingText: nil")
+            }
+        } else {
+            print("FocusSnapshot: capture returned nil")
+        }
+
+        // Pause media if enabled
+        if settings.pauseMediaDuringDictation {
+            Task {
+                await mediaControlService.pauseIfPlaying()
+            }
+        }
 
         let helper = RecordingSessionHelper()
         recordingHelper = helper
@@ -280,6 +308,8 @@ final class DictationFeature: Feature {
                     }
                 }
 
+                // Capture snapshot for history before clearing
+                let snapshotForHistory = focusSnapshot
                 focusSnapshot = nil
 
                 if shouldScheduleDeactivation {
@@ -291,16 +321,32 @@ final class DictationFeature: Feature {
                         text: text,
                         samples: samples,
                         sampleRate: sampleRate,
-                        pastedTo: pastedToApp
+                        pastedTo: pastedToApp,
+                        focusSnapshot: snapshotForHistory
                     )
+                }
+
+                // Resume media after transcription completes
+                if self.settings.pauseMediaDuringDictation {
+                    await self.mediaControlService.resumeIfWasPlaying()
                 }
             } catch let error as TranscriptionError {
                 let message = error.errorDescription ?? "Transcription failed"
                 state.phase = .error(message: message)
                 scheduleDeactivation(delay: 2.0)
+
+                // Resume media even on error (user wants their music back)
+                if self.settings.pauseMediaDuringDictation {
+                    await self.mediaControlService.resumeIfWasPlaying()
+                }
             } catch {
                 state.phase = .error(message: "Transcription failed")
                 scheduleDeactivation(delay: 2.0)
+
+                // Resume media even on error
+                if self.settings.pauseMediaDuringDictation {
+                    await self.mediaControlService.resumeIfWasPlaying()
+                }
             }
         }
     }
@@ -309,14 +355,23 @@ final class DictationFeature: Feature {
         text: String,
         samples: [Float],
         sampleRate: Double,
-        pastedTo: String?
+        pastedTo: String?,
+        focusSnapshot: FocusSnapshot?
     ) async {
-        guard historyService.isEnabled else { return }
+        guard historyService.isEnabled else {
+            print("History: service disabled, skipping save")
+            return
+        }
+
+        // Convert snapshot to storable context
+        let focusContext = focusSnapshot.map { FocusContext(from: $0) }
+        print("History: saving with focusContext=\(focusContext != nil ? "present" : "nil")")
 
         do {
             let transcription = Transcription(
                 text: text,
-                pastedTo: pastedTo
+                pastedTo: pastedTo,
+                focusContext: focusContext
             )
 
             try await historyService.save(.transcription(transcription))
@@ -332,6 +387,7 @@ final class DictationFeature: Feature {
                 text: text,
                 audioRecording: audioRecording,
                 pastedTo: pastedTo,
+                focusContext: focusContext,
                 createdAt: transcription.createdAt
             )
 
@@ -349,6 +405,8 @@ final class DictationFeature: Feature {
         state.audioLevel = 0
         state.isWaitingForSignal = false
         isActive = false
+        // Reset media control state on cancel (don't resume)
+        mediaControlService.resetState()
         context?.onDeactivate?()
     }
 

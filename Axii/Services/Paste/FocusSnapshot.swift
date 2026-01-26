@@ -18,6 +18,16 @@ struct FocusSnapshot: Equatable {
         let windowNumber: Int?
     }
 
+    /// Text surrounding the cursor position (for LLM context)
+    struct SurroundingText: Equatable, Codable {
+        let before: String    // Text before cursor/selection
+        let selected: String  // Currently selected text
+        let after: String     // Text after cursor/selection
+
+        static let maxLength = 500  // Characters per direction
+        static let maxWindowTitleLength = 200
+    }
+
     enum ChangeReason: Equatable {
         case missingBaseline
         case missingCurrent
@@ -45,6 +55,11 @@ struct FocusSnapshot: Equatable {
     let elementSignature: ElementSignature
     let selectionSignature: String?
 
+    // Rich context for LLM use
+    let appName: String?
+    let windowTitle: String?
+    let surroundingText: SurroundingText?
+
     /// Bundle identifier of the frontmost app (e.g., "com.apple.Safari")
     var bundleIdentifier: String? {
         NSRunningApplication(processIdentifier: appPID)?.bundleIdentifier
@@ -54,8 +69,11 @@ struct FocusSnapshot: Equatable {
 
     static func capture() -> FocusSnapshot? {
         guard let app = NSWorkspace.shared.frontmostApplication else {
+            print("FocusSnapshot: No frontmost application")
             return nil
         }
+
+        print("FocusSnapshot: Frontmost app = \(app.localizedName ?? "unknown") (pid: \(app.processIdentifier))")
 
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         var focusedElement: CFTypeRef?
@@ -65,20 +83,61 @@ struct FocusSnapshot: Equatable {
             &focusedElement
         )
 
-        guard status == .success || status == .noValue,
-              let elementRef = focusedElement else {
-            return nil
+        print("FocusSnapshot: AX status = \(status.rawValue), focusedElement = \(focusedElement != nil)")
+
+        // Try to get focused element, but don't fail completely if unavailable
+        var element: AXUIElement?
+        var signature = ElementSignature(role: nil, subrole: nil, identifier: nil, windowNumber: nil)
+        var range: String?
+
+        if (status == .success || status == .noValue), let elementRef = focusedElement {
+            element = (elementRef as! AXUIElement)
+            signature = captureElementSignature(for: element!)
+            range = captureTextRange(for: element!)
         }
 
-        let element = elementRef as! AXUIElement
-        let signature = captureElementSignature(for: element)
-        let range = captureTextRange(for: element)
+        // Rich context - try from focused element first, fall back to app-level
+        let appName = app.localizedName
+        let windowTitle = element != nil
+            ? captureWindowTitle(for: element!)
+            : captureWindowTitleFromApp(appElement)
+        let surroundingText = element != nil
+            ? captureSurroundingText(for: element!)
+            : nil
+
+        print("FocusSnapshot: appName=\(appName ?? "nil"), windowTitle=\(windowTitle ?? "nil"), surroundingText=\(surroundingText != nil)")
 
         return FocusSnapshot(
             appPID: app.processIdentifier,
             elementSignature: signature,
-            selectionSignature: range
+            selectionSignature: range,
+            appName: appName,
+            windowTitle: windowTitle,
+            surroundingText: surroundingText
         )
+    }
+
+    /// Get window title from app's focused window (fallback for Electron apps)
+    private static func captureWindowTitleFromApp(_ appElement: AXUIElement) -> String? {
+        var windowRef: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(
+            appElement,
+            kAXFocusedWindowAttribute as CFString,
+            &windowRef
+        )
+        guard status == .success, let windowValue = windowRef else {
+            return nil
+        }
+
+        let windowElement = windowValue as! AXUIElement
+        guard let title = copyStringAttribute(windowElement, kAXTitleAttribute as CFString) else {
+            return nil
+        }
+
+        if title.count > SurroundingText.maxWindowTitleLength {
+            return String(title.prefix(SurroundingText.maxWindowTitleLength))
+        }
+        return title
     }
 
     func changeReason(comparedTo other: FocusSnapshot?) -> ChangeReason? {
@@ -167,6 +226,79 @@ struct FocusSnapshot: Equatable {
             return "\(range.location):\(range.length)"
         }
         return String(describing: axValue)
+    }
+
+    private static func captureWindowTitle(for element: AXUIElement) -> String? {
+        var windowRef: CFTypeRef?
+        let windowStatus = AXUIElementCopyAttributeValue(
+            element,
+            kAXWindowAttribute as CFString,
+            &windowRef
+        )
+        guard windowStatus == .success, let windowValue = windowRef else {
+            return nil
+        }
+
+        let windowElement = windowValue as! AXUIElement
+        guard let title = copyStringAttribute(windowElement, kAXTitleAttribute as CFString) else {
+            return nil
+        }
+
+        // Truncate if too long
+        if title.count > SurroundingText.maxWindowTitleLength {
+            return String(title.prefix(SurroundingText.maxWindowTitleLength))
+        }
+        return title
+    }
+
+    private static func captureSurroundingText(for element: AXUIElement) -> SurroundingText? {
+        // Get full text value
+        guard let fullText = copyStringAttribute(element, kAXValueAttribute as CFString),
+              !fullText.isEmpty else {
+            return nil
+        }
+
+        // Get selection range
+        var rangeValue: CFTypeRef?
+        let rangeStatus = AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &rangeValue
+        )
+
+        let nsString = fullText as NSString
+        let maxLen = SurroundingText.maxLength
+
+        // No selection info - return text from end (cursor likely at end)
+        guard rangeStatus == .success, let rangeRef = rangeValue else {
+            let start = max(0, nsString.length - maxLen)
+            let text = nsString.substring(from: start)
+            return SurroundingText(before: text, selected: "", after: "")
+        }
+
+        let axValue = rangeRef as! AXValue
+        var range = CFRange(location: 0, length: 0)
+        guard AXValueGetType(axValue) == .cfRange,
+              AXValueGetValue(axValue, .cfRange, &range) else {
+            let start = max(0, nsString.length - maxLen)
+            let text = nsString.substring(from: start)
+            return SurroundingText(before: text, selected: "", after: "")
+        }
+
+        let selStart = max(0, min(range.location, nsString.length))
+        let selEnd = max(0, min(range.location + range.length, nsString.length))
+
+        // Extract before, selected, after
+        let beforeStart = max(0, selStart - maxLen)
+        let afterEnd = min(nsString.length, selEnd + maxLen)
+
+        let before = nsString.substring(with: NSRange(location: beforeStart, length: selStart - beforeStart))
+        let selected = selEnd > selStart
+            ? nsString.substring(with: NSRange(location: selStart, length: selEnd - selStart))
+            : ""
+        let after = nsString.substring(with: NSRange(location: selEnd, length: afterEnd - selEnd))
+
+        return SurroundingText(before: before, selected: selected, after: after)
     }
 }
 #endif

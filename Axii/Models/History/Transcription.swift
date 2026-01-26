@@ -6,6 +6,7 @@ struct Transcription: Identifiable, Codable, Equatable {
     let text: String
     let audioRecording: AudioRecording?
     let pastedTo: String?       // App bundle ID where text was pasted
+    let focusContext: FocusContext?  // Rich context for LLM corrections
     let createdAt: Date
 
     var interactionType: InteractionType { .transcription }
@@ -15,12 +16,14 @@ struct Transcription: Identifiable, Codable, Equatable {
         text: String,
         audioRecording: AudioRecording? = nil,
         pastedTo: String? = nil,
+        focusContext: FocusContext? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
         self.text = text
         self.audioRecording = audioRecording
         self.pastedTo = pastedTo
+        self.focusContext = focusContext
         self.createdAt = createdAt
     }
 
@@ -31,7 +34,10 @@ struct Transcription: Identifiable, Codable, Equatable {
             TranscriptionMetadata(
                 wordCount: wordCount,
                 pastedTo: pastedTo,
-                hasAudio: audioRecording != nil
+                hasAudio: audioRecording != nil,
+                hasContext: focusContext != nil,
+                appName: focusContext?.appName,
+                windowTitle: focusContext?.windowTitle
             )
         )
         return InteractionMetadata(

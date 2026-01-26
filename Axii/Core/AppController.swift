@@ -33,6 +33,7 @@ final class AppController {
     private let playbackService: AudioPlaybackService
     let historyService: HistoryService
     let modelDownloadService: ModelDownloadService
+    let mediaControlService: MediaControlService
 
     // Features
     let dictationFeature: DictationFeature
@@ -71,6 +72,7 @@ final class AppController {
         playbackService = AudioPlaybackService()
         historyService = HistoryService()
         modelDownloadService = ModelDownloadService()
+        mediaControlService = MediaControlService()
         pasteService = PasteService(
             clipboard: clipboardService,
             accessibilityPermission: accessibilityPermission
@@ -84,7 +86,8 @@ final class AppController {
             pasteService: pasteService,
             clipboardService: clipboardService,
             settings: settings,
-            historyService: historyService
+            historyService: historyService,
+            mediaControlService: mediaControlService
         )
         conversationFeature = ConversationFeature(
             transcriptionService: transcriptionService,

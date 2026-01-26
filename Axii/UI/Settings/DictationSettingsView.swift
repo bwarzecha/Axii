@@ -10,6 +10,9 @@ import SwiftUI
 
 struct DictationSettingsView: View {
     @Bindable var settings: SettingsService
+    var mediaControlService: MediaControlService
+
+    @State private var mediaControlAvailable: Bool = false
 
     var body: some View {
         Form {
@@ -63,8 +66,47 @@ struct DictationSettingsView: View {
             } header: {
                 Text("Insertion Failure")
             }
+
+            Section {
+                if mediaControlAvailable {
+                    Toggle("Pause media during recording", isOn: Binding(
+                        get: { settings.pauseMediaDuringDictation },
+                        set: { settings.setPauseMediaDuringDictation($0) }
+                    ))
+
+                    Text("Pauses music and podcasts when recording starts. Resumes automatically if something was playing.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("media-control not installed")
+                            .foregroundStyle(.secondary)
+
+                        Text("To enable pausing media during dictation, install media-control:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Text("brew tap ungive/media-control && brew install media-control")
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .padding(6)
+                            .background(Color.secondary.opacity(0.1))
+                            .cornerRadius(4)
+
+                        Button("Check again") {
+                            mediaControlAvailable = mediaControlService.checkAvailability(forceRecheck: true)
+                        }
+                        .buttonStyle(.link)
+                    }
+                }
+            } header: {
+                Text("Media Control")
+            }
         }
         .formStyle(.grouped)
+        .onAppear {
+            mediaControlAvailable = mediaControlService.checkAvailability()
+        }
     }
 }
 #endif

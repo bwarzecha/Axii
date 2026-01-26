@@ -11,6 +11,7 @@ import SwiftUI
 struct SidebarSettingsView: View {
     @Bindable var settings: SettingsService
     var inputMonitoringPermission: InputMonitoringPermissionService
+    var mediaControlService: MediaControlService
 
     @State private var selectedSection: SettingsSection = .general
 
@@ -39,7 +40,7 @@ struct SidebarSettingsView: View {
                 inputMonitoringPermission: inputMonitoringPermission
             )
         case .dictation:
-            DictationSettingsView(settings: settings)
+            DictationSettingsView(settings: settings, mediaControlService: mediaControlService)
         case .conversation:
             ConversationSettingsView(settings: settings)
         }

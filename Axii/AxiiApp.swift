@@ -58,7 +58,8 @@ struct AxiiApp: App {
         Window("Settings", id: "settings") {
             SidebarSettingsView(
                 settings: controller.settings,
-                inputMonitoringPermission: controller.inputMonitoringPermission
+                inputMonitoringPermission: controller.inputMonitoringPermission,
+                mediaControlService: controller.mediaControlService
             )
             .onAppear {
                 NSApp.activate(ignoringOtherApps: true)
