@@ -50,6 +50,10 @@ final class SettingsService {
     /// Whether meeting history saving is enabled (default: true)
     private(set) var isMeetingHistoryEnabled: Bool
 
+    /// Whether real-time streaming transcription is enabled during meetings (default: true).
+    /// When disabled, transcription only runs after recording stops (more stable but no live text).
+    private(set) var isMeetingStreamingEnabled: Bool
+
     /// Whether history saving is enabled (default: true)
     var isHistoryEnabled: Bool {
         didSet {
@@ -91,6 +95,7 @@ final class SettingsService {
     private let insertionFailureBehaviorKey = "settings.insertionFailureBehavior"
     private let pauseMediaKey = "settings.pauseMediaDuringDictation"
     private let meetingHistoryEnabledKey = "settings.isMeetingHistoryEnabled"
+    private let meetingStreamingEnabledKey = "settings.isMeetingStreamingEnabled"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -120,6 +125,8 @@ final class SettingsService {
         self.isHistoryEnabled = defaults.object(forKey: "settings.isHistoryEnabled") as? Bool ?? true
         // Meeting history is enabled by default
         self.isMeetingHistoryEnabled = defaults.object(forKey: "settings.isMeetingHistoryEnabled") as? Bool ?? true
+        // Streaming transcription is enabled by default
+        self.isMeetingStreamingEnabled = defaults.object(forKey: "settings.isMeetingStreamingEnabled") as? Bool ?? true
     }
 
     /// Updates the hotkey configuration and persists it.
@@ -236,6 +243,13 @@ final class SettingsService {
         guard enabled != isMeetingHistoryEnabled else { return }
         isMeetingHistoryEnabled = enabled
         defaults.set(enabled, forKey: meetingHistoryEnabledKey)
+    }
+
+    /// Updates the streaming transcription setting and persists it.
+    func setMeetingStreamingEnabled(_ enabled: Bool) {
+        guard enabled != isMeetingStreamingEnabled else { return }
+        isMeetingStreamingEnabled = enabled
+        defaults.set(enabled, forKey: meetingStreamingEnabledKey)
     }
 }
 

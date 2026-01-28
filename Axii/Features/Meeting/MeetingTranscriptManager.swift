@@ -40,6 +40,11 @@ final class MeetingTranscriptManager {
     private var lastMicSegmentIndex: Int?
     private var lastSystemSegmentIndex: Int?
 
+    // Serialization chain: ensures only one transcription runs at a time.
+    // AsrManager (FluidAudio) is not reentrant - concurrent calls cause
+    // use-after-free on TdtDecoderState.
+    private var transcriptionChain: Task<Void, Never> = Task {}
+
     // MARK: - Callbacks
 
     var onSegmentsUpdated: (([MeetingSegment]) -> Void)?
@@ -73,6 +78,8 @@ final class MeetingTranscriptManager {
 
     /// Reset for a new meeting.
     func reset() {
+        transcriptionChain.cancel()
+        transcriptionChain = Task {}
         segments = []
         recordingStartTime = Date()
         selectedAppName = nil
@@ -161,8 +168,21 @@ final class MeetingTranscriptManager {
 
     // MARK: - Real-Time Transcription
 
-    /// Transcribe a chunk and add to segments.
-    func transcribeChunk(_ chunk: TranscriptionChunk) async {
+    /// Queue a chunk for transcription. Returns the task handle for cancellation.
+    /// Chunks are serialized to prevent concurrent AsrManager access.
+    @discardableResult
+    func transcribeChunk(_ chunk: TranscriptionChunk) -> Task<Void, Never> {
+        let previous = transcriptionChain
+        let task = Task { [weak self] in
+            await previous.value
+            guard let self, !Task.isCancelled else { return }
+            await self.performTranscription(chunk)
+        }
+        transcriptionChain = task
+        return task
+    }
+
+    private func performTranscription(_ chunk: TranscriptionChunk) async {
         let speakerId: String
         let isFromMicrophone: Bool
 
@@ -181,23 +201,26 @@ final class MeetingTranscriptManager {
                 sampleRate: Self.targetSampleRate
             )
 
+            // Bail out if cancelled while awaiting transcription
+            guard !Task.isCancelled else { return }
+
             let cleanedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleanedText.isEmpty else { return }
 
             let chunkDuration = Double(chunk.samples.count) / Self.targetSampleRate
             let startTime = chunk.timestamp.timeIntervalSince(recordingStartTime ?? Date())
 
-            await MainActor.run {
-                addSegment(
-                    text: cleanedText,
-                    speakerId: speakerId,
-                    isFromMicrophone: isFromMicrophone,
-                    startTime: max(0, startTime),
-                    endTime: startTime + chunkDuration
-                )
-            }
+            addSegment(
+                text: cleanedText,
+                speakerId: speakerId,
+                isFromMicrophone: isFromMicrophone,
+                startTime: max(0, startTime),
+                endTime: startTime + chunkDuration
+            )
         } catch {
-            print("MeetingTranscriptManager: Transcription error: \(error)")
+            if !Task.isCancelled {
+                print("MeetingTranscriptManager: Transcription error: \(error)")
+            }
         }
     }
 

@@ -31,6 +31,9 @@ final class MeetingFeature: Feature {
     // Timers
     private var durationTimer: Timer?
 
+    // Pending chunk transcription tasks (must be cancelled before final transcription)
+    private var chunkTranscriptionTasks: [Task<Void, Never>] = []
+
     // Device selection persistence
     private let deviceUIDKey = "meetingSelectedMicUID"
     private var selectedDeviceUID: String? {
@@ -132,6 +135,8 @@ final class MeetingFeature: Feature {
     }
 
     func cancel() {
+        for task in chunkTranscriptionTasks { task.cancel() }
+        chunkTranscriptionTasks = []
         stopRecording(saveToHistory: false)
         audioManager?.cleanupTempFiles()
         state.phase = .idle
@@ -248,6 +253,7 @@ final class MeetingFeature: Feature {
 
     private func startRecording() async {
         state.reset()
+        chunkTranscriptionTasks = []
 
         // Create managers
         let audio = MeetingAudioManager()
@@ -260,9 +266,15 @@ final class MeetingFeature: Feature {
         audio.onAudioLevel = { [weak self] level in
             self?.state.audioLevel = level
         }
-        audio.onTranscriptionChunk = { [weak self] chunk in
-            Task {
-                await self?.transcriptManager?.transcribeChunk(chunk)
+        if settings.isMeetingStreamingEnabled {
+            audio.onTranscriptionChunk = { [weak self] chunk in
+                guard let self, let manager = self.transcriptManager else { return }
+                let task = manager.transcribeChunk(chunk)
+                self.chunkTranscriptionTasks.append(task)
+                // Prune completed tasks to prevent unbounded growth
+                if self.chunkTranscriptionTasks.count > 20 {
+                    self.chunkTranscriptionTasks.removeAll { $0.isCancelled }
+                }
             }
         }
         audio.onError = { [weak self] message in
@@ -321,6 +333,11 @@ final class MeetingFeature: Feature {
 
         transcriptManager?.stopAutoSave()
 
+        // Cancel all pending chunk transcription tasks
+        let pendingTasks = chunkTranscriptionTasks
+        for task in pendingTasks { task.cancel() }
+        chunkTranscriptionTasks = []
+
         guard let audio = audioManager else { return }
         let (micFile, micRate, systemFile, systemRate) = audio.stop()
         let duration = state.duration
@@ -329,6 +346,10 @@ final class MeetingFeature: Feature {
             state.phase = .processing
 
             Task {
+                // Wait for cancelled chunk tasks to finish
+                // (prevents use-after-free from orphaned CoreML inference)
+                for task in pendingTasks { await task.value }
+
                 // Read original-quality audio files
                 let micSamples = audio.readSamplesFromFile(micFile)
                 let sysSamples = audio.readSamplesFromFile(systemFile)

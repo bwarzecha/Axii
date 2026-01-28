@@ -35,6 +35,17 @@ struct MeetingSettingsView: View {
             }
 
             Section {
+                Toggle("Live Transcription", isOn: Binding(
+                    get: { settings.isMeetingStreamingEnabled },
+                    set: { settings.setMeetingStreamingEnabled($0) }
+                ))
+            } header: {
+                Text("Transcription")
+            } footer: {
+                Text("When enabled, text appears in real-time during recording. Disable if you experience stability issues — the full transcript will still be generated when you stop recording.")
+            }
+
+            Section {
                 Toggle("Save to History", isOn: Binding(
                     get: { settings.isMeetingHistoryEnabled },
                     set: { settings.setMeetingHistoryEnabled($0) }
