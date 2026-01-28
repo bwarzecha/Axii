@@ -322,7 +322,7 @@ final class MeetingFeature: Feature {
         transcriptManager?.stopAutoSave()
 
         guard let audio = audioManager else { return }
-        let files = audio.stop()
+        let (micFile, micRate, systemFile, systemRate) = audio.stop()
         let duration = state.duration
 
         if saveToHistory {
@@ -330,8 +330,8 @@ final class MeetingFeature: Feature {
 
             Task {
                 // Read audio files and do final transcription
-                let micSamples = audio.readSamplesFromFile(files.micFile)
-                let sysSamples = audio.readSamplesFromFile(files.systemFile)
+                let micSamples = audio.readSamplesFromFile(micFile)
+                let sysSamples = audio.readSamplesFromFile(systemFile)
 
                 await transcriptManager?.transcribeFullAudio(
                     micSamples: micSamples,
@@ -345,7 +345,9 @@ final class MeetingFeature: Feature {
                 if settings.isMeetingHistoryEnabled {
                     await saveToHistoryStorage(
                         micSamples: micSamples,
+                        micSampleRate: micRate,
                         systemSamples: sysSamples,
+                        systemSampleRate: systemRate,
                         duration: duration
                     )
                 }
@@ -368,11 +370,14 @@ final class MeetingFeature: Feature {
 
     private func saveToHistoryStorage(
         micSamples: [Float],
+        micSampleRate: Double,
         systemSamples: [Float],
+        systemSampleRate: Double,
         duration: TimeInterval
     ) async {
         let meetingId = UUID()
         let segments = transcriptManager?.segments ?? []
+        let audioFormat = settings.meetingAudioFormat
 
         // Create initial meeting without audio recordings
         var meeting = Meeting(
@@ -389,22 +394,24 @@ final class MeetingFeature: Feature {
             // Save the meeting first to create the folder
             try await historyService.save(.meeting(meeting))
 
-            // Save audio files
+            // Save audio files with original sample rates and user-selected format
             var micRecording: AudioRecording?
             var systemRecording: AudioRecording?
 
-            if !micSamples.isEmpty {
-                micRecording = try await historyService.saveAudio(
+            if !micSamples.isEmpty && micSampleRate > 0 {
+                micRecording = try await historyService.saveAudioCompressed(
                     samples: micSamples,
-                    sampleRate: 16000,
+                    sampleRate: micSampleRate,
+                    format: audioFormat,
                     for: meetingId
                 )
             }
 
-            if !systemSamples.isEmpty {
-                systemRecording = try await historyService.saveAudio(
+            if !systemSamples.isEmpty && systemSampleRate > 0 {
+                systemRecording = try await historyService.saveAudioCompressed(
                     samples: systemSamples,
-                    sampleRate: 16000,
+                    sampleRate: systemSampleRate,
+                    format: audioFormat,
                     for: meetingId
                 )
             }
@@ -422,7 +429,7 @@ final class MeetingFeature: Feature {
 
             // Save updated meeting with audio references
             try await historyService.save(.meeting(meeting))
-            print("MeetingFeature: Saved meeting to history with \(segments.count) segments")
+            print("MeetingFeature: Saved meeting to history with \(segments.count) segments (\(audioFormat.displayName) @ \(Int(systemSampleRate))Hz)")
         } catch {
             print("MeetingFeature: Failed to save to history: \(error)")
         }

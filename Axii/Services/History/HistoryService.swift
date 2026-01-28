@@ -6,6 +6,8 @@
 //  Stores history in ~/Library/Application Support/Axii/history/
 //
 
+import AudioToolbox
+import AVFoundation
 import Foundation
 
 #if os(macOS)
@@ -262,6 +264,50 @@ final class HistoryService {
         )
     }
 
+    /// Save audio samples in a compressed format (ALAC or AAC)
+    /// Returns the AudioRecording metadata
+    func saveAudioCompressed(
+        samples: [Float],
+        sampleRate: Double,
+        format: MeetingAudioFormat,
+        for interactionId: UUID
+    ) async throws -> AudioRecording {
+        guard isEnabled else {
+            return AudioRecording(
+                filename: "",
+                duration: Double(samples.count) / sampleRate,
+                sampleRate: sampleRate
+            )
+        }
+
+        guard let metadata = cache[interactionId] else {
+            throw HistoryError.interactionNotFound(interactionId)
+        }
+
+        let folderURL = historyDirectory.appendingPathComponent(metadata.folderName)
+        let audioDir = folderURL.appendingPathComponent("audio")
+
+        try fileManager.createDirectory(at: audioDir, withIntermediateDirectories: true)
+
+        let recordingId = UUID()
+        let filename = "audio/\(recordingId.uuidString.lowercased()).\(format.fileExtension)"
+        let fileURL = folderURL.appendingPathComponent(filename)
+
+        do {
+            try writeCompressedAudio(samples: samples, sampleRate: sampleRate, format: format, to: fileURL)
+        } catch {
+            throw HistoryError.audioWriteFailed(error)
+        }
+
+        let duration = Double(samples.count) / sampleRate
+        return AudioRecording(
+            id: recordingId,
+            filename: filename,
+            duration: duration,
+            sampleRate: sampleRate
+        )
+    }
+
     /// Get the full URL for an audio recording
     func getAudioURL(_ recording: AudioRecording, for interactionId: UUID) -> URL? {
         guard let metadata = cache[interactionId] else { return nil }
@@ -316,6 +362,68 @@ final class HistoryService {
         }
 
         return data
+    }
+
+    /// Write audio samples to a compressed file (ALAC or AAC) using AVAudioFile
+    private func writeCompressedAudio(
+        samples: [Float],
+        sampleRate: Double,
+        format: MeetingAudioFormat,
+        to url: URL
+    ) throws {
+        // Create PCM format for input samples
+        guard let pcmFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: sampleRate,
+            channels: 1,
+            interleaved: false
+        ) else {
+            throw NSError(domain: "HistoryService", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to create PCM format"
+            ])
+        }
+
+        // Build output settings based on format
+        let settings: [String: Any]
+        switch format {
+        case .alac:
+            settings = [
+                AVFormatIDKey: Int(kAudioFormatAppleLossless),
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitDepthHintKey: 16
+            ]
+        case .aac:
+            settings = [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: format.aacBitrate
+            ]
+        }
+
+        // Create output file
+        let audioFile = try AVAudioFile(forWriting: url, settings: settings)
+
+        // Create buffer and copy samples
+        guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: pcmFormat,
+            frameCapacity: AVAudioFrameCount(samples.count)
+        ) else {
+            throw NSError(domain: "HistoryService", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to create audio buffer"
+            ])
+        }
+
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+
+        // Copy samples to buffer
+        if let channelData = buffer.floatChannelData {
+            memcpy(channelData[0], samples, samples.count * MemoryLayout<Float>.size)
+        }
+
+        // Write to file
+        try audioFile.write(from: buffer)
     }
 }
 

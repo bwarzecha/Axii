@@ -41,13 +41,16 @@ final class MeetingAudioManager {
     private var eventTask: Task<Void, Never>?
 
     private(set) var isRecording = false
-    private var sessionSampleRate: Double = 48000
 
-    // Audio buffers (accumulate until chunk size)
-    private var micBuffer: [Float] = []
-    private var systemBuffer: [Float] = []
+    // Original sample rates (captured from incoming chunks, 0 = not yet received)
+    private(set) var micOriginalSampleRate: Double = 0
+    private(set) var systemOriginalSampleRate: Double = 0
 
-    // File streaming for reliability
+    // Transcription buffers (16kHz resampled, for real-time transcription)
+    private var transcriptionMicBuffer: [Float] = []
+    private var transcriptionSystemBuffer: [Float] = []
+
+    // File streaming for reliability (stores ORIGINAL quality samples)
     private var micFileHandle: FileHandle?
     private var systemFileHandle: FileHandle?
     private(set) var micFilePath: URL?
@@ -70,9 +73,9 @@ final class MeetingAudioManager {
     ) async throws {
         guard !isRecording else { return }
 
-        // Reset buffers
-        micBuffer = []
-        systemBuffer = []
+        // Reset transcription buffers
+        transcriptionMicBuffer = []
+        transcriptionSystemBuffer = []
 
         // Setup temp files for streaming
         setupTempAudioFiles()
@@ -104,9 +107,9 @@ final class MeetingAudioManager {
         isRecording = true
     }
 
-    /// Stop recording and return file paths.
-    func stop() -> (micFile: URL?, systemFile: URL?) {
-        guard isRecording else { return (nil, nil) }
+    /// Stop recording and return file paths with their original sample rates.
+    func stop() -> (micFile: URL?, micRate: Double, systemFile: URL?, systemRate: Double) {
+        guard isRecording else { return (nil, 0, nil, 0) }
 
         // Cancel tasks
         chunkTask?.cancel()
@@ -118,17 +121,9 @@ final class MeetingAudioManager {
         audioSession?.stop()
         audioSession = nil
 
-        // Flush remaining buffers
-        if !micBuffer.isEmpty {
-            writeSamplesToFile(micBuffer, handle: micFileHandle)
-            micSampleCount += micBuffer.count
-        }
-        if !systemBuffer.isEmpty {
-            writeSamplesToFile(systemBuffer, handle: systemFileHandle)
-            systemSampleCount += systemBuffer.count
-        }
-        micBuffer = []
-        systemBuffer = []
+        // Clear transcription buffers (original samples already written to files)
+        transcriptionMicBuffer = []
+        transcriptionSystemBuffer = []
 
         // Close file handles
         try? micFileHandle?.close()
@@ -138,17 +133,20 @@ final class MeetingAudioManager {
 
         isRecording = false
 
-        return (micFilePath, systemFilePath)
+        return (micFilePath, micOriginalSampleRate, systemFilePath, systemOriginalSampleRate)
     }
 
     /// Switch the app being captured (brief gap acceptable).
     func switchApp(to app: AudioApp?, micSource: AudioSource.MicrophoneSource) async throws {
         guard isRecording else { return }
 
+        // Preserve file state before stopping
         let micPath = micFilePath
         let sysPath = systemFilePath
         let currentMicCount = micSampleCount
         let currentSysCount = systemSampleCount
+        let currentMicRate = micOriginalSampleRate
+        let currentSysRate = systemOriginalSampleRate
 
         // Stop current session (preserves files)
         _ = stop()
@@ -158,6 +156,8 @@ final class MeetingAudioManager {
         systemFilePath = sysPath
         micSampleCount = currentMicCount
         systemSampleCount = currentSysCount
+        micOriginalSampleRate = currentMicRate
+        systemOriginalSampleRate = currentSysRate
 
         // Reopen file handles for appending
         if let path = micFilePath {
@@ -271,7 +271,17 @@ final class MeetingAudioManager {
     }
 
     private func handleChunk(_ chunk: AudioSessionChunk) {
-        sessionSampleRate = chunk.sampleRate
+        // Capture original sample rate from first chunk of each source
+        switch chunk.source {
+        case .microphone:
+            if micOriginalSampleRate == 0 {
+                micOriginalSampleRate = chunk.sampleRate
+            }
+        case .systemAudio:
+            if systemOriginalSampleRate == 0 {
+                systemOriginalSampleRate = chunk.sampleRate
+            }
+        }
 
         // Log for debugging sample rate issues (once per source to reduce spam)
         #if DEBUG
@@ -288,8 +298,7 @@ final class MeetingAudioManager {
         }
         if shouldLog {
             let chunkDuration = Double(chunk.samples.count) / chunk.sampleRate
-            let expectedResampledCount = Int(Double(chunk.samples.count) * (Self.targetSampleRate / chunk.sampleRate))
-            print("MeetingAudioManager[\(sourceStr)]: rate=\(chunk.sampleRate), samples=\(chunk.samples.count), duration=\(String(format: "%.3f", chunkDuration))s, expectedResampled=\(expectedResampledCount)")
+            print("MeetingAudioManager[\(sourceStr)]: rate=\(chunk.sampleRate), samples=\(chunk.samples.count), duration=\(String(format: "%.3f", chunkDuration))s")
         }
         #endif
 
@@ -298,36 +307,35 @@ final class MeetingAudioManager {
         let normalized = min(sqrt(rms) * 3.0, 1.0)
         onAudioLevel?(normalized)
 
-        // Resample to 16kHz for transcription
+        // 1. Write ORIGINAL samples to temp file (for history playback)
+        // 2. Resample to 16kHz for transcription buffer
         let resampled = resampleTo16kHz(chunk.samples, fromRate: chunk.sampleRate)
 
-        #if DEBUG
-        if resampled.count != Int(Double(chunk.samples.count) * (Self.targetSampleRate / chunk.sampleRate)) {
-            print("MeetingAudioManager[\(sourceStr)]: WARNING resampled count mismatch! got=\(resampled.count), expected=\(Int(Double(chunk.samples.count) * (Self.targetSampleRate / chunk.sampleRate)))")
-        }
-        #endif
-
-        // Route to appropriate buffer
         switch chunk.source {
         case .microphone:
-            micBuffer.append(contentsOf: resampled)
-            processMicBuffer()
+            // Write original quality to file
+            writeSamplesToFile(chunk.samples, handle: micFileHandle)
+            micSampleCount += chunk.samples.count
+            // Accumulate resampled for transcription
+            transcriptionMicBuffer.append(contentsOf: resampled)
+            processTranscriptionMicBuffer()
 
         case .systemAudio:
-            systemBuffer.append(contentsOf: resampled)
-            processSystemBuffer()
+            // Write original quality to file
+            writeSamplesToFile(chunk.samples, handle: systemFileHandle)
+            systemSampleCount += chunk.samples.count
+            // Accumulate resampled for transcription
+            transcriptionSystemBuffer.append(contentsOf: resampled)
+            processTranscriptionSystemBuffer()
         }
     }
 
-    private func processMicBuffer() {
-        guard micBuffer.count >= chunkSampleCount else { return }
+    /// Process transcription mic buffer - emits 16kHz chunks for real-time transcription.
+    private func processTranscriptionMicBuffer() {
+        guard transcriptionMicBuffer.count >= chunkSampleCount else { return }
 
-        let chunk = Array(micBuffer.prefix(chunkSampleCount))
-        micBuffer = Array(micBuffer.dropFirst(chunkSampleCount))
-
-        // Write to file
-        writeSamplesToFile(chunk, handle: micFileHandle)
-        micSampleCount += chunk.count
+        let chunk = Array(transcriptionMicBuffer.prefix(chunkSampleCount))
+        transcriptionMicBuffer = Array(transcriptionMicBuffer.dropFirst(chunkSampleCount))
 
         // Emit for real-time transcription (skip silence)
         if !isSilent(chunk) {
@@ -339,15 +347,12 @@ final class MeetingAudioManager {
         }
     }
 
-    private func processSystemBuffer() {
-        guard systemBuffer.count >= chunkSampleCount else { return }
+    /// Process transcription system buffer - emits 16kHz chunks for real-time transcription.
+    private func processTranscriptionSystemBuffer() {
+        guard transcriptionSystemBuffer.count >= chunkSampleCount else { return }
 
-        let chunk = Array(systemBuffer.prefix(chunkSampleCount))
-        systemBuffer = Array(systemBuffer.dropFirst(chunkSampleCount))
-
-        // Write to file
-        writeSamplesToFile(chunk, handle: systemFileHandle)
-        systemSampleCount += chunk.count
+        let chunk = Array(transcriptionSystemBuffer.prefix(chunkSampleCount))
+        transcriptionSystemBuffer = Array(transcriptionSystemBuffer.dropFirst(chunkSampleCount))
 
         // Emit for real-time transcription (skip silence)
         if !isSilent(chunk) {

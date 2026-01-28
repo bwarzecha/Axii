@@ -35,6 +35,14 @@ struct MeetingSettingsView: View {
             }
 
             Section {
+                audioFormatPicker
+            } header: {
+                Text("Audio Quality")
+            } footer: {
+                Text(settings.meetingAudioFormat.description)
+            }
+
+            Section {
                 Toggle("Save to History", isOn: Binding(
                     get: { settings.isMeetingHistoryEnabled },
                     set: { settings.setMeetingHistoryEnabled($0) }
@@ -55,6 +63,18 @@ struct MeetingSettingsView: View {
         )) {
             ForEach(MeetingAnimationStyle.allCases, id: \.self) { style in
                 Text(style.displayName).tag(style)
+            }
+        }
+        .pickerStyle(.menu)
+    }
+
+    private var audioFormatPicker: some View {
+        Picker("Format", selection: Binding(
+            get: { settings.meetingAudioFormat },
+            set: { settings.setMeetingAudioFormat($0) }
+        )) {
+            ForEach(MeetingAudioFormat.allCases, id: \.self) { format in
+                Text(format.displayName).tag(format)
             }
         }
         .pickerStyle(.menu)
