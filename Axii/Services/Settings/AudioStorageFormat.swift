@@ -1,16 +1,17 @@
 //
-//  MeetingAudioFormat.swift
+//  AudioStorageFormat.swift
 //  Axii
 //
-//  Audio format options for meeting recordings.
+//  Audio format options for saved recordings.
 //  User-configurable in Settings to balance quality vs file size.
+//  Applies to all features that save audio (dictation, meetings).
 //
 
 #if os(macOS)
 import Foundation
 
-/// Audio format for meeting recordings - user-configurable in Settings.
-enum MeetingAudioFormat: String, Codable, CaseIterable {
+/// Audio storage format for saved recordings - user-configurable in Settings.
+enum AudioStorageFormat: String, Codable, CaseIterable {
     case alac   // Apple Lossless - perfect quality, ~150 MB/hour
     case aac    // AAC 128kbps - transparent quality, ~57 MB/hour
 

@@ -6,6 +6,7 @@
 //
 
 #if os(macOS)
+import Accelerate
 import Foundation
 
 /// Auto-save data structure for crash recovery.
@@ -267,26 +268,33 @@ final class MeetingTranscriptManager {
     // MARK: - Final Transcription
 
     /// Transcribe full audio files for best quality (call after recording stops).
+    /// Accepts samples at any sample rate - resamples to 16kHz internally.
     func transcribeFullAudio(
         micSamples: [Float],
-        systemSamples: [Float]
+        micSampleRate: Double,
+        systemSamples: [Float],
+        systemSampleRate: Double
     ) async {
         // Clear real-time segments
         segments = []
         lastMicSegmentIndex = nil
         lastSystemSegmentIndex = nil
 
+        // Resample to 16kHz for transcription
+        let micResampled = resample(micSamples, from: micSampleRate)
+        let systemResampled = resample(systemSamples, from: systemSampleRate)
+
         // Calculate total chunks for progress
         let chunkSize = Int(Self.targetSampleRate * 30.0)
-        let micChunks = micSamples.isEmpty ? 0 : (micSamples.count + chunkSize - 1) / chunkSize
-        let systemChunks = systemSamples.isEmpty ? 0 : (systemSamples.count + chunkSize - 1) / chunkSize
+        let micChunks = micResampled.isEmpty ? 0 : (micResampled.count + chunkSize - 1) / chunkSize
+        let systemChunks = systemResampled.isEmpty ? 0 : (systemResampled.count + chunkSize - 1) / chunkSize
         let totalChunks = micChunks + systemChunks
         var completedChunks = 0
 
         // Transcribe mic audio
         onProgressUpdated?(0, "Transcribing your audio...")
         await transcribeFullTrack(
-            samples: micSamples,
+            samples: micResampled,
             speakerId: "You",
             isFromMicrophone: true
         ) { [weak self] in
@@ -298,7 +306,7 @@ final class MeetingTranscriptManager {
         // Transcribe system audio
         onProgressUpdated?(Double(micChunks) / Double(max(totalChunks, 1)), "Transcribing remote audio...")
         await transcribeFullTrack(
-            samples: systemSamples,
+            samples: systemResampled,
             speakerId: "Remote",
             isFromMicrophone: false
         ) { [weak self] in
@@ -366,6 +374,29 @@ final class MeetingTranscriptManager {
             currentOffset = endOffset
             onChunkComplete()
         }
+    }
+
+    /// Resample audio to 16kHz for transcription. Returns input unchanged if already 16kHz.
+    private func resample(_ samples: [Float], from sampleRate: Double) -> [Float] {
+        guard !samples.isEmpty, sampleRate > 0 else { return [] }
+        guard sampleRate != Self.targetSampleRate else { return samples }
+        guard samples.count > 1 else { return samples }
+
+        let ratio = Self.targetSampleRate / sampleRate
+        let outputCount = Int(Double(samples.count) * ratio)
+        guard outputCount > 0 else { return [] }
+
+        var output = [Float](repeating: 0, count: outputCount)
+        var indices = [Float](repeating: 0, count: outputCount)
+        var index: Float = 0
+        var increment = Float(sampleRate / Self.targetSampleRate)
+        vDSP_vramp(&index, &increment, &indices, 1, vDSP_Length(outputCount))
+
+        var maxIndex = Float(samples.count - 1)
+        vDSP_vclip(indices, 1, &index, &maxIndex, &indices, 1, vDSP_Length(outputCount))
+        vDSP_vlint(samples, indices, 1, &output, 1, vDSP_Length(outputCount), vDSP_Length(samples.count))
+
+        return output
     }
 
     private func mergeConsecutiveSpeakerSegments() {

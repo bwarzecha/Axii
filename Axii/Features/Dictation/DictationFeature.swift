@@ -355,9 +355,10 @@ final class DictationFeature: Feature {
 
             try await historyService.save(.transcription(transcription))
 
-            let audioRecording = try await historyService.saveAudio(
+            let audioRecording = try await historyService.saveAudioCompressed(
                 samples: samples,
                 sampleRate: sampleRate,
+                format: settings.audioStorageFormat,
                 for: transcription.id
             )
 

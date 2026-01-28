@@ -34,6 +34,22 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("History")
             }
+
+            Section {
+                Picker("Format", selection: Binding(
+                    get: { settings.audioStorageFormat },
+                    set: { settings.setAudioStorageFormat($0) }
+                )) {
+                    ForEach(AudioStorageFormat.allCases, id: \.self) { format in
+                        Text(format.displayName).tag(format)
+                    }
+                }
+                .pickerStyle(.menu)
+            } header: {
+                Text("Audio Quality")
+            } footer: {
+                Text(settings.audioStorageFormat.description)
+            }
         }
         .formStyle(.grouped)
     }

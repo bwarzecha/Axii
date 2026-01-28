@@ -269,7 +269,7 @@ final class HistoryService {
     func saveAudioCompressed(
         samples: [Float],
         sampleRate: Double,
-        format: MeetingAudioFormat,
+        format: AudioStorageFormat,
         for interactionId: UUID
     ) async throws -> AudioRecording {
         guard isEnabled else {
@@ -368,7 +368,7 @@ final class HistoryService {
     private func writeCompressedAudio(
         samples: [Float],
         sampleRate: Double,
-        format: MeetingAudioFormat,
+        format: AudioStorageFormat,
         to url: URL
     ) throws {
         // Create PCM format for input samples

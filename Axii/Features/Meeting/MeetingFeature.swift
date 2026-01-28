@@ -329,19 +329,22 @@ final class MeetingFeature: Feature {
             state.phase = .processing
 
             Task {
-                // Read audio files and do final transcription
+                // Read original-quality audio files
                 let micSamples = audio.readSamplesFromFile(micFile)
                 let sysSamples = audio.readSamplesFromFile(systemFile)
 
+                // Final transcription (resamples to 16kHz internally)
                 await transcriptManager?.transcribeFullAudio(
                     micSamples: micSamples,
-                    systemSamples: sysSamples
+                    micSampleRate: micRate,
+                    systemSamples: sysSamples,
+                    systemSampleRate: systemRate
                 )
 
                 // Clear auto-save
                 transcriptManager?.clearAutoSave()
 
-                // Save to history if enabled
+                // Save to history (original quality for playback)
                 if settings.isMeetingHistoryEnabled {
                     await saveToHistoryStorage(
                         micSamples: micSamples,
@@ -377,7 +380,7 @@ final class MeetingFeature: Feature {
     ) async {
         let meetingId = UUID()
         let segments = transcriptManager?.segments ?? []
-        let audioFormat = settings.meetingAudioFormat
+        let audioFormat = settings.audioStorageFormat
 
         // Create initial meeting without audio recordings
         var meeting = Meeting(

@@ -32,8 +32,8 @@ final class SettingsService {
     /// Meeting animation style for compact view.
     private(set) var meetingAnimationStyle: MeetingAnimationStyle
 
-    /// Audio format for meeting recordings (ALAC lossless or AAC compressed).
-    private(set) var meetingAudioFormat: MeetingAudioFormat
+    /// Audio storage format for saved recordings (ALAC lossless or AAC compressed).
+    private(set) var audioStorageFormat: AudioStorageFormat
 
     /// Current hotkey mode (standard or advanced).
     private(set) var hotkeyMode: HotkeyMode
@@ -84,7 +84,7 @@ final class SettingsService {
     private let conversationHotkeyKey = "settings.conversationHotkeyConfig"
     private let meetingHotkeyKey = "settings.meetingHotkeyConfig"
     private let meetingAnimationStyleKey = "settings.meetingAnimationStyle"
-    private let meetingAudioFormatKey = "settings.meetingAudioFormat"
+    private let audioStorageFormatKey = "settings.audioStorageFormat"
     private let historyEnabledKey = "settings.isHistoryEnabled"
     private let hotkeyModeKey = "settings.hotkeyMode"
     private let finishBehaviorKey = "settings.finishBehavior"
@@ -110,7 +110,7 @@ final class SettingsService {
             defaultValue: .meetingDefault
         )
         self.meetingAnimationStyle = Self.loadMeetingAnimationStyle(from: defaults)
-        self.meetingAudioFormat = Self.loadMeetingAudioFormat(from: defaults)
+        self.audioStorageFormat = Self.loadAudioStorageFormat(from: defaults)
         self.hotkeyMode = Self.loadHotkeyMode(from: defaults)
         self.finishBehavior = Self.loadFinishBehavior(from: defaults)
         self.insertionFailureBehavior = Self.loadInsertionFailureBehavior(from: defaults)
@@ -168,11 +168,11 @@ final class SettingsService {
         defaults.set(style.rawValue, forKey: meetingAnimationStyleKey)
     }
 
-    /// Updates the meeting audio format and persists it.
-    func setMeetingAudioFormat(_ format: MeetingAudioFormat) {
-        guard format != meetingAudioFormat else { return }
-        meetingAudioFormat = format
-        defaults.set(format.rawValue, forKey: meetingAudioFormatKey)
+    /// Updates the audio storage format and persists it.
+    func setAudioStorageFormat(_ format: AudioStorageFormat) {
+        guard format != audioStorageFormat else { return }
+        audioStorageFormat = format
+        defaults.set(format.rawValue, forKey: audioStorageFormatKey)
     }
 
     /// Call when starting to record a new hotkey.
@@ -311,9 +311,9 @@ private extension SettingsService {
         return style
     }
 
-    static func loadMeetingAudioFormat(from defaults: UserDefaults) -> MeetingAudioFormat {
-        guard let rawValue = defaults.string(forKey: "settings.meetingAudioFormat"),
-              let format = MeetingAudioFormat(rawValue: rawValue) else {
+    static func loadAudioStorageFormat(from defaults: UserDefaults) -> AudioStorageFormat {
+        guard let rawValue = defaults.string(forKey: "settings.audioStorageFormat"),
+              let format = AudioStorageFormat(rawValue: rawValue) else {
             return .alac  // Default to lossless
         }
         return format
