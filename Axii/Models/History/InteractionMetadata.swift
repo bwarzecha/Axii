@@ -4,6 +4,7 @@ import Foundation
 enum MetadataDetails: Codable, Equatable {
     case transcription(TranscriptionMetadata)
     case conversation(ConversationMetadata)
+    case meeting(MeetingMetadata)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -13,6 +14,7 @@ enum MetadataDetails: Codable, Equatable {
     private enum TypeValue: String, Codable {
         case transcription
         case conversation
+        case meeting
     }
 
     init(from decoder: Decoder) throws {
@@ -26,6 +28,9 @@ enum MetadataDetails: Codable, Equatable {
         case .conversation:
             let data = try container.decode(ConversationMetadata.self, forKey: .data)
             self = .conversation(data)
+        case .meeting:
+            let data = try container.decode(MeetingMetadata.self, forKey: .data)
+            self = .meeting(data)
         }
     }
 
@@ -38,6 +43,9 @@ enum MetadataDetails: Codable, Equatable {
             try container.encode(data, forKey: .data)
         case .conversation(let data):
             try container.encode(TypeValue.conversation, forKey: .type)
+            try container.encode(data, forKey: .data)
+        case .meeting(let data):
+            try container.encode(TypeValue.meeting, forKey: .type)
             try container.encode(data, forKey: .data)
         }
     }

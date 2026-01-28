@@ -11,6 +11,7 @@
 
 #if os(macOS)
 import AVFoundation
+import CoreAudio
 import CoreMedia
 import Foundation
 import ScreenCaptureKit
@@ -193,9 +194,27 @@ extension SystemAudioCapture: SCStreamOutput {
 
         let sampleRate = asbd.pointee.mSampleRate
         let channelCount = Int(asbd.pointee.mChannelsPerFrame)
+        let bitsPerChannel = asbd.pointee.mBitsPerChannel
+        let formatFlags = asbd.pointee.mFormatFlags
+        let bytesPerFrame = asbd.pointee.mBytesPerFrame
+
+        // Check for non-interleaved (planar) format
+        let isNonInterleaved = (formatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+
+        // Log audio format once per type at start
+        #if DEBUG
+        struct LogState { static var micLogged = false; static var sysLogged = false }
+        let shouldLog = outputType == .microphone ? !LogState.micLogged : !LogState.sysLogged
+        if shouldLog {
+            let outputTypeStr = outputType == .microphone ? "MIC" : "SYS"
+            let isFloat = (formatFlags & kAudioFormatFlagIsFloat) != 0
+            print("SystemAudioCapture[\(outputTypeStr)]: rate=\(sampleRate), ch=\(channelCount), bits=\(bitsPerChannel), float=\(isFloat), nonInterleaved=\(isNonInterleaved), bytesPerFrame=\(bytesPerFrame)")
+            if outputType == .microphone { LogState.micLogged = true } else { LogState.sysLogged = true }
+        }
+        #endif
 
         // Extract samples
-        guard let samples = extractSamples(from: sampleBuffer, channelCount: channelCount) else {
+        guard let samples = extractSamples(from: sampleBuffer, channelCount: channelCount, bitsPerChannel: bitsPerChannel, formatFlags: formatFlags, isNonInterleaved: isNonInterleaved) else {
             return
         }
 
@@ -226,7 +245,7 @@ extension SystemAudioCapture: SCStreamOutput {
         }
     }
 
-    private func extractSamples(from sampleBuffer: CMSampleBuffer, channelCount: Int) -> [Float]? {
+    private func extractSamples(from sampleBuffer: CMSampleBuffer, channelCount: Int, bitsPerChannel: UInt32, formatFlags: AudioFormatFlags, isNonInterleaved: Bool) -> [Float]? {
         guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else {
             return nil
         }
@@ -246,16 +265,58 @@ extension SystemAudioCapture: SCStreamOutput {
             return nil
         }
 
-        // Convert to float samples (assuming 32-bit float PCM)
-        let floatCount = length / MemoryLayout<Float>.size
-        let floatPointer = UnsafeRawPointer(data).bindMemory(to: Float.self, capacity: floatCount)
-        var samples = Array(UnsafeBufferPointer(start: floatPointer, count: floatCount))
+        let isFloat = (formatFlags & kAudioFormatFlagIsFloat) != 0
+        var samples: [Float]
+
+        if isFloat && bitsPerChannel == 32 {
+            // 32-bit float PCM (expected format)
+            let floatCount = length / MemoryLayout<Float>.size
+            let floatPointer = UnsafeRawPointer(data).bindMemory(to: Float.self, capacity: floatCount)
+            samples = Array(UnsafeBufferPointer(start: floatPointer, count: floatCount))
+        } else if !isFloat && bitsPerChannel == 16 {
+            // 16-bit integer PCM - convert to float
+            let int16Count = length / MemoryLayout<Int16>.size
+            let int16Pointer = UnsafeRawPointer(data).bindMemory(to: Int16.self, capacity: int16Count)
+            let int16Samples = Array(UnsafeBufferPointer(start: int16Pointer, count: int16Count))
+            samples = int16Samples.map { Float($0) / Float(Int16.max) }
+            #if DEBUG
+            print("SystemAudioCapture: Converted 16-bit PCM to float (\(int16Count) samples)")
+            #endif
+        } else if !isFloat && bitsPerChannel == 32 {
+            // 32-bit integer PCM - convert to float
+            let int32Count = length / MemoryLayout<Int32>.size
+            let int32Pointer = UnsafeRawPointer(data).bindMemory(to: Int32.self, capacity: int32Count)
+            let int32Samples = Array(UnsafeBufferPointer(start: int32Pointer, count: int32Count))
+            samples = int32Samples.map { Float($0) / Float(Int32.max) }
+            #if DEBUG
+            print("SystemAudioCapture: Converted 32-bit int PCM to float (\(int32Count) samples)")
+            #endif
+        } else {
+            // Fallback: assume 32-bit float
+            #if DEBUG
+            print("SystemAudioCapture: Unknown format (bits=\(bitsPerChannel), float=\(isFloat)), assuming 32-bit float")
+            #endif
+            let floatCount = length / MemoryLayout<Float>.size
+            let floatPointer = UnsafeRawPointer(data).bindMemory(to: Float.self, capacity: floatCount)
+            samples = Array(UnsafeBufferPointer(start: floatPointer, count: floatCount))
+        }
 
         // Convert stereo to mono if needed
         if channelCount == 2 && samples.count >= 2 {
-            var monoSamples = [Float](repeating: 0, count: samples.count / 2)
-            for i in 0..<monoSamples.count {
-                monoSamples[i] = (samples[i * 2] + samples[i * 2 + 1]) / 2.0
+            let frameCount = samples.count / 2
+            var monoSamples = [Float](repeating: 0, count: frameCount)
+
+            if isNonInterleaved {
+                // Non-interleaved (planar): [L0,L1,L2,...,R0,R1,R2,...]
+                // Left channel is first half, right channel is second half
+                for i in 0..<frameCount {
+                    monoSamples[i] = (samples[i] + samples[frameCount + i]) / 2.0
+                }
+            } else {
+                // Interleaved: [L0,R0,L1,R1,L2,R2,...]
+                for i in 0..<frameCount {
+                    monoSamples[i] = (samples[i * 2] + samples[i * 2 + 1]) / 2.0
+                }
             }
             samples = monoSamples
         }

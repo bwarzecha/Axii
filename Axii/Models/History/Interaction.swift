@@ -4,6 +4,7 @@ import Foundation
 enum Interaction: Codable, Equatable {
     case transcription(Transcription)
     case conversation(Conversation)
+    case meeting(Meeting)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -14,6 +15,7 @@ enum Interaction: Codable, Equatable {
         switch self {
         case .transcription(let t): return t.id
         case .conversation(let c): return c.id
+        case .meeting(let m): return m.id
         }
     }
 
@@ -21,6 +23,7 @@ enum Interaction: Codable, Equatable {
         switch self {
         case .transcription(let t): return t.createdAt
         case .conversation(let c): return c.createdAt
+        case .meeting(let m): return m.createdAt
         }
     }
 
@@ -28,6 +31,7 @@ enum Interaction: Codable, Equatable {
         switch self {
         case .transcription: return .transcription
         case .conversation: return .conversation
+        case .meeting: return .meeting
         }
     }
 
@@ -38,6 +42,8 @@ enum Interaction: Codable, Equatable {
             return t.toMetadata()
         case .conversation(let c):
             return c.toMetadata()
+        case .meeting(let m):
+            return m.toMetadata()
         }
     }
 
@@ -54,6 +60,9 @@ enum Interaction: Codable, Equatable {
         case .conversation:
             let data = try container.decode(Conversation.self, forKey: .data)
             self = .conversation(data)
+        case .meeting:
+            let data = try container.decode(Meeting.self, forKey: .data)
+            self = .meeting(data)
         }
     }
 
@@ -66,6 +75,9 @@ enum Interaction: Codable, Equatable {
             try container.encode(data, forKey: .data)
         case .conversation(let data):
             try container.encode(InteractionType.conversation, forKey: .type)
+            try container.encode(data, forKey: .data)
+        case .meeting(let data):
+            try container.encode(InteractionType.meeting, forKey: .type)
             try container.encode(data, forKey: .data)
         }
     }

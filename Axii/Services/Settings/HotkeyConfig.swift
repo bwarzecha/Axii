@@ -31,6 +31,13 @@ struct HotkeyConfig: Codable, Equatable {
         usesFnKey: false
     )
 
+    /// Default meeting hotkey: Control+Option+M
+    static let meetingDefault = HotkeyConfig(
+        keyCode: UInt32(kVK_ANSI_M),
+        modifiers: UInt32(controlKey) | UInt32(optionKey),
+        usesFnKey: false
+    )
+
     /// Convert to HotKey library Key type for registration.
     /// Falls back to space key if the key code is invalid.
     var key: Key {

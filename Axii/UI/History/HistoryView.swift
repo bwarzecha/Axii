@@ -44,6 +44,7 @@ struct HistoryView: View {
                     Text("All").tag(nil as InteractionType?)
                     Text("Dictations").tag(InteractionType.transcription as InteractionType?)
                     Text("Conversations").tag(InteractionType.conversation as InteractionType?)
+                    Text("Meetings").tag(InteractionType.meeting as InteractionType?)
                 }
                 .pickerStyle(.menu)
                 .frame(width: 130)
@@ -105,7 +106,7 @@ struct HistoryView: View {
             Text("No history yet")
                 .font(.headline)
                 .foregroundStyle(.secondary)
-            Text("Your dictations and conversations will appear here.")
+            Text("Your dictations, conversations, and meetings will appear here.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
@@ -152,6 +153,8 @@ struct HistoryView: View {
                 let role = message.role == .user ? "You" : "Assistant"
                 return "\(role): \(message.content)"
             }.joined(separator: "\n\n")
+        case .meeting(let meeting):
+            return meeting.fullText
         }
     }
 }

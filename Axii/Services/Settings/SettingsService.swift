@@ -26,6 +26,12 @@ final class SettingsService {
     /// Current conversation hotkey configuration.
     private(set) var conversationHotkeyConfig: HotkeyConfig
 
+    /// Current meeting hotkey configuration.
+    private(set) var meetingHotkeyConfig: HotkeyConfig
+
+    /// Meeting animation style for compact view.
+    private(set) var meetingAnimationStyle: MeetingAnimationStyle
+
     /// Current hotkey mode (standard or advanced).
     private(set) var hotkeyMode: HotkeyMode
 
@@ -37,6 +43,9 @@ final class SettingsService {
 
     /// Whether to pause media playback during dictation (default: false)
     private(set) var pauseMediaDuringDictation: Bool
+
+    /// Whether meeting history saving is enabled (default: true)
+    private(set) var isMeetingHistoryEnabled: Bool
 
     /// Whether history saving is enabled (default: true)
     var isHistoryEnabled: Bool {
@@ -51,6 +60,9 @@ final class SettingsService {
 
     /// Called when conversation hotkey configuration changes (for re-registration).
     var onConversationHotkeyChanged: (() -> Void)?
+
+    /// Called when meeting hotkey configuration changes (for re-registration).
+    var onMeetingHotkeyChanged: (() -> Void)?
 
     /// Called when hotkey recording starts (to pause global hotkeys).
     var onHotkeyRecordingStarted: (() -> Void)?
@@ -67,11 +79,14 @@ final class SettingsService {
     private let defaults: UserDefaults
     private let hotkeyKey = "settings.hotkeyConfig"
     private let conversationHotkeyKey = "settings.conversationHotkeyConfig"
+    private let meetingHotkeyKey = "settings.meetingHotkeyConfig"
+    private let meetingAnimationStyleKey = "settings.meetingAnimationStyle"
     private let historyEnabledKey = "settings.isHistoryEnabled"
     private let hotkeyModeKey = "settings.hotkeyMode"
     private let finishBehaviorKey = "settings.finishBehavior"
     private let insertionFailureBehaviorKey = "settings.insertionFailureBehavior"
     private let pauseMediaKey = "settings.pauseMediaDuringDictation"
+    private let meetingHistoryEnabledKey = "settings.isMeetingHistoryEnabled"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -85,6 +100,12 @@ final class SettingsService {
             key: "settings.conversationHotkeyConfig",
             defaultValue: .conversationDefault
         )
+        self.meetingHotkeyConfig = Self.loadHotkeyConfig(
+            from: defaults,
+            key: "settings.meetingHotkeyConfig",
+            defaultValue: .meetingDefault
+        )
+        self.meetingAnimationStyle = Self.loadMeetingAnimationStyle(from: defaults)
         self.hotkeyMode = Self.loadHotkeyMode(from: defaults)
         self.finishBehavior = Self.loadFinishBehavior(from: defaults)
         self.insertionFailureBehavior = Self.loadInsertionFailureBehavior(from: defaults)
@@ -92,6 +113,8 @@ final class SettingsService {
         self.pauseMediaDuringDictation = defaults.object(forKey: "settings.pauseMediaDuringDictation") as? Bool ?? false
         // History is enabled by default
         self.isHistoryEnabled = defaults.object(forKey: "settings.isHistoryEnabled") as? Bool ?? true
+        // Meeting history is enabled by default
+        self.isMeetingHistoryEnabled = defaults.object(forKey: "settings.isMeetingHistoryEnabled") as? Bool ?? true
     }
 
     /// Updates the hotkey configuration and persists it.
@@ -120,6 +143,26 @@ final class SettingsService {
         updateConversationHotkey(.conversationDefault)
     }
 
+    /// Updates the meeting hotkey configuration and persists it.
+    func updateMeetingHotkey(_ config: HotkeyConfig) {
+        guard config != meetingHotkeyConfig else { return }
+        meetingHotkeyConfig = config
+        saveMeetingHotkeyConfig()
+        onMeetingHotkeyChanged?()
+    }
+
+    /// Resets meeting hotkey to default value.
+    func resetMeetingHotkeyToDefault() {
+        updateMeetingHotkey(.meetingDefault)
+    }
+
+    /// Updates the meeting animation style and persists it.
+    func setMeetingAnimationStyle(_ style: MeetingAnimationStyle) {
+        guard style != meetingAnimationStyle else { return }
+        meetingAnimationStyle = style
+        defaults.set(style.rawValue, forKey: meetingAnimationStyleKey)
+    }
+
     /// Call when starting to record a new hotkey.
     func startHotkeyRecording() {
         onHotkeyRecordingStarted?()
@@ -146,10 +189,13 @@ final class SettingsService {
     func resetAllHotkeysToDefaults() {
         hotkeyConfig = .default
         conversationHotkeyConfig = .conversationDefault
+        meetingHotkeyConfig = .meetingDefault
         saveHotkeyConfig()
         saveConversationHotkeyConfig()
+        saveMeetingHotkeyConfig()
         onHotkeyChanged?()
         onConversationHotkeyChanged?()
+        onMeetingHotkeyChanged?()
     }
 
     /// Updates the finish behavior and persists it.
@@ -172,6 +218,13 @@ final class SettingsService {
         pauseMediaDuringDictation = enabled
         defaults.set(enabled, forKey: pauseMediaKey)
     }
+
+    /// Updates the meeting history enabled setting and persists it.
+    func setMeetingHistoryEnabled(_ enabled: Bool) {
+        guard enabled != isMeetingHistoryEnabled else { return }
+        isMeetingHistoryEnabled = enabled
+        defaults.set(enabled, forKey: meetingHistoryEnabledKey)
+    }
 }
 
 // MARK: - Persistence
@@ -189,6 +242,13 @@ private extension SettingsService {
             return
         }
         defaults.set(data, forKey: conversationHotkeyKey)
+    }
+
+    func saveMeetingHotkeyConfig() {
+        guard let data = try? JSONEncoder().encode(meetingHotkeyConfig) else {
+            return
+        }
+        defaults.set(data, forKey: meetingHotkeyKey)
     }
 
     static func loadHotkeyConfig(
@@ -229,6 +289,14 @@ private extension SettingsService {
             return .showCopyButton
         }
         return behavior
+    }
+
+    static func loadMeetingAnimationStyle(from defaults: UserDefaults) -> MeetingAnimationStyle {
+        guard let rawValue = defaults.string(forKey: "settings.meetingAnimationStyle"),
+              let style = MeetingAnimationStyle(rawValue: rawValue) else {
+            return .pulsingDot
+        }
+        return style
     }
 }
 #endif

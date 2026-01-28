@@ -9,6 +9,13 @@
 import SwiftUI
 import AVFoundation
 
+/// Audio track selection for meeting playback
+enum MeetingAudioTrack: String, CaseIterable {
+    case you = "You"
+    case remote = "Remote"
+    case both = "Both"
+}
+
 struct HistoryDetailView: View {
     let metadata: InteractionMetadata
     let historyService: HistoryService
@@ -18,10 +25,12 @@ struct HistoryDetailView: View {
     @State private var isLoading = true
     @State private var error: String?
     @State private var audioPlayer: AVAudioPlayer?
+    @State private var audioPlayer2: AVAudioPlayer?  // For "Both" mode
     @State private var audioDelegate: AudioPlayerDelegate?
     @State private var isPlaying = false
     @State private var showCopied = false
     @State private var audioError: String?
+    @State private var selectedAudioTrack: MeetingAudioTrack = .both
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -60,33 +69,41 @@ struct HistoryDetailView: View {
                     transcriptionContent(transcription)
                 case .conversation(let conversation):
                     conversationContent(conversation)
+                case .meeting(let meeting):
+                    meetingContent(meeting)
                 }
 
                 Spacer()
 
                 // Actions
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        if let audioURL = getAudioURL(for: interaction) {
-                            Button {
-                                toggleAudio(url: audioURL)
-                            } label: {
-                                Label(isPlaying ? "Stop" : "Play Audio", systemImage: isPlaying ? "stop.fill" : "play.fill")
+                    // Meeting audio track picker
+                    if case .meeting(let meeting) = interaction {
+                        meetingAudioControls(meeting)
+                    } else {
+                        // Standard audio controls for other types
+                        HStack {
+                            if let audioURL = getAudioURL(for: interaction) {
+                                Button {
+                                    toggleAudio(url: audioURL)
+                                } label: {
+                                    Label(isPlaying ? "Stop" : "Play Audio", systemImage: isPlaying ? "stop.fill" : "play.fill")
+                                }
                             }
-                        }
 
-                        Button {
-                            copyText(from: interaction)
-                        } label: {
-                            Label(showCopied ? "Copied" : "Copy", systemImage: showCopied ? "checkmark" : "doc.on.doc")
-                        }
+                            Button {
+                                copyText(from: interaction)
+                            } label: {
+                                Label(showCopied ? "Copied" : "Copy", systemImage: showCopied ? "checkmark" : "doc.on.doc")
+                            }
 
-                        Spacer()
+                            Spacer()
 
-                        Button(role: .destructive) {
-                            deleteInteraction()
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+                            Button(role: .destructive) {
+                                deleteInteraction()
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                         }
                     }
 
@@ -103,15 +120,39 @@ struct HistoryDetailView: View {
     private var headerView: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Image(systemName: metadata.type == .transcription ? "mic.fill" : "bubble.left.and.bubble.right.fill")
-                    .foregroundStyle(metadata.type == .transcription ? .blue : .purple)
-                Text(metadata.type == .transcription ? "Transcription" : "Conversation")
+                Image(systemName: headerIcon)
+                    .foregroundStyle(headerColor)
+                Text(headerTitle)
                     .font(.headline)
             }
 
             Text(formattedDate)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var headerIcon: String {
+        switch metadata.type {
+        case .transcription: return "mic.fill"
+        case .conversation: return "bubble.left.and.bubble.right.fill"
+        case .meeting: return "person.2.fill"
+        }
+    }
+
+    private var headerColor: Color {
+        switch metadata.type {
+        case .transcription: return .blue
+        case .conversation: return .purple
+        case .meeting: return .orange
+        }
+    }
+
+    private var headerTitle: String {
+        switch metadata.type {
+        case .transcription: return "Transcription"
+        case .conversation: return "Conversation"
+        case .meeting: return "Meeting"
         }
     }
 
@@ -212,6 +253,210 @@ struct HistoryDetailView: View {
         }
     }
 
+    private func meetingContent(_ meeting: Meeting) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Meeting stats
+            HStack(spacing: 16) {
+                Label(formattedDuration(meeting.duration), systemImage: "clock")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Label("\(meeting.wordCount) words", systemImage: "text.word.spacing")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let appName = meeting.appName {
+                    Label(appName, systemImage: "app.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Divider()
+
+            // Segments
+            ForEach(meeting.segments) { segment in
+                meetingSegmentView(segment)
+            }
+        }
+    }
+
+    private func meetingSegmentView(_ segment: MeetingSegment) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: segment.isFromMicrophone ? "person.fill" : "person.wave.2.fill")
+                .foregroundStyle(segment.isFromMicrophone ? .blue : .green)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(segment.displayName)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(segment.isFromMicrophone ? .blue : .green)
+
+                    Text(formatTimestamp(segment.startTime))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                Text(segment.text)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func meetingAudioControls(_ meeting: Meeting) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Track picker row
+            HStack {
+                Picker("", selection: $selectedAudioTrack) {
+                    ForEach(MeetingAudioTrack.allCases, id: \.self) { track in
+                        Text(track.rawValue).tag(track)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 200)
+                .onChange(of: selectedAudioTrack) { _, _ in
+                    stopAudio()
+                }
+
+                // Play button
+                if hasMeetingAudio(meeting) {
+                    Button {
+                        toggleMeetingAudio(meeting)
+                    } label: {
+                        Label(isPlaying ? "Stop" : "Play", systemImage: isPlaying ? "stop.fill" : "play.fill")
+                    }
+                } else {
+                    Button {} label: {
+                        Label("No Audio", systemImage: "speaker.slash")
+                    }
+                    .disabled(true)
+                }
+            }
+
+            // Actions row
+            HStack {
+                Button {
+                    copyText(from: .meeting(meeting))
+                } label: {
+                    Label(showCopied ? "Copied" : "Copy", systemImage: showCopied ? "checkmark" : "doc.on.doc")
+                }
+
+                Spacer()
+
+                Button(role: .destructive) {
+                    deleteInteraction()
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    private func hasMeetingAudio(_ meeting: Meeting) -> Bool {
+        switch selectedAudioTrack {
+        case .you:
+            return meeting.micRecording != nil
+        case .remote:
+            return meeting.systemRecording != nil
+        case .both:
+            return meeting.micRecording != nil || meeting.systemRecording != nil
+        }
+    }
+
+    private func toggleMeetingAudio(_ meeting: Meeting) {
+        if isPlaying {
+            stopAudio()
+        } else {
+            playMeetingAudio(meeting)
+        }
+    }
+
+    private func playMeetingAudio(_ meeting: Meeting) {
+        audioError = nil
+
+        switch selectedAudioTrack {
+        case .you:
+            guard let recording = meeting.micRecording,
+                  let url = historyService.getAudioURL(recording, for: meeting.id) else { return }
+            playAudio(url: url)
+
+        case .remote:
+            guard let recording = meeting.systemRecording,
+                  let url = historyService.getAudioURL(recording, for: meeting.id) else { return }
+            playAudio(url: url)
+
+        case .both:
+            // Play both tracks simultaneously
+            let micURL = meeting.micRecording.flatMap { historyService.getAudioURL($0, for: meeting.id) }
+            let sysURL = meeting.systemRecording.flatMap { historyService.getAudioURL($0, for: meeting.id) }
+
+            guard micURL != nil || sysURL != nil else { return }
+
+            do {
+                if let micURL {
+                    let player1 = try AVAudioPlayer(contentsOf: micURL)
+                    player1.prepareToPlay()
+                    audioPlayer = player1
+                }
+
+                if let sysURL {
+                    let player2 = try AVAudioPlayer(contentsOf: sysURL)
+                    player2.prepareToPlay()
+                    audioPlayer2 = player2
+                }
+
+                // Set delegate on first available player for finish callback
+                let delegate = AudioPlayerDelegate { [self] in
+                    isPlaying = false
+                }
+                audioDelegate = delegate
+                audioPlayer?.delegate = delegate
+
+                // Start both players
+                audioPlayer?.play()
+                audioPlayer2?.play()
+                isPlaying = true
+            } catch {
+                audioError = "Cannot play audio: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func getMeetingAudioURL(_ meeting: Meeting) -> URL? {
+        switch selectedAudioTrack {
+        case .you:
+            guard let recording = meeting.micRecording else { return nil }
+            return historyService.getAudioURL(recording, for: meeting.id)
+        case .remote:
+            guard let recording = meeting.systemRecording else { return nil }
+            return historyService.getAudioURL(recording, for: meeting.id)
+        case .both:
+            if let recording = meeting.micRecording {
+                return historyService.getAudioURL(recording, for: meeting.id)
+            }
+            if let recording = meeting.systemRecording {
+                return historyService.getAudioURL(recording, for: meeting.id)
+            }
+            return nil
+        }
+    }
+
+    private func formattedDuration(_ duration: TimeInterval) -> String {
+        let minutes = Int(duration) / 60
+        let seconds = Int(duration) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    private func formatTimestamp(_ time: TimeInterval) -> String {
+        let minutes = Int(time) / 60
+        let seconds = Int(time) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+
     private func messageView(_ message: Message) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: message.role == .user ? "person.fill" : "cpu")
@@ -264,6 +509,15 @@ struct HistoryDetailView: View {
         case .conversation(let conversation):
             guard let recording = conversation.audioRecordings.first else { return nil }
             return historyService.getAudioURL(recording, for: conversation.id)
+        case .meeting(let meeting):
+            // Prefer mic recording for playback
+            if let recording = meeting.micRecording {
+                return historyService.getAudioURL(recording, for: meeting.id)
+            }
+            if let recording = meeting.systemRecording {
+                return historyService.getAudioURL(recording, for: meeting.id)
+            }
+            return nil
         }
     }
 
@@ -302,6 +556,8 @@ struct HistoryDetailView: View {
     private func stopAudio() {
         audioPlayer?.stop()
         audioPlayer = nil
+        audioPlayer2?.stop()
+        audioPlayer2 = nil
         audioDelegate = nil
         isPlaying = false
     }
@@ -327,6 +583,8 @@ struct HistoryDetailView: View {
                 let role = message.role == .user ? "You" : "Assistant"
                 return "\(role): \(message.content)"
             }.joined(separator: "\n\n")
+        case .meeting(let meeting):
+            textToCopy = meeting.fullText
         }
 
         NSPasteboard.general.clearContents()
@@ -413,6 +671,26 @@ private struct PreviewDetailView: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                     Text(message.content)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+
+                case .meeting(let meeting):
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(meeting.segments) { segment in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: segment.isFromMicrophone ? "person.fill" : "person.wave.2.fill")
+                                    .foregroundStyle(segment.isFromMicrophone ? .blue : .green)
+                                    .frame(width: 20)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(segment.displayName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(segment.text)
                                         .textSelection(.enabled)
                                 }
                             }

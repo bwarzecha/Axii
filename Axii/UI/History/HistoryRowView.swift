@@ -81,6 +81,8 @@ struct HistoryRowView: View {
             return "mic.fill"
         case .conversation:
             return "bubble.left.and.bubble.right.fill"
+        case .meeting:
+            return "person.2.fill"
         }
     }
 
@@ -90,6 +92,8 @@ struct HistoryRowView: View {
             return .blue
         case .conversation:
             return .purple
+        case .meeting:
+            return .orange
         }
     }
 
@@ -105,6 +109,10 @@ struct HistoryRowView: View {
             return "\(details.wordCount) words"
         case .conversation(let details):
             return "\(details.turnCount) turns"
+        case .meeting(let details):
+            let minutes = Int(details.duration) / 60
+            let seconds = Int(details.duration) % 60
+            return String(format: "%d:%02d", minutes, seconds)
         }
     }
 
@@ -114,6 +122,8 @@ struct HistoryRowView: View {
             return details.hasAudio
         case .conversation(let details):
             return details.hasAudio
+        case .meeting(let details):
+            return details.hasMicAudio || details.hasSystemAudio
         }
     }
 }

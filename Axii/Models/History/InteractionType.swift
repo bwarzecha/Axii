@@ -4,5 +4,5 @@ import Foundation
 enum InteractionType: String, Codable, CaseIterable {
     case transcription
     case conversation
-    // case command  // Future
+    case meeting
 }

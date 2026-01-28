@@ -2,7 +2,7 @@
 //  MeetingState.swift
 //  Axii
 //
-//  Observable state and data models for the meeting transcription feature.
+//  Observable state for meeting transcription feature.
 //
 
 #if os(macOS)
@@ -14,14 +14,10 @@ import SwiftUI
 struct MeetingSegment: Identifiable, Codable, Equatable {
     let id: UUID
     let text: String
-    /// Speaker ID: "you" for microphone, "speaker_1", "speaker_2" etc for system audio
     let speakerId: String
-    /// Whether this segment came from microphone (host) or system audio (remote participants)
     let isFromMicrophone: Bool
     let startTime: TimeInterval
     let endTime: TimeInterval
-    /// Whether this segment has been confirmed (transcription complete) vs preliminary
-    let isConfirmed: Bool
 
     init(
         id: UUID = UUID(),
@@ -29,8 +25,7 @@ struct MeetingSegment: Identifiable, Codable, Equatable {
         speakerId: String,
         isFromMicrophone: Bool,
         startTime: TimeInterval,
-        endTime: TimeInterval,
-        isConfirmed: Bool = true
+        endTime: TimeInterval
     ) {
         self.id = id
         self.text = text
@@ -38,21 +33,20 @@ struct MeetingSegment: Identifiable, Codable, Equatable {
         self.isFromMicrophone = isFromMicrophone
         self.startTime = startTime
         self.endTime = endTime
-        self.isConfirmed = isConfirmed
     }
 
-    /// Display name for the speaker
     var displayName: String {
-        if speakerId == "you" {
+        if speakerId == "You" || speakerId == "you" {
             return "You"
         }
-        // Handle "speaker_1" format -> "Speaker 1"
+        if speakerId == "Remote" {
+            return "Remote"
+        }
         let components = speakerId.split(separator: "_")
         if components.count == 2, components.first == "speaker", let number = components.last {
             return "Speaker \(number)"
         }
-        // Handle raw numeric IDs from diarization (e.g., "1" -> "Speaker 1")
-        if let _ = Int(speakerId) {
+        if Int(speakerId) != nil {
             return "Speaker \(speakerId)"
         }
         return speakerId.capitalized
@@ -68,11 +62,11 @@ struct MeetingSegment: Identifiable, Codable, Equatable {
 /// Meeting workflow phases.
 enum MeetingPhase: Equatable {
     case idle
-    case ready              // Panel shown, user can configure before starting
+    case ready
     case loadingModels
     case permissionRequired
     case recording
-    case processing         // Finishing up, transcribing remaining audio
+    case processing
     case error(message: String)
 }
 
@@ -82,39 +76,35 @@ enum MeetingPhase: Equatable {
 @MainActor @Observable
 final class MeetingState {
     var phase: MeetingPhase = .idle
+    var panelMode: MeetingPanelMode = .expanded
     var audioLevel: Float = 0
-    var spectrum: [Float] = []
-
-    /// Transcribed segments from the meeting
-    var segments: [MeetingSegment] = []
-
-    /// Total recording duration
     var duration: TimeInterval = 0
-
-    /// Available microphones
+    var segments: [MeetingSegment] = []
     var availableMicrophones: [AudioDevice] = []
-
-    /// Currently selected microphone (nil = system default)
     var selectedMicrophone: AudioDevice?
-
-    /// Available apps for audio capture
     var availableApps: [AudioApp] = []
-
-    /// Selected app for audio capture (nil = all apps)
     var selectedApp: AudioApp?
 
-    /// Whether currently recording
+    // Processing progress (0.0 to 1.0)
+    var processingProgress: Double = 0
+    var processingStatus: String = ""
+
     var isRecording: Bool {
         if case .recording = phase { return true }
         return false
     }
 
-    /// Reset state for a new meeting
+    var isProcessing: Bool {
+        if case .processing = phase { return true }
+        return false
+    }
+
     func reset() {
         segments = []
         duration = 0
         audioLevel = 0
-        spectrum = []
+        processingProgress = 0
+        processingStatus = ""
     }
 }
 #endif
