@@ -325,19 +325,30 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Fetch latest changes
-          git fetch origin main
+          # Fetch latest main branch
+          git fetch origin main:main
 
-          # Switch to main branch and pull latest
+          # Stash any local changes (from build process)
+          git stash --include-untracked || true
+
+          # Switch to main branch
           git checkout main
-          git pull --rebase origin main
 
-          # Add and commit appcast changes
+          # Apply stash if we have appcast.xml changes
+          if git stash list | grep -q "stash@{0}"; then
+            git stash pop || true
+          fi
+
+          # Only add appcast.xml (ignore other build artifacts)
           git add appcast.xml
-          git commit -m "Update appcast.xml for v${{ steps.prepare.outputs.version }}" || echo "No changes to commit"
 
-          # Push to main
-          git push origin main
+          # Commit if there are changes
+          if git diff --cached --quiet; then
+            echo "No changes to appcast.xml"
+          else
+            git commit -m "Update appcast.xml for v${{ steps.prepare.outputs.version }}"
+            git push origin main
+          fi
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
