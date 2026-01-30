@@ -84,14 +84,20 @@ final class ConversationFeature: Feature {
 
     private func handleHotkey() {
         switch state.phase {
-        case .idle:
+        case .idle, .done:
+            // Start listening (either initial or continue conversation)
             startListeningIfReady()
         case .listening:
             stopListening()
         case .responding:
             interruptAndContinue()
-        case .processing, .done, .error:
-            cancelAndDeactivate()
+        case .processing:
+            // Ignore hotkey while processing
+            break
+        case .error:
+            // Clear error and start fresh
+            resetState(clearConversation: false)
+            startListeningIfReady()
         }
     }
 
@@ -233,8 +239,9 @@ final class ConversationFeature: Feature {
                 }
 
                 // TTS disabled for commercial distribution (GPL licensing)
-                // Show response text for a few seconds then deactivate
-                scheduleDeactivation(delay: 4.0)
+                // Keep panel open for continued conversation
+                // Set to done so user can continue or press ESC to close
+                state.phase = .done
 
             } catch {
                 let message: String
