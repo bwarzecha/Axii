@@ -324,9 +324,20 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Fetch latest changes
+          git fetch origin main
+
+          # Switch to main branch and pull latest
+          git checkout main
+          git pull --rebase origin main
+
+          # Add and commit appcast changes
           git add appcast.xml
-          git commit -m "Update appcast.xml for v${{ steps.prepare.outputs.version }}"
-          git push origin HEAD:main
+          git commit -m "Update appcast.xml for v${{ steps.prepare.outputs.version }}" || echo "No changes to commit"
+
+          # Push to main
+          git push origin main
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
