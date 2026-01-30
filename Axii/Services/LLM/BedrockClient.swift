@@ -19,10 +19,25 @@ struct BedrockModel: Identifiable, Hashable {
     let provider: String
     let inputModalities: [String]
     let outputModalities: [String]
+    let isInferenceProfile: Bool
+    let scope: String?  // global, us, eu, apac, regional
+    let baseModelId: String?  // For inference profiles
 
     /// Whether model supports text input/output (suitable for chat).
     var isTextModel: Bool {
         inputModalities.contains("TEXT") && outputModalities.contains("TEXT")
+    }
+
+    /// Display priority (lower is better): global > us > regional.
+    var displayPriority: Int {
+        guard isInferenceProfile else { return 100 }
+        switch scope {
+        case "global": return 0
+        case "us": return 1
+        case "eu": return 2
+        case "apac": return 3
+        default: return 10
+        }
     }
 }
 
@@ -48,38 +63,88 @@ final class BedrockClient: @unchecked Sendable {
         return true
     }
 
-    /// List available foundation models that support text.
+    /// List available models including inference profiles.
+    /// Prioritizes cross-region inference profiles (global, US) over foundation models.
     func listModels(config: AWSBedrockConfig) async throws -> [BedrockModel] {
         let client = try await getOrCreateManagementClient(config: config)
 
-        let input = ListFoundationModelsInput(
-            byInferenceType: .onDemand,
-            byOutputModality: .text
-        )
+        // Fetch inference profiles (preferred for cross-region routing)
+        var inferenceProfiles: [BedrockModel] = []
+        var nextToken: String?
 
-        let response = try await client.listFoundationModels(input: input)
+        repeat {
+            let profileInput = ListInferenceProfilesInput(
+                maxResults: 100,
+                nextToken: nextToken
+            )
+            let profileResponse = try await client.listInferenceProfiles(input: profileInput)
 
-        guard let summaries = response.modelSummaries else {
-            return []
-        }
+            if let profiles = profileResponse.inferenceProfileSummaries {
+                for profile in profiles {
+                    guard let profileId = profile.inferenceProfileId,
+                          let profileName = profile.inferenceProfileName,
+                          let status = profile.status,
+                          status == .active else {
+                        continue
+                    }
 
-        return summaries.compactMap { summary -> BedrockModel? in
-            guard let modelId = summary.modelId,
-                  let name = summary.modelName,
-                  let provider = summary.providerName else {
-                return nil
+                    // Only include Claude models
+                    guard profileId.contains("claude") || profileId.contains("anthropic") else {
+                        continue
+                    }
+
+                    let scope = inferProfileScope(from: profileId)
+                    let baseModel = extractBaseModelId(from: profile.models ?? [])
+
+                    inferenceProfiles.append(BedrockModel(
+                        id: profileId,
+                        name: profileName,
+                        provider: "Anthropic",
+                        inputModalities: ["TEXT", "IMAGE"],
+                        outputModalities: ["TEXT"],
+                        isInferenceProfile: true,
+                        scope: scope,
+                        baseModelId: baseModel
+                    ))
+                }
             }
 
-            return BedrockModel(
-                id: modelId,
-                name: name,
-                provider: provider,
-                inputModalities: summary.inputModalities?.map { $0.rawValue } ?? [],
-                outputModalities: summary.outputModalities?.map { $0.rawValue } ?? []
-            )
+            nextToken = profileResponse.nextToken
+        } while nextToken != nil
+
+        // Sort by priority: global > us > other
+        let sortedProfiles = inferenceProfiles.sorted { model1, model2 in
+            if model1.displayPriority != model2.displayPriority {
+                return model1.displayPriority < model2.displayPriority
+            }
+            return model1.name < model2.name
         }
-        .filter { $0.isTextModel }
-        .sorted { $0.provider < $1.provider || ($0.provider == $1.provider && $0.name < $1.name) }
+
+        return sortedProfiles
+    }
+
+    /// Determine inference profile scope from ID prefix.
+    private func inferProfileScope(from profileId: String) -> String {
+        if profileId.hasPrefix("global.") { return "global" }
+        if profileId.hasPrefix("us.") { return "us" }
+        if profileId.hasPrefix("eu.") { return "eu" }
+        if profileId.hasPrefix("apac.") { return "apac" }
+        return "regional"
+    }
+
+    /// Extract base model ID from inference profile models.
+    private func extractBaseModelId(from models: [AWSBedrock.InferenceProfileModel]) -> String? {
+        guard let firstModel = models.first,
+              let arn = firstModel.modelArn else {
+            return nil
+        }
+
+        // ARN format: arn:aws:bedrock:region::foundation-model/model-id
+        if let range = arn.range(of: "foundation-model/") {
+            return String(arn[range.upperBound...])
+        }
+
+        return nil
     }
 
     /// Send a message and get a response using Converse API.

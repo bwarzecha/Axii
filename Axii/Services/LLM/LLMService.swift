@@ -12,7 +12,7 @@ import Foundation
 @MainActor
 final class LLMService {
     private let settings: LLMSettingsService
-    private let bedrockClient = BedrockClient()
+    let bedrockClient = BedrockClient()  // Exposed for settings UI
 
     /// System prompt for the voice agent.
     var systemPrompt: String = """
@@ -39,9 +39,11 @@ final class LLMService {
     func send(message: String) async throws -> String {
         switch settings.selectedProvider {
         case .awsBedrock:
+            let modelId = settings.awsBedrockConfig.modelId ?? BedrockClient.defaultModelId
             return try await bedrockClient.send(
                 message: message,
                 config: settings.awsBedrockConfig,
+                modelId: modelId,
                 systemPrompt: systemPrompt
             )
         case .openAI:
@@ -55,9 +57,11 @@ final class LLMService {
     func send(messages: [Message]) async throws -> String {
         switch settings.selectedProvider {
         case .awsBedrock:
+            let modelId = settings.awsBedrockConfig.modelId ?? BedrockClient.defaultModelId
             return try await bedrockClient.sendConversation(
                 messages: messages,
                 config: settings.awsBedrockConfig,
+                modelId: modelId,
                 systemPrompt: systemPrompt
             )
         case .openAI:

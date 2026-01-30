@@ -63,6 +63,7 @@ struct AxiiApp: App {
                 inputMonitoringPermission: controller.inputMonitoringPermission,
                 mediaControlService: controller.mediaControlService,
                 llmSettings: controller.llmSettings,
+                bedrockClient: controller.llmService.bedrockClient,
                 updaterService: updaterService
             )
             .onAppear {

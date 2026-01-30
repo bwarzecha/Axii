@@ -13,6 +13,7 @@ struct SidebarSettingsView: View {
     var inputMonitoringPermission: InputMonitoringPermissionService
     var mediaControlService: MediaControlService
     var llmSettings: LLMSettingsService
+    var bedrockClient: BedrockClient
     @ObservedObject var updaterService: UpdaterService
 
     @State private var selectedSection: SettingsSection = .general
@@ -44,7 +45,7 @@ struct SidebarSettingsView: View {
         case .dictation:
             DictationSettingsView(settings: settings, mediaControlService: mediaControlService)
         case .conversation:
-            ConversationSettingsView(settings: settings, llmSettings: llmSettings)
+            ConversationSettingsView(settings: settings, llmSettings: llmSettings, bedrockClient: bedrockClient)
         case .meeting:
             MeetingSettingsView(settings: settings)
         case .about:
@@ -90,6 +91,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 struct ConversationSettingsView: View {
     @Bindable var settings: SettingsService
     var llmSettings: LLMSettingsService
+    var bedrockClient: BedrockClient
 
     var body: some View {
         Form {
@@ -107,7 +109,7 @@ struct ConversationSettingsView: View {
             }
 
             Section {
-                LLMSettingsView(settings: llmSettings)
+                LLMSettingsView(settings: llmSettings, bedrockClient: bedrockClient)
             } header: {
                 Text("LLM Provider")
             }

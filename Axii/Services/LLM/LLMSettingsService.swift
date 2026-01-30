@@ -75,6 +75,12 @@ final class LLMSettingsService {
         updateAWSBedrockConfig(config)
     }
 
+    func setAWSModelId(_ modelId: String?) {
+        var config = awsBedrockConfig
+        config.modelId = modelId
+        updateAWSBedrockConfig(config)
+    }
+
     // MARK: - API Keys
 
     /// Get API key for a provider.

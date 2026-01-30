@@ -49,8 +49,12 @@ struct AWSBedrockConfig: Codable, Equatable {
     /// AWS region for Bedrock API.
     var region: String
 
+    /// Selected model ID (foundation model or inference profile).
+    var modelId: String?
+
     static let `default` = AWSBedrockConfig(
         profileName: nil,
-        region: "us-east-1"
+        region: "us-east-1",
+        modelId: nil
     )
 }
