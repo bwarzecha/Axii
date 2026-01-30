@@ -62,6 +62,7 @@ struct AxiiApp: App {
                 settings: controller.settings,
                 inputMonitoringPermission: controller.inputMonitoringPermission,
                 mediaControlService: controller.mediaControlService,
+                llmSettings: controller.llmSettings,
                 updaterService: updaterService
             )
             .onAppear {

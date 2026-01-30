@@ -210,15 +210,37 @@ final class BedrockClient: @unchecked Sendable {
         // Disable IMDS to prevent timeout (not running on EC2)
         setenv("AWS_EC2_METADATA_DISABLED", "true", 1)
 
-        // Use default credential chain - reads from ~/.aws/credentials
-        let runtimeConfig = try await BedrockRuntimeClient.BedrockRuntimeClientConfiguration(
+        // Configure runtime client
+        var runtimeConfig = try await BedrockRuntimeClient.BedrockRuntimeClientConfiguration(
             region: config.region
         )
+
+        // Set custom credential resolver if profile is specified
+        if let profileName = config.profileName, !profileName.isEmpty {
+            let identityResolver = try ProfileAWSCredentialIdentityResolver(
+                profileName: profileName,
+                configFilePath: nil,  // uses default ~/.aws/config
+                credentialsFilePath: nil  // uses default ~/.aws/credentials
+            )
+            runtimeConfig.awsCredentialIdentityResolver = identityResolver
+        }
+
         let newRuntimeClient = BedrockRuntimeClient(config: runtimeConfig)
 
-        let managementConfig = try await AWSBedrock.BedrockClient.BedrockClientConfiguration(
+        // Configure management client
+        var managementConfig = try await AWSBedrock.BedrockClient.BedrockClientConfiguration(
             region: config.region
         )
+
+        if let profileName = config.profileName, !profileName.isEmpty {
+            let identityResolver = try ProfileAWSCredentialIdentityResolver(
+                profileName: profileName,
+                configFilePath: nil,
+                credentialsFilePath: nil
+            )
+            managementConfig.awsCredentialIdentityResolver = identityResolver
+        }
+
         let newManagementClient = AWSBedrock.BedrockClient(config: managementConfig)
 
         lock.lock()

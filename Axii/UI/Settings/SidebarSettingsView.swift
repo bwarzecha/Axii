@@ -12,6 +12,7 @@ struct SidebarSettingsView: View {
     @Bindable var settings: SettingsService
     var inputMonitoringPermission: InputMonitoringPermissionService
     var mediaControlService: MediaControlService
+    var llmSettings: LLMSettingsService
     @ObservedObject var updaterService: UpdaterService
 
     @State private var selectedSection: SettingsSection = .general
@@ -43,7 +44,7 @@ struct SidebarSettingsView: View {
         case .dictation:
             DictationSettingsView(settings: settings, mediaControlService: mediaControlService)
         case .conversation:
-            ConversationSettingsView(settings: settings)
+            ConversationSettingsView(settings: settings, llmSettings: llmSettings)
         case .meeting:
             MeetingSettingsView(settings: settings)
         case .about:
@@ -88,6 +89,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
 struct ConversationSettingsView: View {
     @Bindable var settings: SettingsService
+    var llmSettings: LLMSettingsService
 
     var body: some View {
         Form {
@@ -105,10 +107,9 @@ struct ConversationSettingsView: View {
             }
 
             Section {
-                Text("More conversation settings coming soon.")
-                    .foregroundStyle(.secondary)
+                LLMSettingsView(settings: llmSettings)
             } header: {
-                Text("Coming Soon")
+                Text("LLM Provider")
             }
         }
         .formStyle(.grouped)
