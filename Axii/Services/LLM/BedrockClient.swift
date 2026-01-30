@@ -49,8 +49,8 @@ final class BedrockClient: @unchecked Sendable {
     private var currentConfig: AWSBedrockConfig?
     private let lock = NSLock()
 
-    /// Default model ID for Claude on Bedrock.
-    static let defaultModelId = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+    /// Default model ID for Claude on Bedrock (global inference profile for 4.5 Sonnet).
+    nonisolated static let defaultModelId = "global.anthropic.claude-sonnet-4-5-v2:0"
 
     /// Test authentication by listing models. Returns true if successful.
     func testConnection(config: AWSBedrockConfig) async throws -> Bool {
@@ -133,7 +133,7 @@ final class BedrockClient: @unchecked Sendable {
     }
 
     /// Extract base model ID from inference profile models.
-    private func extractBaseModelId(from models: [AWSBedrock.InferenceProfileModel]) -> String? {
+    private func extractBaseModelId(from models: [BedrockClientTypes.InferenceProfileModel]) -> String? {
         guard let firstModel = models.first,
               let arn = firstModel.modelArn else {
             return nil

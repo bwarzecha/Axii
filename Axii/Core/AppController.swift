@@ -29,7 +29,7 @@ final class AppController {
     private let pasteService: PasteService
     let settings: SettingsService
     let llmSettings: LLMSettingsService
-    private let llmService: LLMService
+    let llmService: LLMService
     private let playbackService: AudioPlaybackService
     let historyService: HistoryService
     let modelDownloadService: ModelDownloadService
