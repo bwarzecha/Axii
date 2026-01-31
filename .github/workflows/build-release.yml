@@ -42,12 +42,31 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Set version from tag
+      - name: Determine version
+        id: version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "Setting version to: $VERSION"
-          agvtool new-marketing-version "$VERSION"
-          agvtool new-version -all ${{ github.run_number }}
+          # Use explicit tag input for workflow_dispatch, otherwise use ref name
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
+          # Strip 'v' prefix to get version number
+          VERSION="${TAG#v}"
+
+          # Validate semver format
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+            echo "ERROR: '$VERSION' is not a valid semver version (expected X.Y.Z)"
+            echo "GITHUB_REF_NAME='$GITHUB_REF_NAME', inputs.tag='${{ github.event.inputs.tag }}'"
+            exit 1
+          fi
+
+          BUILD_NUMBER=${{ github.run_number }}
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION, Build: $BUILD_NUMBER"
 
       - name: Cache Swift Package Manager
         uses: actions/cache@v4
@@ -105,7 +124,9 @@ jobs:
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Developer ID Application" \
-            OTHER_CODE_SIGN_FLAGS="--timestamp --options runtime"
+            OTHER_CODE_SIGN_FLAGS="--timestamp --options runtime" \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}"
 
       - name: Prepare and sign app for distribution
         id: prepare
