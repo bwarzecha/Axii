@@ -231,30 +231,43 @@ private struct PreviewDetailContent: View {
     let metadata: InteractionMetadata
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 0) {
+            // Fixed header with actions
             HStack {
-                Image(systemName: metadata.type == .transcription ? "mic.fill" : "bubble.left.and.bubble.right.fill")
-                    .foregroundStyle(metadata.type == .transcription ? .blue : .purple)
-                Text(metadata.type == .transcription ? "Transcription" : "Conversation")
-                    .font(.headline)
-            }
-
-            Text(metadata.preview)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Spacer()
-
-            HStack {
-                Button {} label: {
-                    Label("Play Audio", systemImage: "play.fill")
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Image(systemName: metadata.type == .transcription ? "mic.fill" : "bubble.left.and.bubble.right.fill")
+                            .foregroundStyle(metadata.type == .transcription ? .blue : .purple)
+                        Text(metadata.type == .transcription ? "Transcription" : "Conversation")
+                            .font(.headline)
+                    }
                 }
+
                 Spacer()
-                Button(role: .destructive) {} label: {
-                    Label("Delete", systemImage: "trash")
+
+                HStack(spacing: 8) {
+                    Button {} label: {
+                        Label("Play", systemImage: "play.fill")
+                    }
+                    Button {} label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                    Button(role: .destructive) {} label: {
+                        Label("Delete", systemImage: "trash")
+                    }
                 }
+            }
+            .padding()
+
+            Divider()
+
+            // Scrollable content
+            ScrollView {
+                Text(metadata.preview)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
             }
         }
-        .padding()
     }
 }
 

@@ -56,63 +56,92 @@ struct HistoryDetailView: View {
 
     @ViewBuilder
     private func contentView(for interaction: Interaction) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Header
-                headerView
+        VStack(alignment: .leading, spacing: 0) {
+            // Fixed header with actions (always visible)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    headerView
 
-                Divider()
+                    Spacer()
 
-                // Content based on type
-                switch interaction {
-                case .transcription(let transcription):
-                    transcriptionContent(transcription)
-                case .conversation(let conversation):
-                    conversationContent(conversation)
-                case .meeting(let meeting):
-                    meetingContent(meeting)
-                }
-
-                Spacer()
-
-                // Actions
-                VStack(alignment: .leading, spacing: 8) {
-                    // Meeting audio track picker
-                    if case .meeting(let meeting) = interaction {
-                        meetingAudioControls(meeting)
-                    } else {
-                        // Standard audio controls for other types
-                        HStack {
-                            if let audioURL = getAudioURL(for: interaction) {
+                    // Action buttons
+                    HStack(spacing: 8) {
+                        if case .meeting(let meeting) = interaction {
+                            if hasMeetingAudio(meeting) {
                                 Button {
-                                    toggleAudio(url: audioURL)
+                                    toggleMeetingAudio(meeting)
                                 } label: {
-                                    Label(isPlaying ? "Stop" : "Play Audio", systemImage: isPlaying ? "stop.fill" : "play.fill")
+                                    Label(isPlaying ? "Stop" : "Play", systemImage: isPlaying ? "stop.fill" : "play.fill")
                                 }
                             }
-
+                        } else if let audioURL = getAudioURL(for: interaction) {
                             Button {
-                                copyText(from: interaction)
+                                toggleAudio(url: audioURL)
                             } label: {
-                                Label(showCopied ? "Copied" : "Copy", systemImage: showCopied ? "checkmark" : "doc.on.doc")
-                            }
-
-                            Spacer()
-
-                            Button(role: .destructive) {
-                                deleteInteraction()
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                                Label(isPlaying ? "Stop" : "Play", systemImage: isPlaying ? "stop.fill" : "play.fill")
                             }
                         }
-                    }
 
-                    if let audioError {
-                        Text(audioError)
-                            .font(.caption)
-                            .foregroundStyle(.red)
+                        Button {
+                            copyText(from: interaction)
+                        } label: {
+                            Label(showCopied ? "Copied" : "Copy", systemImage: showCopied ? "checkmark" : "doc.on.doc")
+                        }
+
+                        Button(role: .destructive) {
+                            deleteInteraction()
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
                     }
                 }
+
+                // Meeting audio track picker (below header, still fixed)
+                if case .meeting(let meeting) = interaction {
+                    HStack(spacing: 8) {
+                        Picker("", selection: $selectedAudioTrack) {
+                            ForEach(MeetingAudioTrack.allCases, id: \.self) { track in
+                                Text(track.rawValue).tag(track)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(maxWidth: 200)
+                        .onChange(of: selectedAudioTrack) { _, _ in
+                            stopAudio()
+                        }
+
+                        if !hasMeetingAudio(meeting) {
+                            Text("No audio")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                if let audioError {
+                    Text(audioError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Divider()
+                .padding(.top, 8)
+
+            // Scrollable content
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    switch interaction {
+                    case .transcription(let transcription):
+                        transcriptionContent(transcription)
+                    case .conversation(let conversation):
+                        conversationContent(conversation)
+                    case .meeting(let meeting):
+                        meetingContent(meeting)
+                    }
+                }
+                .padding(.top, 8)
             }
         }
     }
@@ -305,56 +334,6 @@ struct HistoryDetailView: View {
         .padding(.vertical, 4)
     }
 
-    @ViewBuilder
-    private func meetingAudioControls(_ meeting: Meeting) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Track picker row
-            HStack {
-                Picker("", selection: $selectedAudioTrack) {
-                    ForEach(MeetingAudioTrack.allCases, id: \.self) { track in
-                        Text(track.rawValue).tag(track)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 200)
-                .onChange(of: selectedAudioTrack) { _, _ in
-                    stopAudio()
-                }
-
-                // Play button
-                if hasMeetingAudio(meeting) {
-                    Button {
-                        toggleMeetingAudio(meeting)
-                    } label: {
-                        Label(isPlaying ? "Stop" : "Play", systemImage: isPlaying ? "stop.fill" : "play.fill")
-                    }
-                } else {
-                    Button {} label: {
-                        Label("No Audio", systemImage: "speaker.slash")
-                    }
-                    .disabled(true)
-                }
-            }
-
-            // Actions row
-            HStack {
-                Button {
-                    copyText(from: .meeting(meeting))
-                } label: {
-                    Label(showCopied ? "Copied" : "Copy", systemImage: showCopied ? "checkmark" : "doc.on.doc")
-                }
-
-                Spacer()
-
-                Button(role: .destructive) {
-                    deleteInteraction()
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-            }
-        }
-    }
 
     private func hasMeetingAudio(_ meeting: Meeting) -> Bool {
         switch selectedAudioTrack {
@@ -621,102 +600,106 @@ private struct PreviewDetailView: View {
     let interaction: Interaction
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Header
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Image(systemName: metadata.type == .transcription ? "mic.fill" : "bubble.left.and.bubble.right.fill")
-                            .foregroundStyle(metadata.type == .transcription ? .blue : .purple)
-                        Text(metadata.type == .transcription ? "Transcription" : "Conversation")
-                            .font(.headline)
-                    }
-
-                    Text(formattedDate)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Divider()
-
-                // Content
-                switch interaction {
-                case .transcription(let transcription):
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(transcription.text)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        if let pastedTo = transcription.pastedTo {
-                            HStack {
-                                Image(systemName: "arrow.right.doc.on.clipboard")
-                                    .foregroundStyle(.secondary)
-                                Text("Pasted to: \(pastedTo)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                case .conversation(let conversation):
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(conversation.messages) { message in
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: message.role == .user ? "person.fill" : "cpu")
-                                    .foregroundStyle(message.role == .user ? .blue : .purple)
-                                    .frame(width: 20)
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(message.role == .user ? "You" : "Assistant")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Text(message.content)
-                                        .textSelection(.enabled)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-
-                case .meeting(let meeting):
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(meeting.segments) { segment in
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: segment.isFromMicrophone ? "person.fill" : "person.wave.2.fill")
-                                    .foregroundStyle(segment.isFromMicrophone ? .blue : .green)
-                                    .frame(width: 20)
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(segment.displayName)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Text(segment.text)
-                                        .textSelection(.enabled)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-                }
-
-                Spacer()
-
-                // Actions
+        VStack(alignment: .leading, spacing: 0) {
+            // Fixed header with actions
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Button {
-                    } label: {
-                        Label("Play Audio", systemImage: "play.fill")
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Image(systemName: metadata.type == .transcription ? "mic.fill" : "bubble.left.and.bubble.right.fill")
+                                .foregroundStyle(metadata.type == .transcription ? .blue : .purple)
+                            Text(metadata.type == .transcription ? "Transcription" : "Conversation")
+                                .font(.headline)
+                        }
+
+                        Text(formattedDate)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
                     Spacer()
 
-                    Button(role: .destructive) {
-                    } label: {
-                        Label("Delete", systemImage: "trash")
+                    HStack(spacing: 8) {
+                        Button {} label: {
+                            Label("Play", systemImage: "play.fill")
+                        }
+                        Button {} label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+                        Button(role: .destructive) {} label: {
+                            Label("Delete", systemImage: "trash")
+                        }
                     }
                 }
             }
             .padding()
+
+            Divider()
+
+            // Scrollable content
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    switch interaction {
+                    case .transcription(let transcription):
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(transcription.text)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            if let pastedTo = transcription.pastedTo {
+                                HStack {
+                                    Image(systemName: "arrow.right.doc.on.clipboard")
+                                        .foregroundStyle(.secondary)
+                                    Text("Pasted to: \(pastedTo)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+
+                    case .conversation(let conversation):
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(conversation.messages) { message in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: message.role == .user ? "person.fill" : "cpu")
+                                        .foregroundStyle(message.role == .user ? .blue : .purple)
+                                        .frame(width: 20)
+
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(message.role == .user ? "You" : "Assistant")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Text(message.content)
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+
+                    case .meeting(let meeting):
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(meeting.segments) { segment in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: segment.isFromMicrophone ? "person.fill" : "person.wave.2.fill")
+                                        .foregroundStyle(segment.isFromMicrophone ? .blue : .green)
+                                        .frame(width: 20)
+
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(segment.displayName)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Text(segment.text)
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                    }
+                }
+                .padding()
+            }
         }
     }
 
