@@ -35,10 +35,13 @@ final class AppController {
     let modelDownloadService: ModelDownloadService
     let mediaControlService: MediaControlService
 
-    // Features
+    // Features (old system)
     let dictationFeature: DictationFeature
     let conversationFeature: ConversationFeature
     let meetingFeature: MeetingFeature
+
+    // Mode system toggle: flip to true to use the new ModeFeature system
+    private let useModeSystem: Bool = false
 
     // Track if features have been activated
     private var featuresActivated = false
@@ -199,10 +202,47 @@ final class AppController {
             }
         }
 
-        featureManager.register(dictationFeature)
-        featureManager.register(conversationFeature)
-        featureManager.register(meetingFeature)
-        print("Features activated")
+        if useModeSystem {
+            let dictMode = ModeFeature(
+                config: DefaultModes.dictation(),
+                transcriptionService: transcriptionService,
+                micPermission: micPermission,
+                pasteService: pasteService,
+                clipboardService: clipboardService,
+                settings: settings,
+                historyService: historyService,
+                mediaControlService: mediaControlService
+            )
+            let convMode = ModeFeature(
+                config: DefaultModes.conversation(),
+                transcriptionService: transcriptionService,
+                micPermission: micPermission,
+                pasteService: pasteService,
+                clipboardService: clipboardService,
+                settings: settings,
+                historyService: historyService,
+                mediaControlService: mediaControlService
+            )
+            let meetMode = ModeFeature(
+                config: DefaultModes.meeting(),
+                transcriptionService: transcriptionService,
+                micPermission: micPermission,
+                pasteService: pasteService,
+                clipboardService: clipboardService,
+                settings: settings,
+                historyService: historyService,
+                mediaControlService: mediaControlService
+            )
+            featureManager.register(dictMode)
+            featureManager.register(convMode)
+            featureManager.register(meetMode)
+            print("Mode system features activated")
+        } else {
+            featureManager.register(dictationFeature)
+            featureManager.register(conversationFeature)
+            featureManager.register(meetingFeature)
+            print("Features activated")
+        }
     }
 
     /// Check if all requirements are met to activate features
