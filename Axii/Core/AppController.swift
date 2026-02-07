@@ -41,7 +41,7 @@ final class AppController {
     let meetingFeature: MeetingFeature
 
     // Mode system toggle: flip to true to use the new ModeFeature system
-    private let useModeSystem: Bool = false
+    private let useModeSystem: Bool = true
 
     // Track if features have been activated
     private var featuresActivated = false
@@ -221,17 +221,21 @@ final class AppController {
                 clipboardService: clipboardService,
                 settings: settings,
                 historyService: historyService,
-                mediaControlService: mediaControlService
+                mediaControlService: mediaControlService,
+                llmService: llmService,
+                playbackService: playbackService
             )
             let meetMode = ModeFeature(
                 config: DefaultModes.meeting(),
                 transcriptionService: transcriptionService,
                 micPermission: micPermission,
+                screenPermission: screenPermission,
                 pasteService: pasteService,
                 clipboardService: clipboardService,
                 settings: settings,
                 historyService: historyService,
-                mediaControlService: mediaControlService
+                mediaControlService: mediaControlService,
+                diarizationService: diarizationService
             )
             featureManager.register(dictMode)
             featureManager.register(convMode)
