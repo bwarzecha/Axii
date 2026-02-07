@@ -1,0 +1,121 @@
+//
+//  DefaultModes.swift
+//  Axii
+//
+//  Default ModeConfig instances for the three built-in modes.
+//  Fixed UUIDs ensure settings compatibility across launches.
+//
+
+#if os(macOS)
+import Foundation
+
+enum DefaultModes {
+    // Fixed UUIDs for settings compatibility
+    static let dictationId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    static let conversationId = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+    static let meetingId = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+
+    static func dictation() -> ModeConfig {
+        ModeConfig(
+            id: dictationId,
+            name: "Dictation",
+            icon: "mic.fill",
+            isBuiltIn: true,
+            audioCapture: .simple(SimpleCaptureConfig(devicePreference: .lastUsed)),
+            transcription: .batch,
+            processing: [],
+            output: OutputConfig(
+                pasteAtCursor: true,
+                copyToClipboard: false,
+                saveToHistory: true,
+                historyType: .transcription
+            ),
+            lifecycle: LifecycleConfig(
+                sessionType: .singleShot,
+                startMode: .automatic,
+                escapeAllowedDuringRecording: true,
+                pauseMedia: true,
+                captureFocus: true,
+                autoDeactivateDelay: 2.0,
+                permissions: [.microphone]
+            ),
+            panel: PanelConfig(
+                layout: .standard,
+                preferences: PanelPreferences(
+                    recordingIndicatorStyle: .radialBar,
+                    transcriptDisplay: .none,
+                    showCopyButton: true
+                )
+            )
+        )
+    }
+
+    static func conversation() -> ModeConfig {
+        ModeConfig(
+            id: conversationId,
+            name: "Conversation",
+            icon: "bubble.left.and.bubble.right.fill",
+            isBuiltIn: true,
+            audioCapture: .simple(SimpleCaptureConfig(devicePreference: .systemDefault)),
+            transcription: .batch,
+            processing: [.llmTransform(LLMTransformConfig(systemPrompt: "", multiTurn: true))],
+            output: OutputConfig(
+                pasteAtCursor: false,
+                saveToHistory: true,
+                historyType: .conversation
+            ),
+            lifecycle: LifecycleConfig(
+                sessionType: .multiTurn,
+                startMode: .automatic,
+                escapeAllowedDuringRecording: true,
+                permissions: [.microphone]
+            ),
+            panel: PanelConfig(
+                layout: .conversation,
+                preferences: PanelPreferences(
+                    recordingIndicatorStyle: .radialBar,
+                    transcriptDisplay: .none,
+                    showCopyButton: false
+                )
+            )
+        )
+    }
+
+    static func meeting() -> ModeConfig {
+        ModeConfig(
+            id: meetingId,
+            name: "Meeting",
+            icon: "person.2.fill",
+            isBuiltIn: true,
+            audioCapture: .dual(DualCaptureConfig(
+                devicePreference: .lastUsed,
+                appSelection: .userSelected
+            )),
+            transcription: .streaming(StreamingConfig(chunkDurationSeconds: 15.0)),
+            processing: [.diarize],
+            output: OutputConfig(
+                pasteAtCursor: false,
+                saveToHistory: true,
+                historyType: .meeting
+            ),
+            lifecycle: LifecycleConfig(
+                sessionType: .longRunning,
+                startMode: .manual,
+                escapeAllowedDuringRecording: false,
+                permissions: [.microphone, .screenRecording],
+                enableCrashRecovery: true
+            ),
+            panel: PanelConfig(
+                layout: .standard,
+                preferences: PanelPreferences(
+                    recordingIndicatorStyle: .pulsingDot,
+                    transcriptDisplay: .full,
+                    showDurationTimer: true,
+                    showCopyButton: false,
+                    compactModeEnabled: true
+                )
+            )
+        )
+    }
+}
+#endif
