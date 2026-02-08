@@ -10,11 +10,18 @@ import AppKit
 import HotKey
 
 /// Identifiers for registered hotkeys.
-enum HotkeyID: String, CaseIterable {
-    case togglePanel    // Dictation feature
-    case conversation   // Conversation/Agent feature
-    case meeting        // Meeting transcription feature
-    case escape
+struct HotkeyID: Hashable {
+    let rawValue: String
+
+    static let togglePanel = HotkeyID(rawValue: "togglePanel")
+    static let conversation = HotkeyID(rawValue: "conversation")
+    static let meeting = HotkeyID(rawValue: "meeting")
+    static let escape = HotkeyID(rawValue: "escape")
+
+    /// Dynamic ID for custom modes
+    static func mode(_ id: UUID) -> HotkeyID {
+        HotkeyID(rawValue: "mode_\(id.uuidString)")
+    }
 }
 
 /// Centralized service for managing global hotkeys.

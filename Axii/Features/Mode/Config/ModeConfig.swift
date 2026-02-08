@@ -17,6 +17,7 @@ struct ModeConfig: Codable, Identifiable {
     var name: String
     var icon: String              // SF Symbol name
     var isBuiltIn: Bool
+    var hotkey: HotkeyConfig?     // nil = no hotkey assigned
     var audioCapture: AudioCaptureConfig
     var transcription: TranscriptionConfig
     var processing: [ProcessingStep]

@@ -15,7 +15,7 @@ import AppKit
 final class AppController {
     private let hotkeyService: HotkeyService
     private let advancedHotkeyService: AdvancedHotkeyService
-    private let featureManager: FeatureManager
+    let featureManager: FeatureManager
     private var panelController: FloatingPanelController?
 
     // Services (exposed for onboarding and settings)
@@ -41,8 +41,8 @@ final class AppController {
     let meetingFeature: MeetingFeature
 
     // Mode system
-    private let useModeSystem: Bool = true
-    private let modeService = ModeService()
+    let useModeSystem: Bool = true
+    let modeService = ModeService()
 
     // Track if features have been activated
     private var featuresActivated = false
@@ -229,6 +229,25 @@ final class AppController {
             featureManager.register(meetingFeature)
             print("Features activated")
         }
+    }
+
+    /// Registers a new ModeFeature at runtime (for custom modes created in the editor).
+    func registerNewMode(_ config: ModeConfig) {
+        let feature = ModeFeature(
+            config: config,
+            transcriptionService: transcriptionService,
+            micPermission: micPermission,
+            screenPermission: config.audioCapture.isDual ? screenPermission : nil,
+            pasteService: pasteService,
+            clipboardService: clipboardService,
+            settings: settings,
+            historyService: historyService,
+            mediaControlService: mediaControlService,
+            llmService: llmService,
+            playbackService: playbackService,
+            diarizationService: config.audioCapture.isDual ? diarizationService : nil
+        )
+        featureManager.register(feature)
     }
 
     /// Check if all requirements are met to activate features

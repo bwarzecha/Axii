@@ -21,6 +21,7 @@ enum DefaultModes {
             name: "Dictation",
             icon: "mic.fill",
             isBuiltIn: true,
+            hotkey: .default,
             audioCapture: .simple(SimpleCaptureConfig(devicePreference: .lastUsed)),
             transcription: .batch(BatchTranscriptionConfig()),
             processing: [],
@@ -53,6 +54,7 @@ enum DefaultModes {
             name: "Conversation",
             icon: "bubble.left.and.bubble.right.fill",
             isBuiltIn: true,
+            hotkey: .conversationDefault,
             audioCapture: .simple(SimpleCaptureConfig(devicePreference: .systemDefault)),
             transcription: .batch(BatchTranscriptionConfig()),
             processing: [.llmTransform(LLMTransformConfig(systemPrompt: "", multiTurn: true))],
@@ -83,6 +85,7 @@ enum DefaultModes {
             name: "Meeting",
             icon: "person.2.fill",
             isBuiltIn: true,
+            hotkey: .meetingDefault,
             audioCapture: .dual(DualCaptureConfig(
                 devicePreference: .lastUsed,
                 appSelection: .userSelected

@@ -15,7 +15,7 @@ import SwiftUI
 
 @MainActor
 final class ModeFeature: Feature {
-    let config: ModeConfig
+    var config: ModeConfig
     let state: ModeRuntimeState
     var isActive: Bool = false
 
@@ -119,13 +119,15 @@ final class ModeFeature: Feature {
     }
 
     var hotkeyHint: String {
+        if let hotkey = config.hotkey { return hotkey.symbolString }
+        // Fallback to SettingsService for modes without hotkey in config (migration)
         guard let context else { return "" }
         let s = context.settings
         switch config.id {
         case DefaultModes.dictationId: return s.hotkeyConfig.symbolString
         case DefaultModes.conversationId: return s.conversationHotkeyConfig.symbolString
         case DefaultModes.meetingId: return s.meetingHotkeyConfig.symbolString
-        default: return s.hotkeyConfig.symbolString
+        default: return ""
         }
     }
 
@@ -162,9 +164,10 @@ final class ModeFeature: Feature {
 
     // MARK: - Registration
 
-    private func registerHotkey() {
+    func registerHotkey() {
         guard let context else { return }
-        context.registerHotkey(hotkeyIDForConfig(), config: currentHotkeyConfig()) { [weak self] in
+        guard let hotkeyConfig = resolveHotkeyConfig() else { return }
+        context.registerHotkey(hotkeyIDForConfig(), config: hotkeyConfig) { [weak self] in
             self?.handleHotkey()
         }
     }
@@ -174,29 +177,39 @@ final class ModeFeature: Feature {
         case DefaultModes.dictationId: return .togglePanel
         case DefaultModes.conversationId: return .conversation
         case DefaultModes.meetingId: return .meeting
-        default: return .togglePanel
+        default: return .mode(config.id)
         }
     }
 
-    private func currentHotkeyConfig() -> HotkeyConfig {
-        guard let context else { return .default }
+    private func resolveHotkeyConfig() -> HotkeyConfig? {
+        if let hotkey = config.hotkey { return hotkey }
+        // Fallback to SettingsService for pre-migration mode JSONs
+        guard let context else { return nil }
         let s = context.settings
         switch config.id {
         case DefaultModes.dictationId: return s.hotkeyConfig
         case DefaultModes.conversationId: return s.conversationHotkeyConfig
         case DefaultModes.meetingId: return s.meetingHotkeyConfig
-        default: return s.hotkeyConfig
+        default: return nil
         }
     }
 
     private func wireSettingsCallback() {
+        // Legacy: re-register hotkey when SettingsService changes (for pre-migration configs)
         let callback: () -> Void = { [weak self] in self?.registerHotkey() }
         switch config.id {
         case DefaultModes.dictationId: settings.onHotkeyChanged = callback
         case DefaultModes.conversationId: settings.onConversationHotkeyChanged = callback
         case DefaultModes.meetingId: settings.onMeetingHotkeyChanged = callback
-        default: settings.onHotkeyChanged = callback
+        default: break
         }
+    }
+
+    /// Update config from editor. Re-registers hotkey if changed.
+    func updateConfig(_ newConfig: ModeConfig) {
+        let hotkeyChanged = config.hotkey != newConfig.hotkey
+        config = newConfig
+        if hotkeyChanged { registerHotkey() }
     }
 
     private func refreshDeviceList() {

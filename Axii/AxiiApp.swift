@@ -64,6 +64,10 @@ struct AxiiApp: App {
                 mediaControlService: controller.mediaControlService,
                 llmSettings: controller.llmSettings,
                 bedrockClient: controller.llmService.bedrockClient,
+                modeService: controller.modeService,
+                onConfigChanged: { controller.featureManager.updateModeConfig($0) },
+                onModeCreated: { controller.registerNewMode($0) },
+                onModeDeleted: { controller.featureManager.unregisterMode(id: $0) },
                 updaterService: updaterService
             )
             .onAppear {

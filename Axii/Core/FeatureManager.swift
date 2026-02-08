@@ -95,5 +95,28 @@ final class FeatureManager {
     var hasActiveFeature: Bool {
         activeFeature != nil
     }
+
+    // MARK: - Mode Config Updates
+
+    /// Updates a ModeFeature's config (called by editor). Re-registers hotkey if changed.
+    func updateModeConfig(_ config: ModeConfig) {
+        guard let modeFeature = features.compactMap({ $0 as? ModeFeature }).first(where: { $0.config.id == config.id }) else { return }
+        modeFeature.updateConfig(config)
+    }
+
+    /// Removes a ModeFeature by config ID (for deleted custom modes).
+    func unregisterMode(id: UUID) {
+        guard let index = features.firstIndex(where: {
+            ($0 as? ModeFeature)?.config.id == id
+        }) else { return }
+        let feature = features[index]
+        feature.cancel()
+        features.remove(at: index)
+    }
+
+    /// Checks if a mode is currently active (for editor disable state).
+    func isModeActive(_ id: UUID) -> Bool {
+        features.compactMap { $0 as? ModeFeature }.first { $0.config.id == id }?.isActive ?? false
+    }
 }
 #endif

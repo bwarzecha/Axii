@@ -3,6 +3,7 @@
 //  Axii
 //
 //  Main settings container with sidebar navigation.
+//  Supports General, dynamic mode list, and About sections.
 //
 
 #if os(macOS)
@@ -14,107 +15,197 @@ struct SidebarSettingsView: View {
     var mediaControlService: MediaControlService
     var llmSettings: LLMSettingsService
     var bedrockClient: BedrockClient
+    var modeService: ModeService
+    var onConfigChanged: (ModeConfig) -> Void
+    var onModeCreated: (ModeConfig) -> Void
+    var onModeDeleted: (UUID) -> Void
     @ObservedObject var updaterService: UpdaterService
 
-    @State private var selectedSection: SettingsSection = .general
+    @State private var selectedItem: SettingsSidebarItem = .general
+    @State private var modes: [ModeConfig] = []
+    @State private var showTemplateChooser = false
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $selectedSection) {
-                ForEach(SettingsSection.allCases) { section in
-                    Label(section.title, systemImage: section.icon)
-                        .tag(section)
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 150, ideal: 180, max: 220)
+            sidebar
+                .navigationSplitViewColumnWidth(min: 150, ideal: 180, max: 220)
         } detail: {
             detailView
-                .navigationTitle(selectedSection.title)
+                .navigationTitle(selectedItemTitle)
         }
-        .frame(width: 550, height: 400)
+        .frame(width: 580, height: 500)
+        .onAppear { modes = modeService.loadAllModes() }
+        .sheet(isPresented: $showTemplateChooser) {
+            ModeTemplateChooser { newConfig in
+                handleCreate(newConfig)
+            }
+        }
     }
+
+    // MARK: - Sidebar
+
+    private var sidebar: some View {
+        List(selection: $selectedItem) {
+            // General
+            Label("General", systemImage: "gear")
+                .tag(SettingsSidebarItem.general)
+
+            // Built-in Modes
+            Section("Modes") {
+                ForEach(builtInModes) { mode in
+                    Label(mode.name, systemImage: mode.icon)
+                        .tag(SettingsSidebarItem.mode(mode.id))
+                }
+            }
+
+            // Custom Modes
+            if !customModes.isEmpty {
+                Section("Custom") {
+                    ForEach(customModes) { mode in
+                        Label(mode.name, systemImage: mode.icon)
+                            .tag(SettingsSidebarItem.mode(mode.id))
+                    }
+                }
+            }
+
+            // New Mode button
+            Section {
+                Button {
+                    showTemplateChooser = true
+                } label: {
+                    Label("New Mode", systemImage: "plus")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+            }
+
+            // About
+            Label("About", systemImage: "info.circle")
+                .tag(SettingsSidebarItem.about)
+        }
+    }
+
+    // MARK: - Detail
 
     @ViewBuilder
     private var detailView: some View {
-        switch selectedSection {
+        switch selectedItem {
         case .general:
             GeneralSettingsView(
                 settings: settings,
                 inputMonitoringPermission: inputMonitoringPermission
             )
-        case .dictation:
-            DictationSettingsView(settings: settings, mediaControlService: mediaControlService)
-        case .conversation:
-            ConversationSettingsView(settings: settings, llmSettings: llmSettings, bedrockClient: bedrockClient)
-        case .meeting:
-            MeetingSettingsView(settings: settings)
+        case .mode(let id):
+            if let mode = modes.first(where: { $0.id == id }) {
+                ModeEditorView(
+                    config: mode,
+                    modeService: modeService,
+                    settings: settings,
+                    mediaControlService: mediaControlService,
+                    onConfigChanged: { updated in
+                        onConfigChanged(updated)
+                        reloadModes()
+                    },
+                    onDelete: {
+                        handleDelete(id: id)
+                    },
+                    onReset: {
+                        handleReset(id: id)
+                    },
+                    onDuplicate: {
+                        handleDuplicate(mode)
+                    }
+                )
+                .id(id) // Force view recreation when switching modes
+            } else {
+                Text("Mode not found")
+                    .foregroundStyle(.secondary)
+            }
         case .about:
             AboutSettingsView(updaterService: updaterService)
         }
     }
-}
 
-// MARK: - Settings Section
+    // MARK: - Helpers
 
-enum SettingsSection: String, CaseIterable, Identifiable {
-    case general
-    case dictation
-    case conversation
-    case meeting
-    case about
+    private var builtInModes: [ModeConfig] {
+        modes.filter { $0.isBuiltIn }
+    }
 
-    var id: String { rawValue }
+    private var customModes: [ModeConfig] {
+        modes.filter { !$0.isBuiltIn }
+    }
 
-    var title: String {
-        switch self {
+    private var selectedItemTitle: String {
+        switch selectedItem {
         case .general: return "General"
-        case .dictation: return "Dictation"
-        case .conversation: return "Conversation"
-        case .meeting: return "Meeting"
+        case .mode(let id): return modes.first { $0.id == id }?.name ?? "Mode"
         case .about: return "About"
         }
     }
 
-    var icon: String {
-        switch self {
-        case .general: return "gear"
-        case .dictation: return "mic"
-        case .conversation: return "bubble.left.and.bubble.right"
-        case .meeting: return "person.2.wave.2"
-        case .about: return "info.circle"
+    private func reloadModes() {
+        modes = modeService.loadAllModes()
+    }
+
+    private func handleDelete(id: UUID) {
+        do {
+            try modeService.delete(id: id)
+            onModeDeleted(id)
+        } catch {
+            // File already gone or inaccessible — still safe to clean up
+        }
+        reloadModes()
+        selectedItem = .general
+    }
+
+    private func handleReset(id: UUID) {
+        try? modeService.resetToDefault(id: id)
+        reloadModes()
+    }
+
+    private func handleDuplicate(_ mode: ModeConfig) {
+        let copy = ModeConfig(
+            id: UUID(),
+            name: "\(mode.name) Copy",
+            icon: mode.icon,
+            isBuiltIn: false,
+            hotkey: nil,
+            audioCapture: mode.audioCapture,
+            transcription: mode.transcription,
+            processing: mode.processing,
+            outputs: mode.outputs,
+            lifecycle: mode.lifecycle,
+            panel: mode.panel
+        )
+        handleCreate(copy)
+    }
+
+    private func handleCreate(_ config: ModeConfig) {
+        do {
+            try modeService.save(config)
+            onModeCreated(config)
+            reloadModes()
+            selectedItem = .mode(config.id)
+        } catch {
+            // Save failed — don't register the feature or navigate to it
         }
     }
 }
 
-// MARK: - Placeholder for Conversation Settings
+// MARK: - Sidebar Item
 
-struct ConversationSettingsView: View {
-    @Bindable var settings: SettingsService
-    var llmSettings: LLMSettingsService
-    var bedrockClient: BedrockClient
+enum SettingsSidebarItem: Hashable, Identifiable {
+    case general
+    case mode(UUID)
+    case about
 
-    var body: some View {
-        Form {
-            Section {
-                HotkeySettingView(
-                    hotkeyConfig: settings.conversationHotkeyConfig,
-                    onUpdate: { settings.updateConversationHotkey($0) },
-                    onReset: { settings.resetConversationHotkeyToDefault() },
-                    onStartRecording: { settings.startHotkeyRecording() },
-                    onStopRecording: { settings.stopHotkeyRecording() },
-                    allowFnKey: settings.hotkeyMode == .advanced
-                )
-            } header: {
-                Text("Hotkey")
-            }
-
-            Section {
-                LLMSettingsView(settings: llmSettings, bedrockClient: bedrockClient)
-            } header: {
-                Text("LLM Provider")
-            }
+    var id: String {
+        switch self {
+        case .general: return "general"
+        case .mode(let uuid): return "mode_\(uuid.uuidString)"
+        case .about: return "about"
         }
-        .formStyle(.grouped)
     }
 }
 #endif
