@@ -9,6 +9,26 @@
 #if os(macOS)
 import Foundation
 
+// MARK: - Meeting App Constants
+
+enum MeetingAppConstants {
+    /// Bundle identifiers for apps commonly used in meetings.
+    /// Used to sort app picker results with meeting apps first.
+    static let prioritizedBundleIDs: Set<String> = [
+        "us.zoom.xos",
+        "com.google.Chrome",
+        "com.apple.Safari",
+        "com.microsoft.teams",
+        "com.microsoft.teams2",
+        "com.cisco.webexmeetingsapp",
+        "com.apple.FaceTime",
+        "com.slack.Slack",
+        "com.discord.Discord",
+        "com.brave.Browser",
+        "org.mozilla.firefox",
+    ]
+}
+
 // MARK: - MeetingStopResult
 
 /// Result returned when a meeting recording is stopped with save enabled.
@@ -349,25 +369,11 @@ final class MeetingPipelineHandler {
     // MARK: - Private: App Sorting
 
     private func sortAppsForMeetings(_ apps: [AudioApp]) -> [AudioApp] {
-        let meetingBundleIDs = [
-            "us.zoom.xos",
-            "com.google.Chrome",
-            "com.apple.Safari",
-            "com.microsoft.teams",
-            "com.microsoft.teams2",
-            "com.cisco.webexmeetingsapp",
-            "com.apple.FaceTime",
-            "com.slack.Slack",
-            "com.discord.Discord",
-            "com.brave.Browser",
-            "org.mozilla.firefox",
-        ]
-
         return apps.sorted { app1, app2 in
-            let isMeeting1 = meetingBundleIDs.contains(
+            let isMeeting1 = MeetingAppConstants.prioritizedBundleIDs.contains(
                 app1.bundleIdentifier ?? ""
             )
-            let isMeeting2 = meetingBundleIDs.contains(
+            let isMeeting2 = MeetingAppConstants.prioritizedBundleIDs.contains(
                 app2.bundleIdentifier ?? ""
             )
             if isMeeting1 && !isMeeting2 { return true }

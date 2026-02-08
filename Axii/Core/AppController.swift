@@ -40,8 +40,9 @@ final class AppController {
     let conversationFeature: ConversationFeature
     let meetingFeature: MeetingFeature
 
-    // Mode system toggle: flip to true to use the new ModeFeature system
+    // Mode system
     private let useModeSystem: Bool = true
+    private let modeService = ModeService()
 
     // Track if features have been activated
     private var featuresActivated = false
@@ -203,44 +204,25 @@ final class AppController {
         }
 
         if useModeSystem {
-            let dictMode = ModeFeature(
-                config: DefaultModes.dictation(),
-                transcriptionService: transcriptionService,
-                micPermission: micPermission,
-                pasteService: pasteService,
-                clipboardService: clipboardService,
-                settings: settings,
-                historyService: historyService,
-                mediaControlService: mediaControlService
-            )
-            let convMode = ModeFeature(
-                config: DefaultModes.conversation(),
-                transcriptionService: transcriptionService,
-                micPermission: micPermission,
-                pasteService: pasteService,
-                clipboardService: clipboardService,
-                settings: settings,
-                historyService: historyService,
-                mediaControlService: mediaControlService,
-                llmService: llmService,
-                playbackService: playbackService
-            )
-            let meetMode = ModeFeature(
-                config: DefaultModes.meeting(),
-                transcriptionService: transcriptionService,
-                micPermission: micPermission,
-                screenPermission: screenPermission,
-                pasteService: pasteService,
-                clipboardService: clipboardService,
-                settings: settings,
-                historyService: historyService,
-                mediaControlService: mediaControlService,
-                diarizationService: diarizationService
-            )
-            featureManager.register(dictMode)
-            featureManager.register(convMode)
-            featureManager.register(meetMode)
-            print("Mode system features activated")
+            let modes = modeService.loadAllModes()
+            for config in modes {
+                let feature = ModeFeature(
+                    config: config,
+                    transcriptionService: transcriptionService,
+                    micPermission: micPermission,
+                    screenPermission: config.audioCapture.isDual ? screenPermission : nil,
+                    pasteService: pasteService,
+                    clipboardService: clipboardService,
+                    settings: settings,
+                    historyService: historyService,
+                    mediaControlService: mediaControlService,
+                    llmService: llmService,
+                    playbackService: playbackService,
+                    diarizationService: config.audioCapture.isDual ? diarizationService : nil
+                )
+                featureManager.register(feature)
+            }
+            print("Mode system features activated (\(modes.count) modes)")
         } else {
             featureManager.register(dictationFeature)
             featureManager.register(conversationFeature)

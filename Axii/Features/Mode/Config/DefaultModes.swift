@@ -22,21 +22,18 @@ enum DefaultModes {
             icon: "mic.fill",
             isBuiltIn: true,
             audioCapture: .simple(SimpleCaptureConfig(devicePreference: .lastUsed)),
-            transcription: .batch,
+            transcription: .batch(BatchTranscriptionConfig()),
             processing: [],
-            output: OutputConfig(
-                pasteAtCursor: true,
-                copyToClipboard: false,
-                saveToHistory: true,
-                historyType: .transcription
-            ),
+            outputs: [
+                .pasteAtCursor(PasteConfig()),
+                .history(HistoryConfig(saveAudio: true)),
+            ],
             lifecycle: LifecycleConfig(
-                sessionType: .singleShot,
                 startMode: .automatic,
-                escapeAllowedDuringRecording: true,
+                panelPersistence: .autoDismiss(delay: 2.0),
+                escapeBehavior: .alwaysCancel,
                 pauseMedia: true,
                 captureFocus: true,
-                autoDeactivateDelay: 2.0,
                 permissions: [.microphone]
             ),
             panel: PanelConfig(
@@ -57,17 +54,16 @@ enum DefaultModes {
             icon: "bubble.left.and.bubble.right.fill",
             isBuiltIn: true,
             audioCapture: .simple(SimpleCaptureConfig(devicePreference: .systemDefault)),
-            transcription: .batch,
+            transcription: .batch(BatchTranscriptionConfig()),
             processing: [.llmTransform(LLMTransformConfig(systemPrompt: "", multiTurn: true))],
-            output: OutputConfig(
-                pasteAtCursor: false,
-                saveToHistory: true,
-                historyType: .conversation
-            ),
+            outputs: [
+                .display,
+                .history(HistoryConfig(saveAudio: false)),
+            ],
             lifecycle: LifecycleConfig(
-                sessionType: .multiTurn,
                 startMode: .automatic,
-                escapeAllowedDuringRecording: true,
+                panelPersistence: .stayOpen,
+                escapeBehavior: .alwaysCancel,
                 permissions: [.microphone]
             ),
             panel: PanelConfig(
@@ -92,16 +88,15 @@ enum DefaultModes {
                 appSelection: .userSelected
             )),
             transcription: .streaming(StreamingConfig(chunkDurationSeconds: 15.0)),
-            processing: [.diarize],
-            output: OutputConfig(
-                pasteAtCursor: false,
-                saveToHistory: true,
-                historyType: .meeting
-            ),
+            processing: [.diarize(DiarizeConfig())],
+            outputs: [
+                .display,
+                .history(HistoryConfig(saveAudio: true, audioFormat: .aac)),
+            ],
             lifecycle: LifecycleConfig(
-                sessionType: .longRunning,
                 startMode: .manual,
-                escapeAllowedDuringRecording: false,
+                panelPersistence: .stayOpen,
+                escapeBehavior: .blockWhileRecording,
                 permissions: [.microphone, .screenRecording],
                 enableCrashRecovery: true
             ),

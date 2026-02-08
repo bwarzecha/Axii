@@ -20,7 +20,7 @@ struct ModeConfig: Codable, Identifiable {
     var audioCapture: AudioCaptureConfig
     var transcription: TranscriptionConfig
     var processing: [ProcessingStep]
-    var output: OutputConfig
+    var outputs: [OutputDestination]
     var lifecycle: LifecycleConfig
     var panel: PanelConfig
 }
@@ -39,11 +39,15 @@ enum AudioCaptureConfig: Codable {
 
 struct SimpleCaptureConfig: Codable {
     var devicePreference: DevicePreference = .systemDefault
+    var enableStreamingChunks: Bool = false
+    var chunkDuration: TimeInterval? = nil
 }
 
 struct DualCaptureConfig: Codable {
     var devicePreference: DevicePreference = .systemDefault
     var appSelection: AppSelectionConfig = .all
+    var chunkDuration: TimeInterval = 15.0
+    var silenceThreshold: Float = 0.001
 }
 
 enum DevicePreference: String, Codable {
@@ -59,63 +63,113 @@ enum AppSelectionConfig: String, Codable {
 // MARK: - Transcription
 
 enum TranscriptionConfig: Codable {
-    case batch
+    case batch(BatchTranscriptionConfig)
     case streaming(StreamingConfig)
+}
+
+struct BatchTranscriptionConfig: Codable {
+    var minimumDuration: TimeInterval = 0.5
 }
 
 struct StreamingConfig: Codable {
     var chunkDurationSeconds: TimeInterval = 15.0
+    var enableRealTimeDisplay: Bool = true
+    var enableFinalTranscription: Bool = true
 }
 
 // MARK: - Processing
 
 enum ProcessingStep: Codable {
-    case diarize
+    case diarize(DiarizeConfig)
+    case segmentMerge(SegmentMergeConfig)
     case llmTransform(LLMTransformConfig)
     case format(FormatConfig)
 }
 
+struct DiarizeConfig: Codable {
+    var mode: DiarizeMode = .sourceLabels(micLabel: "You", systemLabel: "Remote")
+}
+
+enum DiarizeMode: Codable {
+    case sourceLabels(micLabel: String, systemLabel: String)
+    case speakerModel
+}
+
+struct SegmentMergeConfig: Codable {
+    var mergeConsecutiveSameSpeaker: Bool = true
+}
+
 struct LLMTransformConfig: Codable {
     var systemPrompt: String = ""
+    var promptTemplate: String? = nil
+    var model: String? = nil
+    var temperature: Double? = nil
     var multiTurn: Bool = false
 }
 
 struct FormatConfig: Codable {
-    var template: String = ""
+    var outputFormat: OutputFormat = .plain
+}
+
+enum OutputFormat: String, Codable {
+    case plain
+    case markdown
+    case json
 }
 
 // MARK: - Output
 
-struct OutputConfig: Codable {
-    var pasteAtCursor: Bool = false
-    var copyToClipboard: Bool = false
-    var saveToHistory: Bool = true
-    var historyType: HistoryType = .transcription
+enum OutputDestination: Codable {
+    case pasteAtCursor(PasteConfig)
+    case clipboard
+    case file(FileOutputConfig)
+    case display
+    case history(HistoryConfig)
 }
 
-enum HistoryType: String, Codable {
-    case transcription
-    case conversation
-    case meeting
+struct PasteConfig: Codable {
+    var failureBehavior: InsertionFailureBehavior = .showCopyButton
+    var restoreClipboard: Bool = false
+}
+
+struct FileOutputConfig: Codable {
+    var pathTemplate: String
+    var writeMode: FileWriteMode = .append
+    var contentTemplate: String? = nil
+    var createDirectories: Bool = true
+}
+
+enum FileWriteMode: String, Codable {
+    case append
+    case overwrite
+    case newFile
+}
+
+struct HistoryConfig: Codable {
+    var saveAudio: Bool = true
+    var audioFormat: AudioStorageFormat = .aac
 }
 
 // MARK: - Lifecycle
 
 struct LifecycleConfig: Codable {
-    var sessionType: SessionType
     var startMode: StartMode = .automatic
-    var escapeAllowedDuringRecording: Bool = true
+    var panelPersistence: PanelPersistence = .autoDismiss(delay: 2.0)
+    var escapeBehavior: EscapeBehavior = .alwaysCancel
     var pauseMedia: Bool = false
     var captureFocus: Bool = false
-    var autoDeactivateDelay: TimeInterval? = 2.0
     var permissions: [PermissionType] = [.microphone]
     var enableCrashRecovery: Bool = false
 }
 
-enum SessionType: String, Codable {
-    case singleShot    // Dictation: one recording -> output -> done
-    case multiTurn     // Conversation: loop until escape
-    case longRunning   // Meeting: manual start/stop with streaming
+enum PanelPersistence: Codable {
+    case autoDismiss(delay: TimeInterval)
+    case stayOpen
+}
+
+enum EscapeBehavior: String, Codable {
+    case alwaysCancel
+    case blockWhileRecording
 }
 
 enum StartMode: String, Codable {

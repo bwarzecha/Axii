@@ -27,8 +27,8 @@ final class ModeRuntimeState {
     var messages: [DisplayMessage] = []
     var currentSessionId: UUID? = nil
 
-    // Meeting
-    var segments: [MeetingSegment] = []
+    // Transcript segments
+    var segments: [TranscriptSegment] = []
     var duration: TimeInterval = 0
 
     // Processing

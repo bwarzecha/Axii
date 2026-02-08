@@ -9,6 +9,9 @@
 
 #if os(macOS)
 import Foundation
+import os.log
+
+private let logger = Logger(subsystem: "com.axii", category: "ConversationHandler")
 
 @MainActor
 final class ConversationHandler {
@@ -169,10 +172,7 @@ final class ConversationHandler {
             )
             try await historyService.save(.conversation(conversation))
         } catch {
-            print(
-                "ConversationHandler: Failed to update assistant message: "
-                + "\(error)"
-            )
+            logger.error("Failed to update assistant message: \(error.localizedDescription)")
         }
     }
 
@@ -189,9 +189,7 @@ final class ConversationHandler {
             }
             return conversation.messages
         } catch {
-            print(
-                "ConversationHandler: Failed to load messages: \(error)"
-            )
+            logger.error("Failed to load messages: \(error.localizedDescription)")
             return nil
         }
     }

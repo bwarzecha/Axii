@@ -3,12 +3,15 @@
 //  Axii
 //
 //  Executes output actions after transcription/processing completes.
-//  Handles paste-at-cursor, copy-to-clipboard, and history saving
-//  based on OutputConfig from ModeConfig.
+//  Iterates over [OutputDestination] from ModeConfig, executing each
+//  destination independently (non-short-circuiting).
 //
 
 #if os(macOS)
 import Foundation
+import os.log
+
+private let logger = Logger(subsystem: "com.axii", category: "OutputHandler")
 
 @MainActor
 final class OutputHandler {
@@ -16,6 +19,7 @@ final class OutputHandler {
     private let clipboardService: ClipboardService
     private let historyService: HistoryService
     private let settings: SettingsService
+    private let fileOutputService = FileOutputService()
 
     init(
         pasteService: PasteService,
@@ -29,85 +33,99 @@ final class OutputHandler {
         self.settings = settings
     }
 
-    /// Execute output actions based on config.
-    /// Updates state.phase to .done and sets needsManualCopy when needed,
-    /// or schedules deactivation via the state.
-    func executeOutput(
-        config: OutputConfig,
+    /// Execute all output destinations from config, non-short-circuiting.
+    func executeOutputs(
+        destinations: [OutputDestination],
         text: String,
         state: ModeRuntimeState,
-        modeConfig: ModeConfig,
+        modeName: String = "",
         samples: [Float]?,
         sampleRate: Double?
     ) async {
         var pastedToApp: String?
 
-        // 1. Paste at cursor if configured
-        if config.pasteAtCursor {
-            let outcome = await pasteService.paste(
-                text: text,
-                focusSnapshot: state.focusSnapshot,
-                finishBehavior: settings.finishBehavior,
-                failureBehavior: settings.insertionFailureBehavior
-            )
+        for destination in destinations {
+            switch destination {
+            case .pasteAtCursor(let pasteConfig):
+                pastedToApp = await executePaste(
+                    config: pasteConfig, text: text, state: state
+                )
 
-            switch outcome {
-            case .pasted:
+            case .clipboard:
+                clipboardService.copy(text)
+
+            case .display:
                 state.finalText = text
-                state.phase = .done
-                pastedToApp = state.focusSnapshot?.bundleIdentifier
 
-            case .pastedAndCopied:
-                state.finalText = text
-                state.phase = .done
-                pastedToApp = state.focusSnapshot?.bundleIdentifier
+            case .file(let fileConfig):
+                let context = FileTemplateContext(
+                    modeName: modeName,
+                    appName: state.focusSnapshot?.appName
+                )
+                do {
+                    try await fileOutputService.write(
+                        text: text, config: fileConfig, context: context
+                    )
+                } catch {
+                    logger.error("File output failed: \(error.localizedDescription)")
+                }
 
-            case .copiedOnly:
-                state.finalText = "\(text)\n(Copied to clipboard)"
-                state.phase = .done
-
-            case .copiedFallback(let reason):
-                state.finalText = "\(text)\n(Copied: \(reason))"
-                state.phase = .done
-
-            case .needsManualCopy:
-                state.finalText = text
-                state.needsManualCopy = true
-                state.manualCopyText = text
-                state.phase = .done
-
-            case .skipped:
-                state.finalText = "No speech detected"
-                state.phase = .done
+            case .history(let historyConfig):
+                await saveTranscriptionHistory(
+                    config: historyConfig, text: text,
+                    samples: samples, sampleRate: sampleRate,
+                    pastedToApp: pastedToApp,
+                    focusSnapshot: state.focusSnapshot
+                )
             }
-        } else if config.copyToClipboard {
-            // 2. Copy to clipboard if configured (and not pasting)
-            clipboardService.copy(text)
-            state.finalText = "\(text)\n(Copied to clipboard)"
-            state.phase = .done
-        } else {
-            // Neither paste nor copy - just show the result
-            state.finalText = text
-            state.phase = .done
         }
 
-        // 3. Save to history if configured
-        if config.saveToHistory {
-            await saveToHistory(
-                config: config,
-                text: text,
-                samples: samples,
-                sampleRate: sampleRate,
-                pastedToApp: pastedToApp,
-                focusSnapshot: state.focusSnapshot
-            )
+        state.phase = .done
+    }
+
+    // MARK: - Paste
+
+    private func executePaste(
+        config: PasteConfig,
+        text: String,
+        state: ModeRuntimeState
+    ) async -> String? {
+        let outcome = await pasteService.paste(
+            text: text,
+            focusSnapshot: state.focusSnapshot,
+            finishBehavior: settings.finishBehavior,
+            failureBehavior: config.failureBehavior
+        )
+
+        switch outcome {
+        case .pasted, .pastedAndCopied:
+            state.finalText = text
+            return state.focusSnapshot?.bundleIdentifier
+
+        case .copiedOnly:
+            state.finalText = "\(text)\n(Copied to clipboard)"
+            return nil
+
+        case .copiedFallback(let reason):
+            state.finalText = "\(text)\n(Copied: \(reason))"
+            return nil
+
+        case .needsManualCopy:
+            state.finalText = text
+            state.needsManualCopy = true
+            state.manualCopyText = text
+            return nil
+
+        case .skipped:
+            state.finalText = "No speech detected"
+            return nil
         }
     }
 
-    // MARK: - History Saving
+    // MARK: - History
 
-    private func saveToHistory(
-        config: OutputConfig,
+    private func saveTranscriptionHistory(
+        config: HistoryConfig,
         text: String,
         samples: [Float]?,
         sampleRate: Double?,
@@ -115,32 +133,6 @@ final class OutputHandler {
         focusSnapshot: FocusSnapshot?
     ) async {
         guard historyService.isEnabled else { return }
-
-        switch config.historyType {
-        case .transcription:
-            await saveTranscription(
-                text: text,
-                samples: samples,
-                sampleRate: sampleRate,
-                pastedToApp: pastedToApp,
-                focusSnapshot: focusSnapshot
-            )
-        case .conversation:
-            // Handled by ConversationHandler in Phase 1B
-            break
-        case .meeting:
-            // Handled by MeetingPipelineHandler in Phase 1C
-            break
-        }
-    }
-
-    private func saveTranscription(
-        text: String,
-        samples: [Float]?,
-        sampleRate: Double?,
-        pastedToApp: String?,
-        focusSnapshot: FocusSnapshot?
-    ) async {
         let focusContext = focusSnapshot.map { FocusContext(from: $0) }
 
         do {
@@ -152,14 +144,14 @@ final class OutputHandler {
 
             try await historyService.save(.transcription(transcription))
 
-            // Save audio if samples provided
-            if let samples, let sampleRate,
+            if config.saveAudio,
+               let samples, let sampleRate,
                !samples.isEmpty, sampleRate > 0 {
                 let audioRecording = try await historyService
                     .saveAudioCompressed(
                         samples: samples,
                         sampleRate: sampleRate,
-                        format: settings.audioStorageFormat,
+                        format: config.audioFormat,
                         for: transcription.id
                     )
 
@@ -175,7 +167,7 @@ final class OutputHandler {
                 try await historyService.save(.transcription(updated))
             }
         } catch {
-            print("OutputHandler: Failed to save transcription: \(error)")
+            logger.error("Failed to save transcription: \(error.localizedDescription)")
         }
     }
 }

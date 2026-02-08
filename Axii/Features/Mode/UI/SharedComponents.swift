@@ -9,6 +9,12 @@
 #if os(macOS)
 import SwiftUI
 
+// MARK: - Type Aliases (decouple from Meeting-prefixed names)
+
+typealias RecordingAnimationView = MeetingAnimationView
+typealias RecordingAnimationStyle = MeetingAnimationStyle
+typealias TranscriptSegment = MeetingSegment
+
 // MARK: - ModeKeyCap
 
 /// Styled keyboard key cap for hotkey hints.
@@ -177,7 +183,7 @@ struct ModeAppPicker: View {
 
 /// A single transcript segment row with speaker badge and timestamp.
 struct ModeSegmentRow: View {
-    let segment: MeetingSegment
+    let segment: TranscriptSegment
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
