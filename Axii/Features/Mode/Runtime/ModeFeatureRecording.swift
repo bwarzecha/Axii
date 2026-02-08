@@ -54,10 +54,41 @@ extension ModeFeature {
                     state.finalText = "No speech detected"; state.phase = .done
                     scheduleDeactivation(delay: 2.0)
                 } else {
-                    state.finalText = text
+                    // Build pipeline context from transcription result
+                    let duration = sampleRate > 0 ? TimeInterval(samples.count) / sampleRate : nil
+                    let initialContext = PipelineContext(
+                        transcription: text,
+                        samples: samples,
+                        sampleRate: sampleRate,
+                        modeName: config.name,
+                        appName: state.focusSnapshot?.appName,
+                        duration: duration,
+                        date: Date(),
+                        focusSnapshot: state.focusSnapshot
+                    )
+
+                    // Run processing pipeline if steps exist
+                    let pipelineSteps = config.processing.filter {
+                        // Skip multiTurn LLM steps — those use ConversationHandler
+                        if case .llmTransform(let cfg) = $0 { return !cfg.multiTurn }
+                        return true
+                    }
+
+                    let finalContext: PipelineContext
+                    if !pipelineSteps.isEmpty {
+                        state.phase = .processing
+                        finalContext = try await pipelineRunner.run(
+                            steps: pipelineSteps, context: initialContext
+                        )
+                    } else {
+                        finalContext = initialContext
+                    }
+
+                    state.finalText = finalContext.text
                     await outputHandler.executeOutputs(
-                        destinations: config.outputs, text: text, state: state,
-                        modeName: config.name, samples: samples, sampleRate: sampleRate
+                        destinations: config.outputs,
+                        context: finalContext,
+                        state: state
                     )
                     if !state.needsManualCopy,
                        case .autoDismiss(let delay) = config.lifecycle.panelPersistence {
@@ -66,7 +97,9 @@ extension ModeFeature {
                 }
                 state.focusSnapshot = nil
             } catch {
-                let msg = (error as? TranscriptionError)?.errorDescription ?? "Transcription failed"
+                let msg = (error as? TranscriptionError)?.errorDescription
+                    ?? (error as? LocalizedError)?.errorDescription
+                    ?? "Processing failed"
                 state.phase = .error(msg); scheduleDeactivation(delay: 2.0)
             }
         }

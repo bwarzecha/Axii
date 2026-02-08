@@ -35,6 +35,7 @@ final class ModeFeature: Feature {
     // Pipeline handlers (created based on config)
     var conversationHandler: ConversationHandler?
     var meetingHandler: MeetingPipelineHandler?
+    let pipelineRunner: PipelineRunner
 
     var deviceUIDKey: String { "mode_\(config.id)_selectedMic" }
     var selectedDeviceUID: String? {
@@ -69,6 +70,10 @@ final class ModeFeature: Feature {
             clipboardService: clipboardService,
             historyService: historyService,
             settings: settings
+        )
+        self.pipelineRunner = PipelineRunner(
+            llmService: llmService,
+            diarizationService: diarizationService
         )
 
         // Create handlers based on config shape (not explicit session type)

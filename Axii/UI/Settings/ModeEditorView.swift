@@ -216,8 +216,9 @@ extension ProcessingStep {
         switch self {
         case .diarize: return "Speaker ID"
         case .segmentMerge: return "Merge"
-        case .llmTransform: return "AI Transform"
-        case .format: return "Format"
+        case .llmTransform(let cfg):
+            if let label = cfg.label { return "AI Transform → \(label)" }
+            return "AI Transform"
         }
     }
 }

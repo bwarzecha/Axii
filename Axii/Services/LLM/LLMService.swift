@@ -36,7 +36,9 @@ final class LLMService {
     }
 
     /// Send a message and get a response from the configured LLM.
-    func send(message: String) async throws -> String {
+    /// - Parameter systemPrompt: Per-call system prompt override. Uses instance default when nil.
+    func send(message: String, systemPrompt override: String? = nil) async throws -> String {
+        let prompt = override ?? systemPrompt
         switch settings.selectedProvider {
         case .awsBedrock:
             let modelId = settings.awsBedrockConfig.modelId ?? BedrockClient.defaultModelId
@@ -44,7 +46,7 @@ final class LLMService {
                 message: message,
                 config: settings.awsBedrockConfig,
                 modelId: modelId,
-                systemPrompt: systemPrompt
+                systemPrompt: prompt
             )
         case .openAI:
             throw LLMServiceError.providerNotImplemented(.openAI)

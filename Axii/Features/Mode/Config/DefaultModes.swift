@@ -59,7 +59,7 @@ enum DefaultModes {
             transcription: .batch(BatchTranscriptionConfig()),
             processing: [.llmTransform(LLMTransformConfig(systemPrompt: "", multiTurn: true))],
             outputs: [
-                .display,
+                .display(DisplayConfig()),
                 .history(HistoryConfig(saveAudio: false)),
             ],
             lifecycle: LifecycleConfig(
@@ -93,7 +93,7 @@ enum DefaultModes {
             transcription: .streaming(StreamingConfig(chunkDurationSeconds: 15.0)),
             processing: [.diarize(DiarizeConfig())],
             outputs: [
-                .display,
+                .display(DisplayConfig()),
                 .history(HistoryConfig(saveAudio: true, audioFormat: .aac)),
             ],
             lifecycle: LifecycleConfig(

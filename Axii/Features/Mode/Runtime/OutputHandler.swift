@@ -6,6 +6,9 @@
 //  Iterates over [OutputDestination] from ModeConfig, executing each
 //  destination independently (non-short-circuiting).
 //
+//  Each output resolves its contentTemplate against PipelineContext.
+//  If no template is set, uses context.text (the traveling text).
+//
 
 #if os(macOS)
 import Foundation
@@ -20,6 +23,7 @@ final class OutputHandler {
     private let historyService: HistoryService
     private let settings: SettingsService
     private let fileOutputService = FileOutputService()
+    private let templateResolver = TemplateResolver()
 
     init(
         pasteService: PasteService,
@@ -33,38 +37,35 @@ final class OutputHandler {
         self.settings = settings
     }
 
-    /// Execute all output destinations from config, non-short-circuiting.
+    /// Execute all output destinations, non-short-circuiting.
     func executeOutputs(
         destinations: [OutputDestination],
-        text: String,
-        state: ModeRuntimeState,
-        modeName: String = "",
-        samples: [Float]?,
-        sampleRate: Double?
+        context: PipelineContext,
+        state: ModeRuntimeState
     ) async {
         var pastedToApp: String?
 
         for destination in destinations {
             switch destination {
             case .pasteAtCursor(let pasteConfig):
+                let text = resolveContent(pasteConfig.contentTemplate, context: context)
                 pastedToApp = await executePaste(
                     config: pasteConfig, text: text, state: state
                 )
 
-            case .clipboard:
+            case .clipboard(let clipConfig):
+                let text = resolveContent(clipConfig.contentTemplate, context: context)
                 clipboardService.copy(text)
 
-            case .display:
+            case .display(let displayConfig):
+                let text = resolveContent(displayConfig.contentTemplate, context: context)
                 state.finalText = text
 
             case .file(let fileConfig):
-                let context = FileTemplateContext(
-                    modeName: modeName,
-                    appName: state.focusSnapshot?.appName
-                )
                 do {
                     try await fileOutputService.write(
-                        text: text, config: fileConfig, context: context
+                        config: fileConfig, context: context,
+                        templateResolver: templateResolver
                     )
                 } catch {
                     logger.error("File output failed: \(error.localizedDescription)")
@@ -72,8 +73,10 @@ final class OutputHandler {
 
             case .history(let historyConfig):
                 await saveTranscriptionHistory(
-                    config: historyConfig, text: text,
-                    samples: samples, sampleRate: sampleRate,
+                    config: historyConfig,
+                    text: context.text,
+                    samples: context.samples,
+                    sampleRate: context.sampleRate,
                     pastedToApp: pastedToApp,
                     focusSnapshot: state.focusSnapshot
                 )
@@ -81,6 +84,18 @@ final class OutputHandler {
         }
 
         state.phase = .done
+    }
+
+    // MARK: - Template Resolution
+
+    private func resolveContent(
+        _ template: String?,
+        context: PipelineContext
+    ) -> String {
+        guard let template, !template.isEmpty else {
+            return context.text
+        }
+        return templateResolver.resolve(template, context: context)
     }
 
     // MARK: - Paste

@@ -142,7 +142,7 @@ enum ModeTemplates {
             transcription: .batch(BatchTranscriptionConfig()),
             processing: [],
             outputs: [
-                .clipboard,
+                .clipboard(ClipboardConfig()),
                 .history(HistoryConfig(saveAudio: false)),
             ],
             lifecycle: LifecycleConfig(
@@ -218,7 +218,7 @@ enum ModeTemplates {
             transcription: .streaming(StreamingConfig(chunkDurationSeconds: 15.0)),
             processing: [.diarize(DiarizeConfig())],
             outputs: [
-                .display,
+                .display(DisplayConfig()),
                 .history(HistoryConfig(saveAudio: true, audioFormat: .aac)),
             ],
             lifecycle: LifecycleConfig(
@@ -255,7 +255,7 @@ enum ModeTemplates {
             audioCapture: .simple(SimpleCaptureConfig()),
             transcription: .batch(BatchTranscriptionConfig()),
             processing: [],
-            outputs: [.display],
+            outputs: [.display(DisplayConfig())],
             lifecycle: LifecycleConfig(permissions: [.microphone]),
             panel: PanelConfig(
                 layout: .standard,

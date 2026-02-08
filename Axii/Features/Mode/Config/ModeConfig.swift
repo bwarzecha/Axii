@@ -84,7 +84,6 @@ enum ProcessingStep: Codable {
     case diarize(DiarizeConfig)
     case segmentMerge(SegmentMergeConfig)
     case llmTransform(LLMTransformConfig)
-    case format(FormatConfig)
 }
 
 struct DiarizeConfig: Codable {
@@ -106,31 +105,75 @@ struct LLMTransformConfig: Codable {
     var model: String? = nil
     var temperature: Double? = nil
     var multiTurn: Bool = false
-}
-
-struct FormatConfig: Codable {
-    var outputFormat: OutputFormat = .plain
-}
-
-enum OutputFormat: String, Codable {
-    case plain
-    case markdown
-    case json
+    var label: String? = nil
 }
 
 // MARK: - Output
 
 enum OutputDestination: Codable {
     case pasteAtCursor(PasteConfig)
-    case clipboard
+    case clipboard(ClipboardConfig)
     case file(FileOutputConfig)
-    case display
+    case display(DisplayConfig)
     case history(HistoryConfig)
+
+    // Backward compatibility: decode old bare .clipboard / .display cases
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let raw = try? container.decode(String.self) {
+            switch raw {
+            case "clipboard": self = .clipboard(ClipboardConfig()); return
+            case "display": self = .display(DisplayConfig()); return
+            default: break
+            }
+        }
+        // Fall through to default keyed decoding
+        let keyed = try decoder.container(keyedBy: CodingKeys.self)
+        if let v = try keyed.decodeIfPresent(PasteConfig.self, forKey: .pasteAtCursor) {
+            self = .pasteAtCursor(v)
+        } else if let v = try keyed.decodeIfPresent(ClipboardConfig.self, forKey: .clipboard) {
+            self = .clipboard(v)
+        } else if let v = try keyed.decodeIfPresent(FileOutputConfig.self, forKey: .file) {
+            self = .file(v)
+        } else if let v = try keyed.decodeIfPresent(DisplayConfig.self, forKey: .display) {
+            self = .display(v)
+        } else if let v = try keyed.decodeIfPresent(HistoryConfig.self, forKey: .history) {
+            self = .history(v)
+        } else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Unknown OutputDestination")
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .pasteAtCursor(let v): try container.encode(v, forKey: .pasteAtCursor)
+        case .clipboard(let v): try container.encode(v, forKey: .clipboard)
+        case .file(let v): try container.encode(v, forKey: .file)
+        case .display(let v): try container.encode(v, forKey: .display)
+        case .history(let v): try container.encode(v, forKey: .history)
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pasteAtCursor, clipboard, file, display, history
+    }
 }
 
 struct PasteConfig: Codable {
     var failureBehavior: InsertionFailureBehavior = .showCopyButton
     var restoreClipboard: Bool = false
+    var contentTemplate: String? = nil
+}
+
+struct ClipboardConfig: Codable {
+    var contentTemplate: String? = nil
+}
+
+struct DisplayConfig: Codable {
+    var contentTemplate: String? = nil
 }
 
 struct FileOutputConfig: Codable {

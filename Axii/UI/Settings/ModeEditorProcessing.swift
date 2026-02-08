@@ -75,20 +75,6 @@ struct ModeEditorProcessing: View {
             .font(.caption)
         case .llmTransform(let llmConfig):
             llmConfigView(index: index, llmConfig: llmConfig)
-        case .format(let formatConfig):
-            Picker("Output format:", selection: Binding(
-                get: { formatConfig.outputFormat },
-                set: {
-                    config.processing[index] = .format(FormatConfig(outputFormat: $0))
-                    onSave()
-                }
-            )) {
-                Text("Plain text").tag(OutputFormat.plain)
-                Text("Markdown").tag(OutputFormat.markdown)
-                Text("JSON").tag(OutputFormat.json)
-            }
-            .pickerStyle(.menu)
-            .frame(width: 250)
         }
     }
 
@@ -138,13 +124,13 @@ struct ModeEditorProcessing: View {
     @ViewBuilder
     private func llmConfigView(index: Int, llmConfig: LLMTransformConfig) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Prompt template:")
+            Text("Prompt:")
                 .font(.caption)
             TextEditor(text: Binding(
-                get: { llmConfig.promptTemplate ?? llmConfig.systemPrompt },
+                get: { llmConfig.systemPrompt },
                 set: {
                     var updated = llmConfig
-                    updated.promptTemplate = $0
+                    updated.systemPrompt = $0
                     config.processing[index] = .llmTransform(updated)
                     onSave()
                 }
@@ -171,6 +157,79 @@ struct ModeEditorProcessing: View {
                 .labelsHidden()
                 .frame(width: 200)
             }
+
+            DisclosureGroup("Advanced") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Label:")
+                            .font(.caption)
+                        TextField("e.g. summary", text: Binding(
+                            get: { llmConfig.label ?? "" },
+                            set: {
+                                var updated = llmConfig
+                                updated.label = $0.isEmpty ? nil : $0
+                                config.processing[index] = .llmTransform(updated)
+                                onSave()
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 150)
+                    }
+                    if let label = llmConfig.label,
+                       PipelineContext.reservedLabels.contains(label) {
+                        Text("'\(label)' is a built-in variable and will be shadowed")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+
+                    Text("Input template:")
+                        .font(.caption)
+                    TextEditor(text: Binding(
+                        get: { llmConfig.promptTemplate ?? "" },
+                        set: {
+                            var updated = llmConfig
+                            updated.promptTemplate = $0.isEmpty ? nil : $0
+                            config.processing[index] = .llmTransform(updated)
+                            onSave()
+                        }
+                    ))
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(height: 50)
+                    .border(Color.secondary.opacity(0.3))
+
+                    templateChips(forStepAt: index)
+                }
+                .padding(.top, 4)
+            }
+            .font(.caption)
+        }
+    }
+
+    // MARK: - Template Chips
+
+    @ViewBuilder
+    private func templateChips(forStepAt index: Int) -> some View {
+        let labels = labelsBeforeStep(at: index)
+        let chips = ["{transcription}", "{text}"]
+            + (hasDiarizeStep ? ["{segments}"] : [])
+            + labels.map { "{\($0)}" }
+
+        HStack(spacing: 4) {
+            ForEach(chips, id: \.self) { chip in
+                Text(chip)
+                    .font(.caption2.monospaced())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.1))
+                    .cornerRadius(4)
+            }
+        }
+    }
+
+    private func labelsBeforeStep(at index: Int) -> [String] {
+        config.processing.prefix(index).compactMap { step in
+            if case .llmTransform(let cfg) = step { return cfg.label }
+            return nil
         }
     }
 
@@ -191,11 +250,6 @@ struct ModeEditorProcessing: View {
 
             Button("AI Transform") {
                 config.processing.append(.llmTransform(LLMTransformConfig()))
-                onSave()
-            }
-
-            Button("Format") {
-                config.processing.append(.format(FormatConfig()))
                 onSave()
             }
         } label: {
