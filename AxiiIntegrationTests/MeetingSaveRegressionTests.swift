@@ -130,7 +130,7 @@ final class MeetingSaveRegressionTests: XCTestCase {
         )
 
         // Verify the audio files DO exist on disk (orphaned)
-        let metadata = historyService.cache[meetingId]!
+        let metadata = meetings.first!
         let folderURL = tempDir.appendingPathComponent(metadata.folderName)
         let audioDir = folderURL.appendingPathComponent("audio")
         if FileManager.default.fileExists(atPath: audioDir.path) {
