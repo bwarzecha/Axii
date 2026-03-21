@@ -82,12 +82,52 @@ final class ModeService {
             logger.error("Failed to read mode file: \(url.lastPathComponent)")
             return nil
         }
-        do {
-            return try decoder.decode(ModeConfig.self, from: data)
-        } catch {
-            logger.error("Failed to decode mode: \(url.lastPathComponent): \(error.localizedDescription)")
+
+        // Try direct decode first (fast path)
+        if let config = try? decoder.decode(ModeConfig.self, from: data) {
+            return config
+        }
+
+        // If direct decode fails, try migrating and re-decoding
+        if let migrated = migrateJSON(data) {
+            do {
+                let config = try decoder.decode(ModeConfig.self, from: migrated)
+                // Re-save the migrated version so future loads are fast
+                try? migrated.write(to: url, options: .atomic)
+                logger.info("Migrated mode: \(url.lastPathComponent)")
+                return config
+            } catch {
+                logger.error("Failed to decode migrated mode: \(url.lastPathComponent): \(error.localizedDescription)")
+                return nil
+            }
+        }
+
+        logger.error("Failed to decode mode: \(url.lastPathComponent)")
+        return nil
+    }
+
+    // MARK: - Migration
+
+    /// Strip unknown processing steps from mode JSON so the mode is preserved.
+    /// Returns migrated data, or nil if the JSON is fundamentally broken.
+    func migrateJSON(_ data: Data) -> Data? {
+        guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
+
+        let knownStepKeys: Set<String> = ["diarize", "segmentMerge", "llmTransform"]
+
+        if let steps = json["processing"] as? [[String: Any]] {
+            let filtered = steps.filter { step in
+                step.keys.contains(where: { knownStepKeys.contains($0) })
+            }
+            if filtered.count != steps.count {
+                logger.info("Migration: stripped \(steps.count - filtered.count) unknown processing step(s)")
+            }
+            json["processing"] = filtered
+        }
+
+        return try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
     }
 
     private func ensureDirectoryExists() {

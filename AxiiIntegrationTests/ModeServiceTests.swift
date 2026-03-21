@@ -108,79 +108,85 @@ final class ModeServiceTests: XCTestCase {
         XCTAssertEqual(restored?.name, "Dictation", "Name should be restored to default")
     }
 
-    func testMigrationStripsUnknownSteps() throws {
-        // Write a mode JSON with an unknown processing step key
+    func testMigrationStripsUnknownStepsAndPreservesMode() throws {
+        // Start by generating a valid mode, then inject an unknown step
         let modeId = UUID()
-        let json = """
-        {
-            "id": "\(modeId.uuidString)",
-            "name": "Broken Mode",
-            "icon": "exclamationmark.triangle",
-            "isBuiltIn": false,
-            "audioCapture": {
-                "simple": {
-                    "devicePreference": "systemDefault",
-                    "enableStreamingChunks": false
-                }
-            },
-            "transcription": {
-                "batch": {
-                    "minimumDuration": 0.5
-                }
-            },
-            "processing": [
-                {
-                    "unknownStep": {
-                        "someParam": true
-                    }
-                }
-            ],
-            "outputs": [
-                {
-                    "display": {}
-                }
-            ],
-            "lifecycle": {
-                "startMode": "automatic",
-                "panelPersistence": {
-                    "autoDismiss": {
-                        "delay": 2.0
-                    }
-                },
-                "escapeBehavior": "alwaysCancel",
-                "pauseMedia": false,
-                "captureFocus": false,
-                "permissions": ["microphone"],
-                "enableCrashRecovery": false
-            },
-            "panel": {
-                "layout": "standard",
-                "preferences": {
-                    "recordingIndicatorStyle": "radialBar",
-                    "transcriptDisplay": "none",
-                    "showDurationTimer": false,
-                    "showCopyButton": true,
-                    "compactModeEnabled": false
-                }
-            }
-        }
-        """
-
-        let fileURL = tempDir.appendingPathComponent("\(modeId.uuidString).json")
-        try json.data(using: .utf8)!.write(to: fileURL)
-
-        // loadAllModes should handle this gracefully (skip the broken mode)
-        let modes = modeService.loadAllModes()
-
-        // The broken mode should fail to decode because of the unknown processing step,
-        // so it gets skipped. Only 3 built-ins should remain.
-        let brokenMode = modes.first { $0.id == modeId }
-        XCTAssertNil(
-            brokenMode,
-            "Mode with unknown processing step should be skipped during load"
+        let validMode = ModeConfig(
+            id: modeId,
+            name: "Mode With Future Step",
+            icon: "exclamationmark.triangle",
+            isBuiltIn: false,
+            hotkey: nil,
+            audioCapture: .simple(SimpleCaptureConfig()),
+            transcription: .batch(BatchTranscriptionConfig()),
+            processing: [.segmentMerge(SegmentMergeConfig())],
+            outputs: [.display(DisplayConfig())],
+            lifecycle: LifecycleConfig(),
+            panel: PanelConfig(layout: .standard)
         )
 
-        // Built-ins should still load fine
-        XCTAssertGreaterThanOrEqual(modes.count, 3)
+        // Encode the valid mode, then tamper the JSON to add an unknown step
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(validMode)
+        var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        var steps = json["processing"] as! [[String: Any]]
+        steps.append(["futureUnknownStep": ["someParam": true]])
+        json["processing"] = steps
+        let tamperedData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+
+        let fileURL = tempDir.appendingPathComponent("\(modeId.uuidString).json")
+        try tamperedData.write(to: fileURL)
+
+        // loadAllModes should migrate: strip the unknown step, keep the mode
+        let modes = modeService.loadAllModes()
+
+        let loaded = modes.first { $0.id == modeId }
+        XCTAssertNotNil(loaded, "Mode should be preserved after stripping unknown steps")
+        XCTAssertEqual(loaded?.name, "Mode With Future Step")
+
+        // The known segmentMerge step should survive
+        XCTAssertEqual(loaded?.processing.count, 1, "Known step should be kept")
+        if case .segmentMerge = loaded?.processing.first {
+            // expected
+        } else {
+            XCTFail("Expected segmentMerge step to survive migration")
+        }
+
+        // Built-ins should still load fine — total should be 4
+        XCTAssertEqual(modes.count, 4)
+    }
+
+    func testMigrationStripsAllUnknownStepsLeavingEmptyProcessing() throws {
+        // Mode with ONLY unknown steps — should still load with empty processing
+        let modeId = UUID()
+        let validMode = ModeConfig(
+            id: modeId,
+            name: "All Unknown Steps",
+            icon: "questionmark",
+            isBuiltIn: false,
+            hotkey: nil,
+            audioCapture: .simple(SimpleCaptureConfig()),
+            transcription: .batch(BatchTranscriptionConfig()),
+            processing: [],
+            outputs: [.display(DisplayConfig())],
+            lifecycle: LifecycleConfig(),
+            panel: PanelConfig(layout: .standard)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(validMode)
+        var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        json["processing"] = [["totallyUnknown": ["x": 1]]]
+        let tamperedData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+
+        let fileURL = tempDir.appendingPathComponent("\(modeId.uuidString).json")
+        try tamperedData.write(to: fileURL)
+
+        let modes = modeService.loadAllModes()
+        let loaded = modes.first { $0.id == modeId }
+        XCTAssertNotNil(loaded, "Mode should be preserved even with all steps stripped")
+        XCTAssertEqual(loaded?.processing.count, 0, "All unknown steps should be stripped")
     }
 }
