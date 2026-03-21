@@ -18,7 +18,7 @@ private let logger = Logger(subsystem: "com.axii", category: "OutputHandler")
 
 @MainActor
 final class OutputHandler {
-    private let pasteService: PasteService
+    private let pasteService: any PasteProviding
     private let clipboardService: ClipboardService
     private let historyService: HistoryService
     private let settings: SettingsService
@@ -26,7 +26,7 @@ final class OutputHandler {
     private let templateResolver = TemplateResolver()
 
     init(
-        pasteService: PasteService,
+        pasteService: any PasteProviding,
         clipboardService: ClipboardService,
         historyService: HistoryService,
         settings: SettingsService

@@ -49,7 +49,7 @@ final class MeetingPipelineHandler {
 
     // MARK: - Dependencies
 
-    private let transcriptionService: TranscriptionService
+    private let transcriptionService: any TranscriptionProviding
     private let diarizationService: DiarizationService?
     private let screenPermission: ScreenRecordingPermissionService
     private let micPermission: MicrophonePermissionService
@@ -72,7 +72,7 @@ final class MeetingPipelineHandler {
 
     init(
         state: ModeRuntimeState,
-        transcriptionService: TranscriptionService,
+        transcriptionService: any TranscriptionProviding,
         diarizationService: DiarizationService?,
         screenPermission: ScreenRecordingPermissionService,
         micPermission: MicrophonePermissionService,

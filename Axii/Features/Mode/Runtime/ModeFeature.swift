@@ -20,7 +20,7 @@ final class ModeFeature: Feature {
     var isActive: Bool = false
 
     // Services (internal for cross-file extensions)
-    let transcriptionService: TranscriptionService
+    let transcriptionService: any TranscriptionProviding
     let micPermission: MicrophonePermissionService
     let clipboardService: ClipboardService
     let settings: SettingsService
@@ -45,10 +45,10 @@ final class ModeFeature: Feature {
 
     init(
         config: ModeConfig,
-        transcriptionService: TranscriptionService,
+        transcriptionService: any TranscriptionProviding,
         micPermission: MicrophonePermissionService,
         screenPermission: ScreenRecordingPermissionService? = nil,
-        pasteService: PasteService,
+        pasteService: any PasteProviding,
         clipboardService: ClipboardService,
         settings: SettingsService,
         historyService: HistoryService,

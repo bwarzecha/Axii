@@ -27,7 +27,7 @@ final class MeetingTranscriptManager {
 
     // MARK: - Dependencies
 
-    private let transcriptionService: TranscriptionService
+    private let transcriptionService: any TranscriptionProviding
 
     // MARK: - State
 
@@ -70,7 +70,7 @@ final class MeetingTranscriptManager {
 
     // MARK: - Initialization
 
-    init(transcriptionService: TranscriptionService) {
+    init(transcriptionService: any TranscriptionProviding) {
         self.transcriptionService = transcriptionService
     }
 
