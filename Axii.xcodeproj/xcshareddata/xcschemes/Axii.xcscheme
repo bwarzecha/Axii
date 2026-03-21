@@ -35,9 +35,20 @@
             parallelizable = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "4E3FFD632F2ABFC700F3ED71"
+               BlueprintIdentifier = "AA000001PHASE0TESTS00070"
                BuildableName = "AxiiTests.xctest"
                BlueprintName = "AxiiTests"
+               ReferencedContainer = "container:Axii.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "AA000001PHASE0TESTS00100"
+               BuildableName = "AxiiIntegrationTests.xctest"
+               BlueprintName = "AxiiIntegrationTests"
                ReferencedContainer = "container:Axii.xcodeproj">
             </BuildableReference>
          </TestableReference>
