@@ -23,6 +23,9 @@ final class FeatureManager {
     private var activeFeature: (any Feature)?
     private var panelController: FloatingPanelController?
 
+    /// Observable status source for the menu bar. Updated on activate/deactivate.
+    let statusSource = AppStatusSource()
+
     /// Callback when panel content changes
     var onPanelContentChanged: ((AnyView?) -> Void)?
 
@@ -70,6 +73,7 @@ final class FeatureManager {
         }
 
         activeFeature = feature
+        statusSource.activeState = (feature as? ModeFeature)?.state
 
         // Update panel with feature's content
         panelController?.updateContent(feature.panelContent)
@@ -83,6 +87,7 @@ final class FeatureManager {
 
     private func deactivateCurrentFeature() {
         activeFeature = nil
+        statusSource.activeState = nil
         panelController?.hide()
         hotkeyService.unregister(.escape)
     }
@@ -94,15 +99,6 @@ final class FeatureManager {
     /// Returns whether any feature is currently active
     var hasActiveFeature: Bool {
         activeFeature != nil
-    }
-
-    /// Current app status derived from the active mode runtime.
-    /// Returns .ready when no mode is active.
-    var appStatus: AppStatus {
-        guard let modeFeature = activeFeature as? ModeFeature else {
-            return .ready
-        }
-        return AppStatus.from(modeFeature.state.phase)
     }
 
     // MARK: - Mode Config Updates

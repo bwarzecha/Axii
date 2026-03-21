@@ -25,7 +25,7 @@ struct AxiiApp: App {
         // Menu bar — status derived from the active mode runtime, not legacy features
         MenuBarExtra {
             MenuBarView(
-                appStatus: controller.featureManager.appStatus,
+                appStatus: controller.featureManager.statusSource.appStatus,
                 hotkeyDisplay: controller.settings.hotkeyConfig.displayString,
                 onShowOnboarding: { openWindow(id: "onboarding") },
                 updaterService: updaterService
