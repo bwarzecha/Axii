@@ -37,19 +37,21 @@ final class HistoryServiceTests: XCTestCase {
         let transcription = Transcription(text: "Hello world from dictation")
         try await historyService.save(.transcription(transcription))
 
-        let metadata = historyService.cache[transcription.id]
-        XCTAssertNotNil(metadata, "Metadata should be in cache after save")
+        // Verify via public listing API
+        let list = historyService.listMetadata()
+        XCTAssertEqual(list.count, 1, "One interaction should be listed after save")
 
-        let folderURL = tempDir.appendingPathComponent(metadata!.folderName)
-        let metadataFile = folderURL.appendingPathComponent("metadata.json")
-        let interactionFile = folderURL.appendingPathComponent("interaction.json")
+        let metadata = list.first!
+        XCTAssertEqual(metadata.id, transcription.id)
 
+        // Verify files exist on disk
+        let folderURL = tempDir.appendingPathComponent(metadata.folderName)
         XCTAssertTrue(
-            FileManager.default.fileExists(atPath: metadataFile.path),
+            FileManager.default.fileExists(atPath: folderURL.appendingPathComponent("metadata.json").path),
             "metadata.json should exist after save"
         )
         XCTAssertTrue(
-            FileManager.default.fileExists(atPath: interactionFile.path),
+            FileManager.default.fileExists(atPath: folderURL.appendingPathComponent("interaction.json").path),
             "interaction.json should exist after save"
         )
     }
@@ -152,19 +154,22 @@ final class HistoryServiceTests: XCTestCase {
         )
     }
 
-    func testDeleteRemovesFolderAndCache() async throws {
+    func testDeleteRemovesFolderAndListing() async throws {
         let transcription = Transcription(text: "Delete me")
         try await historyService.save(.transcription(transcription))
 
-        XCTAssertNotNil(historyService.cache[transcription.id])
+        // Verify listed before delete
+        let beforeList = historyService.listMetadata()
+        XCTAssertEqual(beforeList.count, 1)
 
-        let metadata = historyService.cache[transcription.id]!
-        let folderURL = tempDir.appendingPathComponent(metadata.folderName)
+        let folderURL = tempDir.appendingPathComponent(beforeList.first!.folderName)
         XCTAssertTrue(FileManager.default.fileExists(atPath: folderURL.path))
 
         try await historyService.delete(id: transcription.id)
 
-        XCTAssertNil(historyService.cache[transcription.id])
+        // Verify no longer listed after delete
+        let afterList = historyService.listMetadata()
+        XCTAssertTrue(afterList.isEmpty, "Deleted interaction should not appear in listing")
         XCTAssertFalse(FileManager.default.fileExists(atPath: folderURL.path))
     }
 
