@@ -285,9 +285,9 @@ The app shell therefore has two kinds of UI:
 
 Current architectural problem:
 
-- The menu bar view still reads `controller.dictationFeature.state`, which belongs to the legacy runtime.
-- The app actually runs the mode system by default.
-- That means part of the UI is reading a state object that is not the active system of record.
+- The menu bar now reads the active mode runtime after Phase 1.
+- The remaining app-shell problem is that `AppController` still constructs legacy feature objects even though startup and shipping behavior are mode-runtime-driven.
+- That means the app shell still carries two runtime architectures even after the most visible UI dependency was fixed.
 
 ### AppController
 
@@ -623,14 +623,14 @@ Consequence:
 - some files are only historical baggage
 - distinguishing those two categories currently takes code reading, not just folder names
 
-### 3. Some UI is still reading inactive state
+### 3. The app shell still carries legacy runtime ownership
 
-The menu bar status comes from legacy dictation state, not the active mode runtime.
+After Phase 1, the menu bar correctly reads from the active mode runtime. The remaining confusion is in app-shell startup and registration, where `AppController` still constructs legacy feature objects even though the mode runtime is the only live path.
 
 Consequence:
 
-- status display can drift from real runtime behavior
-- new engineers can easily fix the wrong codepath
+- startup code still implies two runtimes are active when only one is shipping
+- new engineers can spend time tracing inactive construction paths
 
 ### 4. Meeting mode is not actually using the generic output abstraction
 
@@ -955,28 +955,48 @@ The current repo is not ready to start with hardware-heavy E2E as the first engi
 - old persisted fixtures decode successfully under the new code
 - engineers no longer have to guess whether tests are real
 
-### Phase 1: Consolidate To The Mode Runtime
+### Phase 1: Fix Current Runtime Hazards Without Major Structural Change
 
 ### Goals
 
-- remove split source of truth
-- stop the app shell from depending on legacy runtime state
-- make the mode system the only product runtime
+- fix the highest-risk active-runtime defects
+- remove the most visible legacy/runtime source-of-truth confusion
+- make the active shipping path clearer in code
 
 ### Deliverables
 
 - update menu bar status to read from active mode runtime, not legacy dictation runtime
-- stop constructing legacy features in `AppController` if they are not used
-- remove or clearly quarantine legacy feature classes
 - fix the meeting history audio attachment bug in `ModeFeatureMeeting`
+- add runtime-path comments where the live path is otherwise unclear
 
 ### Acceptance criteria
 
 - no shipping UI reads state from legacy features
-- no active feature registration path depends on legacy feature classes
 - meeting history playback works for newly recorded meetings
+- the active runtime path is obvious in app-shell code
 
-### Phase 2: Extract Testable Dictation And Conversation Coordinators
+### Phase 2: Consolidate To The Mode Runtime
+
+### Goals
+
+- remove split app-shell runtime ownership
+- stop constructing unused legacy runtime objects in startup code
+- make the mode system the only app-shell registration path
+
+### Deliverables
+
+- stop constructing legacy features in `AppController`
+- remove dead mode/legacy branching in app-shell registration
+- centralize `ModeFeature` construction so startup registration and new-mode registration use the same path
+- remove or clearly quarantine legacy feature classes
+
+### Acceptance criteria
+
+- no active feature registration path depends on legacy feature classes
+- the app shell uses the mode runtime only
+- startup registration and runtime custom-mode registration share one construction seam
+
+### Phase 3: Extract Testable Dictation And Conversation Coordinators
 
 ### Goals
 
@@ -1000,7 +1020,7 @@ The current repo is not ready to start with hardware-heavy E2E as the first engi
 - conversation single-turn and multi-turn flows are unit tested
 - `ModeFeatureRecording` becomes a thin adapter rather than the owner of product logic
 
-### Phase 3: Decompose The Meeting Runtime
+### Phase 4: Decompose The Meeting Runtime
 
 ### Goals
 
@@ -1028,7 +1048,7 @@ The current repo is not ready to start with hardware-heavy E2E as the first engi
 - critical stop/finalize behavior is covered by automated tests
 - meeting history persistence is driven through a coherent service API
 
-### Phase 4: Pull Behavior Out Of Complex Views
+### Phase 5: Pull Behavior Out Of Complex Views
 
 ### Goals
 
@@ -1047,7 +1067,7 @@ The current repo is not ready to start with hardware-heavy E2E as the first engi
 - side effects live in testable objects
 - preview support becomes easier and safer
 
-### Phase 5: Remove Old Code And Tighten The Build
+### Phase 6: Remove Old Code And Tighten The Build
 
 ### Goals
 

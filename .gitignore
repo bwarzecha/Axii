@@ -1,5 +1,9 @@
 # Docs (local thinking/research docs)
-docs/
+docs/*
+!docs/refactor-design.md
+!docs/refactor-execution-plan.md
+!docs/refactor-phase-2-brief.md
+!docs/refactor-phase-2-parity-checklist.md
 
 # macOS
 .DS_Store

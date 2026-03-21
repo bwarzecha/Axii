@@ -570,6 +570,10 @@ Success condition:
 
 ## Phase 2: Consolidate The App Shell To The Mode Runtime
 
+Authoritative contractor brief:
+
+- [docs/refactor-phase-2-brief.md](/Users/bartosz/dev/Axii/docs/refactor-phase-2-brief.md)
+
 ## Goal
 
 Remove split runtime ownership in app startup and registration while preserving existing user behavior.
