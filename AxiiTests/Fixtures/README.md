@@ -4,48 +4,76 @@ Committed JSON files that capture persisted data formats for decode-compatibilit
 
 **These files are characterization fixtures. They must not be modified by automated test runs.**
 
-## Structure
+## Fixture Categories
 
-- `Modes/` — ModeConfig fixtures for each built-in mode and a sample custom mode.
-- `History/Transcription/` — InteractionMetadata and Interaction for a transcription entry.
-- `History/Conversation/` — InteractionMetadata and Interaction for a conversation entry.
-- `History/Meeting/` — InteractionMetadata and Interaction for a meeting entry.
+### Current-Format Synthetic Fixtures (`Modes/`, `History/`)
+
+Generated from current code to test the latest Codable format.
+
+- `Modes/builtin-dictation-vcurrent.json` — Dictation mode (hotkey null)
+- `Modes/builtin-conversation-vcurrent.json` — Conversation mode (hotkey null)
+- `Modes/builtin-meeting-vcurrent.json` — Meeting mode (hotkey null)
+- `Modes/custom-sample-vcurrent.json` — Custom mode with processing steps
+- `History/Transcription/transcription-metadata.json` — Synthetic transcription metadata
+- `History/Transcription/transcription-interaction.json` — Synthetic transcription interaction
+- `History/Conversation/conversation-metadata.json` — Synthetic conversation metadata
+- `History/Conversation/conversation-interaction.json` — Synthetic conversation interaction
+- `History/Meeting/meeting-metadata.json` — Synthetic meeting metadata
+- `History/Meeting/meeting-interaction.json` — Synthetic meeting interaction
+
+### Historical Real-World Fixtures (`Legacy/`)
+
+Captured from a live Axii installation (January 2026), anonymized, and
+committed. These protect backward compatibility with the on-disk format
+that real users have.
+
+**Anonymization applied to all legacy fixtures:**
+- All transcription text, conversation messages, and meeting segment text replaced with neutral content
+- Preview text replaced
+- Window titles replaced
+- Bundle identifiers replaced with generic equivalents
+- URLs and selected text in focusContext replaced
+- App names replaced where they reveal personal context
+- Approximate word counts and message counts preserved for structural assertions
+- All structural fields, nesting, optional presence/absence, and encoding style preserved exactly
+
+**Mode fixtures:**
+
+| File | Source Date | What It Protects |
+|------|-----------|-----------------|
+| `legacy-mode-dictation-2026-01.json` | Jan 2026 | Real hotkey present, `"_0"` enum wrapper, pretty-printed |
+| `legacy-mode-conversation-2026-01.json` | Jan 2026 | `llmTransform` step with `"_0"` wrapper, `stayOpen` persistence |
+| `legacy-mode-meeting-2026-01.json` | Jan 2026 | Compact (non-pretty-printed) JSON, dual capture, streaming config, Float `silenceThreshold` |
+
+**History fixtures:**
+
+| File | Source Date | What It Protects |
+|------|-----------|-----------------|
+| `legacy-transcription-2026-01-21-no-focuscontext-*` | Jan 21 2026 | Transcription before `focusContext` was added. `focusContext` field absent. WAV audio at 48kHz. |
+| `legacy-transcription-2026-01-26-with-focuscontext-*` | Jan 26 2026 | Transcription after `focusContext`. `surroundingText` with `selected` text. WAV audio at 24kHz. |
+| `legacy-conversation-2026-01-23-*` | Jan 23 2026 | Early conversation. Empty `audioRecordings` array. 2 messages. `updatedAt` > `createdAt`. |
+| `legacy-meeting-2026-01-28-*` | Jan 28 2026 | Early meeting. 4 segments (2 mic + 2 system). Both WAV recordings at 16kHz. Fractional duration. |
 
 ## Naming Convention
 
-- `builtin-<mode>-vcurrent.json` — Current version of a built-in mode config.
-- `custom-sample-vcurrent.json` — Sample custom mode config.
-- `<type>-metadata.json` / `<type>-interaction.json` — Mirror the on-disk history layout.
+Filenames must be globally unique because Xcode flattens subdirectories
+when copying resources into the test bundle.
 
-History fixture filenames are prefixed with the interaction type to avoid
-bundle resource conflicts (Xcode flattens subdirectories when copying resources).
-
-## Encoding
-
-Mode fixtures were generated using the app's actual `JSONEncoder` with:
-- `.outputFormatting = [.prettyPrinted, .sortedKeys]`
-
-History fixtures use `JSONEncoder` with:
-- `.dateEncodingStrategy = .iso8601`
-- `.outputFormatting = [.prettyPrinted, .sortedKeys]`
-
-Hotkey fields in mode fixtures are set to `null` since `HotkeyConfig`
-depends on platform-specific Carbon key codes.
+- Current fixtures: `builtin-<mode>-vcurrent.json`, `<type>-metadata.json`
+- Legacy fixtures: `legacy-<type>-<date>-<variant>.json`
 
 ## How Tests Load Fixtures
 
-`FixtureDecodeTests.loadFixture(_:)` reads fixtures from the test bundle
-(the immutable copy created at build time). It does NOT read from the
-source tree. If a fixture is missing from the bundle, the test fails hard.
+`loadFixture(_:)` reads fixtures from the test bundle (immutable copy
+created at build time). It does NOT read from the source tree.
+If a fixture is missing from the bundle, the test fails hard.
 
 ## How to Regenerate Mode Fixtures
 
-If `ModeConfig` Codable representation changes, regenerate mode fixtures
-from a Swift script or playground:
+If `ModeConfig` Codable representation changes, regenerate current-format
+mode fixtures from a Swift script or playground:
 
 ```swift
-import Foundation
-
 let encoder = JSONEncoder()
 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
@@ -58,9 +86,13 @@ try data.write(to: URL(fileURLWithPath: "builtin-dictation-vcurrent.json"))
 Do NOT use a test case for regeneration — tests must validate fixed inputs,
 not produce them.
 
+**Never regenerate legacy fixtures.** They capture historical formats and
+must remain exactly as committed.
+
 ## When to Add New Fixtures
 
 - When the persisted format changes, add a new versioned fixture
   (e.g., `builtin-dictation-v2.json`) and keep the old one to test migration.
-- When adding support for older data formats, add representative fixtures
-  from those formats.
+- When supporting older data formats, add representative historical fixtures.
+- When adding a fixture from real user data, anonymize aggressively per
+  the process documented above.
