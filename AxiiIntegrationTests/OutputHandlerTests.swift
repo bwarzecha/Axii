@@ -2,8 +2,10 @@
 //  OutputHandlerTests.swift
 //  AxiiIntegrationTests
 //
-//  Integration tests for OutputHandler. Tests display, file, and history
-//  outputs that do not require hardware (AppKit paste/clipboard).
+//  Integration tests for OutputHandler output effects. Tests display, file,
+//  and history outputs that do not require hardware (AppKit paste/clipboard).
+//  Turn-completion phase (.done) is owned by the processor layer, not
+//  OutputHandler — these tests only assert output effects.
 //
 
 import XCTest
@@ -90,7 +92,6 @@ final class OutputHandlerTests: XCTestCase {
         )
 
         XCTAssertEqual(state.finalText, "Display this text")
-        XCTAssertEqual(state.phase, .done)
     }
 
     func testHistoryOutputSavesTranscription() async {
@@ -216,6 +217,5 @@ final class OutputHandlerTests: XCTestCase {
 
         let written = try? String(contentsOfFile: outputPath, encoding: .utf8)
         XCTAssertEqual(written, "File output content")
-        XCTAssertEqual(state.phase, .done)
     }
 }

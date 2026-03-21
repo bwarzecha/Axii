@@ -33,7 +33,7 @@ extension ModeFeature {
                 try await helper.start(source: source)
                 state.phase = .recording; isActive = true; context?.onActivate?(self)
             } catch let error as AudioSessionError { handleSessionError(error) }
-            catch { state.phase = .error("Microphone error"); scheduleDeactivation(delay: 2.0) }
+            catch { state.phase = .error("Microphone error"); scheduleDismiss(after: 2.0) }
         }
         Task {
             if !(await transcriptionService.isReady) { try? await transcriptionService.prepare() }
@@ -46,62 +46,24 @@ extension ModeFeature {
         recordingHelper = nil
         state.audioLevel = 0; state.isWaitingForSignal = false; state.phase = .transcribing
 
+        let capture = CompletedCapture(
+            samples: samples,
+            sampleRate: sampleRate,
+            focusSnapshot: state.focusSnapshot
+        )
+        let turnConfig = SingleShotTurnConfig(
+            modeName: config.name,
+            processing: config.processing,
+            outputs: config.outputs,
+            panelPersistence: config.lifecycle.panelPersistence
+        )
+
         Task {
-            defer { resumeMediaIfNeeded() }
-            do {
-                let text = try await transcriptionService.transcribe(samples: samples, sampleRate: sampleRate)
-                if text.isEmpty {
-                    state.finalText = "No speech detected"; state.phase = .done
-                    scheduleDeactivation(delay: 2.0)
-                } else {
-                    // Build pipeline context from transcription result
-                    let duration = sampleRate > 0 ? TimeInterval(samples.count) / sampleRate : nil
-                    let initialContext = PipelineContext(
-                        transcription: text,
-                        samples: samples,
-                        sampleRate: sampleRate,
-                        modeName: config.name,
-                        appName: state.focusSnapshot?.appName,
-                        duration: duration,
-                        date: Date(),
-                        focusSnapshot: state.focusSnapshot
-                    )
-
-                    // Run processing pipeline if steps exist
-                    let pipelineSteps = config.processing.filter {
-                        // Skip multiTurn LLM steps — those use ConversationHandler
-                        if case .llmTransform(let cfg) = $0 { return !cfg.multiTurn }
-                        return true
-                    }
-
-                    let finalContext: PipelineContext
-                    if !pipelineSteps.isEmpty {
-                        state.phase = .processing
-                        finalContext = try await pipelineRunner.run(
-                            steps: pipelineSteps, context: initialContext
-                        )
-                    } else {
-                        finalContext = initialContext
-                    }
-
-                    state.finalText = finalContext.text
-                    await outputHandler.executeOutputs(
-                        destinations: config.outputs,
-                        context: finalContext,
-                        state: state
-                    )
-                    if !state.needsManualCopy,
-                       case .autoDismiss(let delay) = config.lifecycle.panelPersistence {
-                        scheduleDeactivation(delay: delay)
-                    }
-                }
-                state.focusSnapshot = nil
-            } catch {
-                let msg = (error as? TranscriptionError)?.errorDescription
-                    ?? (error as? LocalizedError)?.errorDescription
-                    ?? "Processing failed"
-                state.phase = .error(msg); scheduleDeactivation(delay: 2.0)
-            }
+            await singleShotProcessor.process(
+                capture: capture, config: turnConfig, state: state
+            )
+            state.focusSnapshot = nil
+            resumeMediaIfNeeded()
         }
     }
 
@@ -118,7 +80,7 @@ extension ModeFeature {
                 let text = try await transcriptionService.transcribe(samples: samples, sampleRate: sampleRate)
                 guard !text.isEmpty else {
                     state.phase = .done
-                    scheduleDeactivation(delay: 2.0)
+                    scheduleDismiss(after: 2.0)
                     return
                 }
                 state.liveTranscript = text
@@ -159,7 +121,7 @@ extension ModeFeature {
         case .configurationFailed(let r): state.phase = .error(r)
         case .captureFailure(let r): state.phase = .error(r)
         }
-        scheduleDeactivation(delay: 2.0)
+        scheduleDismiss(after: 2.0)
     }
 
     // MARK: - Microphone Switching

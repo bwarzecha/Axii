@@ -14,7 +14,7 @@
 import SwiftUI
 
 @MainActor
-final class ModeFeature: Feature {
+final class ModeFeature: Feature, ModeDismissControlling {
     var config: ModeConfig
     let state: ModeRuntimeState
     var isActive: Bool = false
@@ -36,6 +36,9 @@ final class ModeFeature: Feature {
     var conversationHandler: ConversationHandler?
     var meetingHandler: MeetingPipelineHandler?
     let pipelineRunner: PipelineRunner
+
+    // Single-shot post-capture processor (created in init after pipelineRunner/outputHandler)
+    var singleShotProcessor: SingleShotModeTurnProcessor!
 
     var deviceUIDKey: String { "mode_\(config.id)_selectedMic" }
     var selectedDeviceUID: String? {
@@ -96,6 +99,14 @@ final class ModeFeature: Feature {
                 micPermission: micPermission, settings: settings
             )
         }
+
+        // Single-shot processor for post-capture turn execution
+        self.singleShotProcessor = SingleShotModeTurnProcessor(
+            transcriber: transcriptionService,
+            pipeline: pipelineRunner,
+            output: outputHandler,
+            dismissController: self
+        )
     }
 
     // MARK: - Feature Protocol
@@ -157,7 +168,7 @@ final class ModeFeature: Feature {
     }
 
     func cancel() {
-        cancelDeactivationTimer()
+        cancelScheduledDismiss()
         recordingHelper?.cancel()
         recordingHelper = nil
         meetingHandler?.cancel()
@@ -245,7 +256,7 @@ final class ModeFeature: Feature {
         case .recording: stopSimpleRecording()
         case .done:
             if state.needsManualCopy { copyAndDismiss(state.manualCopyText) }
-            else { cancelDeactivationTimer(); startSimpleRecording() }
+            else { cancelScheduledDismiss(); startSimpleRecording() }
         case .transcribing, .error: cancelAndDeactivate()
         case .preparing, .processing: break
         }
@@ -286,7 +297,7 @@ final class ModeFeature: Feature {
     // MARK: - Helpers
 
     func cancelAndDeactivate() {
-        cancelDeactivationTimer()
+        cancelScheduledDismiss()
         recordingHelper?.cancel(); recordingHelper = nil
         meetingHandler?.cancel()
         conversationHandler?.clearSession()
@@ -295,12 +306,14 @@ final class ModeFeature: Feature {
         context?.onDeactivate?()
     }
 
-    func cancelDeactivationTimer() {
+    // MARK: - ModeDismissControlling
+
+    func cancelScheduledDismiss() {
         deactivationWorkItem?.cancel(); deactivationWorkItem = nil
     }
 
-    func scheduleDeactivation(delay: TimeInterval) {
-        cancelDeactivationTimer()
+    func scheduleDismiss(after delay: TimeInterval) {
+        cancelScheduledDismiss()
         let item = DispatchWorkItem { [weak self] in
             self?.deactivationWorkItem = nil; self?.cancelAndDeactivate()
         }
