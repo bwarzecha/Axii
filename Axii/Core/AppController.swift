@@ -2,15 +2,17 @@
 //  AppController.swift
 //  Axii
 //
-//  Thin coordinator - sets up services and features.
-//  Logic lives in features, not here.
+//  Thin coordinator — sets up services and registers mode-driven features.
+//  The mode runtime (ModeFeature via FeatureManager) is the only app-shell
+//  execution path. Legacy feature classes still exist in the repo but are
+//  not constructed or registered here.
 //
 
 #if os(macOS)
 import AppKit
 
 /// Application coordinator. Sets up services and registers features.
-/// Feature logic is owned by the features themselves.
+/// All features are mode-driven ModeFeature instances loaded from ModeService.
 @MainActor
 final class AppController {
     private let hotkeyService: HotkeyService
@@ -35,15 +37,7 @@ final class AppController {
     let modelDownloadService: ModelDownloadService
     let mediaControlService: MediaControlService
 
-    // Legacy features — transitional, not used by the active shipping path.
-    // The mode runtime (ModeFeature via FeatureManager) is the active path.
-    // These remain constructed for now; Phase 2 will stop creating them.
-    let dictationFeature: DictationFeature
-    let conversationFeature: ConversationFeature
-    let meetingFeature: MeetingFeature
-
-    // Mode runtime — the active shipping path for all features.
-    let useModeSystem: Bool = true
+    // Mode runtime — the sole feature system.
     let modeService = ModeService()
 
     // Track if features have been activated
@@ -84,33 +78,6 @@ final class AppController {
             accessibilityPermission: accessibilityPermission
         )
 
-        // Create features with injected services
-        // Features use AudioSession internally (single-use per recording)
-        dictationFeature = DictationFeature(
-            transcriptionService: transcriptionService,
-            micPermission: micPermission,
-            pasteService: pasteService,
-            clipboardService: clipboardService,
-            settings: settings,
-            historyService: historyService,
-            mediaControlService: mediaControlService
-        )
-        conversationFeature = ConversationFeature(
-            transcriptionService: transcriptionService,
-            micPermission: micPermission,
-            settings: settings,
-            llmService: llmService,
-            playbackService: playbackService,
-            historyService: historyService
-        )
-        meetingFeature = MeetingFeature(
-            transcriptionService: transcriptionService,
-            screenPermission: screenPermission,
-            micPermission: micPermission,
-            settings: settings,
-            historyService: historyService
-        )
-
         // Setup
         setupPanel()
         wireSettingsCallbacks()
@@ -124,6 +91,29 @@ final class AppController {
         // Always check downloads and try to activate features
         startModelDownload()
     }
+
+    // MARK: - ModeFeature Construction
+
+    /// Single construction path for ModeFeature instances. Used by both
+    /// startup registration and runtime custom-mode creation.
+    private func makeModeFeature(from config: ModeConfig) -> ModeFeature {
+        ModeFeature(
+            config: config,
+            transcriptionService: transcriptionService,
+            micPermission: micPermission,
+            screenPermission: config.audioCapture.isDual ? screenPermission : nil,
+            pasteService: pasteService,
+            clipboardService: clipboardService,
+            settings: settings,
+            historyService: historyService,
+            mediaControlService: mediaControlService,
+            llmService: llmService,
+            playbackService: playbackService,
+            diarizationService: config.audioCapture.isDual ? diarizationService : nil
+        )
+    }
+
+    // MARK: - Settings Callbacks
 
     private func wireSettingsCallbacks() {
         // Pause/resume hotkeys during hotkey recording
@@ -181,6 +171,8 @@ final class AppController {
         }
     }
 
+    // MARK: - Feature Registration
+
     private func startHistoryLoad() {
         Task {
             await historyService.loadAllMetadata()
@@ -205,54 +197,20 @@ final class AppController {
             }
         }
 
-        if useModeSystem {
-            // Active path: register ModeFeature instances driven by ModeConfig.
-            let modes = modeService.loadAllModes()
-            for config in modes {
-                let feature = ModeFeature(
-                    config: config,
-                    transcriptionService: transcriptionService,
-                    micPermission: micPermission,
-                    screenPermission: config.audioCapture.isDual ? screenPermission : nil,
-                    pasteService: pasteService,
-                    clipboardService: clipboardService,
-                    settings: settings,
-                    historyService: historyService,
-                    mediaControlService: mediaControlService,
-                    llmService: llmService,
-                    playbackService: playbackService,
-                    diarizationService: config.audioCapture.isDual ? diarizationService : nil
-                )
-                featureManager.register(feature)
-            }
-            print("Mode system features activated (\(modes.count) modes)")
-        } else {
-            // Legacy path — transitional, kept for rollback safety.
-            featureManager.register(dictationFeature)
-            featureManager.register(conversationFeature)
-            featureManager.register(meetingFeature)
-            print("Features activated")
+        // Register ModeFeature instances for all modes loaded from ModeService.
+        let modes = modeService.loadAllModes()
+        for config in modes {
+            featureManager.register(makeModeFeature(from: config))
         }
+        print("Mode features activated (\(modes.count) modes)")
     }
 
     /// Registers a new ModeFeature at runtime (for custom modes created in the editor).
     func registerNewMode(_ config: ModeConfig) {
-        let feature = ModeFeature(
-            config: config,
-            transcriptionService: transcriptionService,
-            micPermission: micPermission,
-            screenPermission: config.audioCapture.isDual ? screenPermission : nil,
-            pasteService: pasteService,
-            clipboardService: clipboardService,
-            settings: settings,
-            historyService: historyService,
-            mediaControlService: mediaControlService,
-            llmService: llmService,
-            playbackService: playbackService,
-            diarizationService: config.audioCapture.isDual ? diarizationService : nil
-        )
-        featureManager.register(feature)
+        featureManager.register(makeModeFeature(from: config))
     }
+
+    // MARK: - Readiness & Model Loading
 
     /// Check if all requirements are met to activate features
     private var canActivateFeatures: Bool {
