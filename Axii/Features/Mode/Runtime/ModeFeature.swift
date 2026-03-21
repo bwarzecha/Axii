@@ -2,9 +2,9 @@
 //  ModeFeature.swift
 //  Axii
 //
-//  Generic Feature driven by ModeConfig. Replaces DictationFeature,
-//  ConversationFeature, and MeetingFeature with a single config-driven
-//  implementation.
+//  The active shipping runtime for all modes (dictation, conversation, meeting, custom).
+//  Config-driven via ModeConfig; replaces the legacy per-feature classes
+//  (DictationFeature, ConversationFeature, MeetingFeature) which are transitional.
 //
 //  Recording logic: ModeFeatureRecording.swift
 //  Meeting logic:   ModeFeatureMeeting.swift

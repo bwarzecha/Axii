@@ -35,12 +35,14 @@ final class AppController {
     let modelDownloadService: ModelDownloadService
     let mediaControlService: MediaControlService
 
-    // Features (old system)
+    // Legacy features — transitional, not used by the active shipping path.
+    // The mode runtime (ModeFeature via FeatureManager) is the active path.
+    // These remain constructed for now; Phase 2 will stop creating them.
     let dictationFeature: DictationFeature
     let conversationFeature: ConversationFeature
     let meetingFeature: MeetingFeature
 
-    // Mode system
+    // Mode runtime — the active shipping path for all features.
     let useModeSystem: Bool = true
     let modeService = ModeService()
 
@@ -204,6 +206,7 @@ final class AppController {
         }
 
         if useModeSystem {
+            // Active path: register ModeFeature instances driven by ModeConfig.
             let modes = modeService.loadAllModes()
             for config in modes {
                 let feature = ModeFeature(
@@ -224,6 +227,7 @@ final class AppController {
             }
             print("Mode system features activated (\(modes.count) modes)")
         } else {
+            // Legacy path — transitional, kept for rollback safety.
             featureManager.register(dictationFeature)
             featureManager.register(conversationFeature)
             featureManager.register(meetingFeature)
