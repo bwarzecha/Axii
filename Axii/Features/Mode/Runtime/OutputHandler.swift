@@ -17,7 +17,7 @@ import os.log
 private let logger = Logger(subsystem: "com.axii", category: "OutputHandler")
 
 @MainActor
-final class OutputHandler {
+final class OutputHandler: ModeOutputExecuting {
     private let pasteService: any PasteProviding
     private let clipboardService: ClipboardService
     private let historyService: HistoryService

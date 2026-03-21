@@ -15,7 +15,7 @@ import os.log
 private let logger = Logger(subsystem: "com.axii", category: "PipelineRunner")
 
 @MainActor
-final class PipelineRunner {
+final class PipelineRunner: PipelineExecuting {
     private let llmService: LLMService?
     private let diarizationService: DiarizationService?
     let templateResolver = TemplateResolver()
