@@ -18,17 +18,27 @@ final class FixtureDecodeTests: XCTestCase {
 
     // MARK: - Helper
 
+    /// Load a fixture from the test bundle (immutable, copied at build time).
+    /// The path should include the subdirectory prefix (e.g. "Modes/builtin-dictation-vcurrent")
+    /// but lookup uses only the filename since Xcode flattens bundle resources.
     private func loadFixture(_ path: String) throws -> Data {
-        // Fixtures are in the AxiiTests bundle
         let bundle = Bundle(for: type(of: self))
-        guard let url = bundle.url(forResource: path, withExtension: "json") else {
-            // Fall back to filesystem path relative to project root
-            let projectRoot = URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent() // AxiiTests/
-            let fileURL = projectRoot.appendingPathComponent("Fixtures").appendingPathComponent(path + ".json")
-            return try Data(contentsOf: fileURL)
+        // Extract just the filename (Xcode flattens subdirectories in bundle resources)
+        let filename = (path as NSString).lastPathComponent
+        guard let url = bundle.url(forResource: filename, withExtension: "json") else {
+            throw FixtureError.notFound(filename)
         }
         return try Data(contentsOf: url)
+    }
+
+    private enum FixtureError: LocalizedError {
+        case notFound(String)
+        var errorDescription: String? {
+            switch self {
+            case .notFound(let name):
+                return "Fixture '\(name).json' not found in test bundle. Rebuild the test target."
+            }
+        }
     }
 
     // MARK: - Mode Fixture Decode Tests
