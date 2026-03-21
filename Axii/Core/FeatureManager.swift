@@ -23,8 +23,10 @@ final class FeatureManager {
     private var activeFeature: (any Feature)?
     private var panelController: FloatingPanelController?
 
-    /// Observable status source for the menu bar. Updated on activate/deactivate.
+    /// Observable status source for the menu bar, kept in sync with the active
+    /// mode's phase via the bridge's withObservationTracking loop.
     let statusSource = AppStatusSource()
+    let statusBridge: PhaseStatusBridge
 
     /// Callback when panel content changes
     var onPanelContentChanged: ((AnyView?) -> Void)?
@@ -37,6 +39,7 @@ final class FeatureManager {
         self.hotkeyService = hotkeyService
         self.advancedHotkeyService = advancedHotkeyService
         self.settings = settings
+        self.statusBridge = PhaseStatusBridge(statusSource: statusSource)
     }
 
     /// Sets the panel controller for showing/hiding UI
@@ -66,9 +69,6 @@ final class FeatureManager {
 
     // MARK: - Feature Lifecycle
 
-    /// Incremented on each activation to invalidate stale observation callbacks.
-    private var observationGeneration: Int = 0
-
     private func activateFeature(_ feature: any Feature) {
         // Cancel current feature if different
         if let current = activeFeature, current !== feature {
@@ -79,9 +79,7 @@ final class FeatureManager {
 
         // Start phase observation for the active mode's runtime state
         if let modeFeature = feature as? ModeFeature {
-            statusSource.update(phase: modeFeature.state.phase)
-            observationGeneration += 1
-            observePhase(of: modeFeature.state, generation: observationGeneration)
+            statusBridge.observe(modeFeature.state)
         }
 
         // Update panel with feature's content
@@ -95,26 +93,10 @@ final class FeatureManager {
     }
 
     private func deactivateCurrentFeature() {
-        observationGeneration += 1 // Invalidate any pending observation callback
+        statusBridge.stop()
         activeFeature = nil
-        statusSource.deactivate()
         panelController?.hide()
         hotkeyService.unregister(.escape)
-    }
-
-    /// Self-re-arming observation of ModeRuntimeState.phase using withObservationTracking.
-    /// The generation parameter ensures stale callbacks are discarded after deactivation
-    /// or feature switch.
-    private func observePhase(of state: ModeRuntimeState, generation: Int) {
-        withObservationTracking {
-            _ = state.phase
-        } onChange: { [weak self] in
-            Task { @MainActor in
-                guard let self, self.observationGeneration == generation else { return }
-                self.statusSource.update(phase: state.phase)
-                self.observePhase(of: state, generation: generation)
-            }
-        }
     }
 
     private func handleEscape() {

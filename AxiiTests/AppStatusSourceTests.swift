@@ -2,14 +2,10 @@
 //  AppStatusSourceTests.swift
 //  AxiiTests
 //
-//  Tests for the observable app-level status source contract.
-//  These verify that AppStatusSource.appStatus changes correctly as
-//  the active runtime state changes — covering both activation/deactivation
-//  transitions and phase transitions within an active mode.
-//
-//  The tests exercise AppStatusSource via its public update/deactivate API,
-//  which is the same API FeatureManager uses. This tests the stable contract
-//  without depending on FeatureManager internals.
+//  Low-level unit tests for AppStatusSource's stored property mutation.
+//  These verify that update(phase:) and deactivate() correctly set appStatus.
+//  They do NOT test the observation bridge from ModeRuntimeState — that is
+//  covered by PhaseStatusBridgeTests.
 //
 
 import XCTest
@@ -34,7 +30,7 @@ final class AppStatusSourceTests: XCTestCase {
         XCTAssertEqual(source.appStatus, .ready)
     }
 
-    // MARK: - Phase mapping through update()
+    // MARK: - update(phase:) sets correct status
 
     func testUpdate_IdlePhase_ReturnsReady() {
         source.update(phase: .idle)
@@ -71,90 +67,11 @@ final class AppStatusSourceTests: XCTestCase {
         XCTAssertEqual(source.appStatus, .error)
     }
 
-    // MARK: - Activation transition
-
-    func testActivating_ChangesStatusFromReady() {
-        XCTAssertEqual(source.appStatus, .ready, "Precondition: initial ready")
-
-        source.update(phase: .recording)
-        XCTAssertEqual(source.appStatus, .recording,
-                        "Updating with recording phase should change status")
-    }
-
-    // MARK: - Deactivation transition
+    // MARK: - deactivate() resets to ready
 
     func testDeactivate_ReturnsToReady() {
         source.update(phase: .recording)
-        XCTAssertEqual(source.appStatus, .recording, "Precondition: active recording")
-
-        source.deactivate()
-        XCTAssertEqual(source.appStatus, .ready,
-                        "Deactivating should return to ready")
-    }
-
-    // MARK: - Phase transitions within an active mode
-
-    func testPhaseTransition_IdleToRecording() {
-        source.update(phase: .idle)
-        XCTAssertEqual(source.appStatus, .ready)
-
-        source.update(phase: .recording)
-        XCTAssertEqual(source.appStatus, .recording)
-    }
-
-    func testPhaseTransition_RecordingToTranscribing() {
-        source.update(phase: .recording)
-        XCTAssertEqual(source.appStatus, .recording)
-
-        source.update(phase: .transcribing)
-        XCTAssertEqual(source.appStatus, .processing)
-    }
-
-    func testPhaseTransition_ProcessingToDone() {
-        source.update(phase: .processing)
-        XCTAssertEqual(source.appStatus, .processing)
-
-        source.update(phase: .done)
-        XCTAssertEqual(source.appStatus, .ready)
-    }
-
-    func testPhaseTransition_RecordingToError() {
-        source.update(phase: .recording)
-        XCTAssertEqual(source.appStatus, .recording)
-
-        source.update(phase: .error("mic disconnected"))
-        XCTAssertEqual(source.appStatus, .error)
-    }
-
-    // MARK: - Full lifecycle
-
-    func testFullLifecycle_ActivateTransitionDeactivate() {
-        // Start with no mode
-        XCTAssertEqual(source.appStatus, .ready)
-
-        // Activate with idle
-        source.update(phase: .idle)
-        XCTAssertEqual(source.appStatus, .ready)
-
-        // Recording
-        source.update(phase: .recording)
-        XCTAssertEqual(source.appStatus, .recording)
-
-        // Transcribing
-        source.update(phase: .transcribing)
-        XCTAssertEqual(source.appStatus, .processing)
-
-        // Processing
-        source.update(phase: .processing)
-        XCTAssertEqual(source.appStatus, .processing)
-
-        // Done
-        source.update(phase: .done)
-        XCTAssertEqual(source.appStatus, .ready)
-
-        // Deactivate
         source.deactivate()
         XCTAssertEqual(source.appStatus, .ready)
     }
-
 }
