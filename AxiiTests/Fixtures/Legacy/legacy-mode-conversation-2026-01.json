@@ -1,0 +1,70 @@
+{
+  "audioCapture" : {
+    "simple" : {
+      "_0" : {
+        "devicePreference" : "systemDefault",
+        "enableStreamingChunks" : false
+      }
+    }
+  },
+  "hotkey" : {
+    "keyCode" : 49,
+    "modifiers" : 6144,
+    "usesFnKey" : false
+  },
+  "icon" : "bubble.left.and.bubble.right.fill",
+  "id" : "00000000-0000-0000-0000-000000000002",
+  "isBuiltIn" : true,
+  "lifecycle" : {
+    "captureFocus" : false,
+    "enableCrashRecovery" : false,
+    "escapeBehavior" : "alwaysCancel",
+    "panelPersistence" : {
+      "stayOpen" : {}
+    },
+    "pauseMedia" : false,
+    "permissions" : [
+      "microphone"
+    ],
+    "startMode" : "automatic"
+  },
+  "name" : "Conversation",
+  "outputs" : [
+    {
+      "display" : {}
+    },
+    {
+      "history" : {
+        "audioFormat" : "aac",
+        "saveAudio" : false
+      }
+    }
+  ],
+  "panel" : {
+    "layout" : "conversation",
+    "preferences" : {
+      "compactModeEnabled" : false,
+      "recordingIndicatorStyle" : "radialBar",
+      "showCopyButton" : false,
+      "showDurationTimer" : false,
+      "transcriptDisplay" : "none"
+    }
+  },
+  "processing" : [
+    {
+      "llmTransform" : {
+        "_0" : {
+          "multiTurn" : true,
+          "systemPrompt" : ""
+        }
+      }
+    }
+  ],
+  "transcription" : {
+    "batch" : {
+      "_0" : {
+        "minimumDuration" : 0.5
+      }
+    }
+  }
+}

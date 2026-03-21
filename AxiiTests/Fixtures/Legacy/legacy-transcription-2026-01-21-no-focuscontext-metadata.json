@@ -1,0 +1,15 @@
+{
+  "createdAt" : "2026-01-21T19:17:08Z",
+  "details" : {
+    "data" : {
+      "hasAudio" : true,
+      "pastedTo" : "com.example.terminal",
+      "wordCount" : 7
+    },
+    "type" : "transcription"
+  },
+  "id" : "A2856011-B5FD-4F70-8E38-16F52B24500B",
+  "preview" : "Sample dictation one two three four five check.",
+  "type" : "transcription",
+  "updatedAt" : "2026-01-21T19:17:08Z"
+}

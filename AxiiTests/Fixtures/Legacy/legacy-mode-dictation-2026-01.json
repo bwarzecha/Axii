@@ -1,0 +1,66 @@
+{
+  "audioCapture" : {
+    "simple" : {
+      "_0" : {
+        "devicePreference" : "lastUsed",
+        "enableStreamingChunks" : false
+      }
+    }
+  },
+  "hotkey" : {
+    "keyCode" : 49,
+    "modifiers" : 2048,
+    "usesFnKey" : false
+  },
+  "icon" : "mic.fill",
+  "id" : "00000000-0000-0000-0000-000000000001",
+  "isBuiltIn" : true,
+  "lifecycle" : {
+    "captureFocus" : true,
+    "enableCrashRecovery" : false,
+    "escapeBehavior" : "alwaysCancel",
+    "panelPersistence" : {
+      "autoDismiss" : {
+        "delay" : 2
+      }
+    },
+    "pauseMedia" : true,
+    "permissions" : [
+      "microphone"
+    ],
+    "startMode" : "automatic"
+  },
+  "name" : "Dictation",
+  "outputs" : [
+    {
+      "pasteAtCursor" : {
+        "failureBehavior" : "showCopyButton",
+        "restoreClipboard" : false
+      }
+    },
+    {
+      "history" : {
+        "audioFormat" : "aac",
+        "saveAudio" : true
+      }
+    }
+  ],
+  "panel" : {
+    "layout" : "standard",
+    "preferences" : {
+      "compactModeEnabled" : false,
+      "recordingIndicatorStyle" : "radialBar",
+      "showCopyButton" : true,
+      "showDurationTimer" : false,
+      "transcriptDisplay" : "none"
+    }
+  },
+  "processing" : [],
+  "transcription" : {
+    "batch" : {
+      "_0" : {
+        "minimumDuration" : 0.5
+      }
+    }
+  }
+}

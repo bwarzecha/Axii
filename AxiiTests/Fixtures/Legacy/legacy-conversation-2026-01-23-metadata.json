@@ -1,0 +1,15 @@
+{
+  "createdAt" : "2026-01-23T02:06:59Z",
+  "details" : {
+    "data" : {
+      "hasAudio" : false,
+      "messageCount" : 2,
+      "turnCount" : 1
+    },
+    "type" : "conversation"
+  },
+  "id" : "A92E272A-0165-42D0-9780-EBC47058D6D1",
+  "preview" : "Hello, can you hear me clearly right now?",
+  "type" : "conversation",
+  "updatedAt" : "2026-01-23T02:07:00Z"
+}

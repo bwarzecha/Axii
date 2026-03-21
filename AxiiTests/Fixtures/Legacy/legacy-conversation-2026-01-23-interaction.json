@@ -1,0 +1,23 @@
+{
+  "data" : {
+    "audioRecordings" : [],
+    "createdAt" : "2026-01-23T02:06:59Z",
+    "id" : "A92E272A-0165-42D0-9780-EBC47058D6D1",
+    "messages" : [
+      {
+        "content" : "Hello, can you hear me clearly right now?",
+        "id" : "D1D51981-A469-4073-96B5-FA47C1D10F1B",
+        "role" : "user",
+        "timestamp" : "2026-01-23T02:06:59Z"
+      },
+      {
+        "content" : "Yes, I can hear you perfectly! Your audio is coming through great. How can I help you today?",
+        "id" : "FB543A2C-66DF-4D11-ACC7-7DF43E4C719C",
+        "role" : "assistant",
+        "timestamp" : "2026-01-23T02:07:00Z"
+      }
+    ],
+    "updatedAt" : "2026-01-23T02:07:00Z"
+  },
+  "type" : "conversation"
+}

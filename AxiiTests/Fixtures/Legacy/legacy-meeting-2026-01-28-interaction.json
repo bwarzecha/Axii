@@ -1,0 +1,56 @@
+{
+  "data" : {
+    "createdAt" : "2026-01-28T15:10:12Z",
+    "duration" : 37.00040292739868,
+    "id" : "1D6DBD5A-AADD-4CA0-A3F9-6003A1E8713B",
+    "micRecording" : {
+      "duration" : 37.601875,
+      "filename" : "audio/6449c216-7139-439c-b7bd-1d8da2db6f90.wav",
+      "id" : "6449C216-7139-439C-B7BD-1D8DA2DB6F90",
+      "sampleRate" : 16000,
+      "timestamp" : "2026-01-28T15:10:12Z"
+    },
+    "segments" : [
+      {
+        "endTime" : 30,
+        "id" : "839CADD9-C20E-4AA4-BC44-071E4FC5020F",
+        "isFromMicrophone" : true,
+        "speakerId" : "You",
+        "startTime" : 0,
+        "text" : "The quarterly results show strong growth across all regions with particular strength in the enterprise segment. Revenue increased by twelve percent year over year and we are seeing improved margins in our cloud services division. The customer retention rate remains above ninety five percent which is a positive indicator for sustainable growth going forward. Let me walk through the key metrics for each business unit starting with the North American market."
+      },
+      {
+        "endTime" : 30,
+        "id" : "136409DA-5A5B-4B8F-9857-92EE2634B58F",
+        "isFromMicrophone" : false,
+        "speakerId" : "Remote",
+        "startTime" : 0,
+        "text" : "The quarterly results show strong growth across all regions with particular strength in the enterprise segment. Revenue increased by twelve percent year over year and we are seeing improved margins in the cloud services division. The customer retention rate remains above ninety five percent which is a positive indicator for sustainable growth going forward. Let me walk through the key metrics for each business unit starting with the North American."
+      },
+      {
+        "endTime" : 37.601875,
+        "id" : "6DC02820-C6C1-4E9F-B697-A65DBCE5F503",
+        "isFromMicrophone" : true,
+        "speakerId" : "You",
+        "startTime" : 30,
+        "text" : "performance has been especially notable this quarter. We exceeded our target by eight percent and the pipeline for next quarter looks equally promising with several large deals in late stage"
+      },
+      {
+        "endTime" : 37.82,
+        "id" : "D6FA4DC6-E22B-43F7-BC10-4F573BE90C32",
+        "isFromMicrophone" : false,
+        "speakerId" : "Remote",
+        "startTime" : 30,
+        "text" : "Performance has been especially notable this quarter. We exceeded our target by eight percent and the pipeline for next quarter looks equally promising with several large deals in late stage"
+      }
+    ],
+    "systemRecording" : {
+      "duration" : 37.82,
+      "filename" : "audio/5209ce67-3a13-4dbb-9117-60dc5c272ad2.wav",
+      "id" : "5209CE67-3A13-4DBB-9117-60DC5C272AD2",
+      "sampleRate" : 16000,
+      "timestamp" : "2026-01-28T15:10:12Z"
+    }
+  },
+  "type" : "meeting"
+}

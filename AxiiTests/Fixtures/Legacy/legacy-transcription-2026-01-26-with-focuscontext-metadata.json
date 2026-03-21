@@ -1,0 +1,18 @@
+{
+  "createdAt" : "2026-01-26T04:05:51Z",
+  "details" : {
+    "data" : {
+      "appName" : "Safari",
+      "hasAudio" : true,
+      "hasContext" : true,
+      "pastedTo" : "com.apple.Safari",
+      "windowTitle" : "Example Page Title - Safari",
+      "wordCount" : 1
+    },
+    "type" : "transcription"
+  },
+  "id" : "BF72A43A-D6A9-4A9D-AEC4-F32B8EA19D2A",
+  "preview" : "Hello",
+  "type" : "transcription",
+  "updatedAt" : "2026-01-26T04:05:51Z"
+}

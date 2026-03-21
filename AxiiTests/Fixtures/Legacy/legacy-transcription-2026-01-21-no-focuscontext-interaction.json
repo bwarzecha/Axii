@@ -1,0 +1,16 @@
+{
+  "data" : {
+    "audioRecording" : {
+      "duration" : 2.3786666666666667,
+      "filename" : "audio/4bea6bdc-0008-4064-89db-3fbc72a2bbbd.wav",
+      "id" : "4BEA6BDC-0008-4064-89DB-3FBC72A2BBBD",
+      "sampleRate" : 48000,
+      "timestamp" : "2026-01-21T19:17:08Z"
+    },
+    "createdAt" : "2026-01-21T19:17:08Z",
+    "id" : "A2856011-B5FD-4F70-8E38-16F52B24500B",
+    "pastedTo" : "com.example.terminal",
+    "text" : "Sample dictation one two three four five check."
+  },
+  "type" : "transcription"
+}

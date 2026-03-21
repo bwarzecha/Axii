@@ -1,0 +1,27 @@
+{
+  "data" : {
+    "audioRecording" : {
+      "duration" : 4.02,
+      "filename" : "audio/9b181e4b-8c6b-49b7-a295-78f4d30a6f9e.wav",
+      "id" : "9B181E4B-8C6B-49B7-A295-78F4D30A6F9E",
+      "sampleRate" : 24000,
+      "timestamp" : "2026-01-26T04:05:51Z"
+    },
+    "createdAt" : "2026-01-26T04:05:51Z",
+    "focusContext" : {
+      "appBundleId" : "com.apple.Safari",
+      "appName" : "Safari",
+      "capturedAt" : "2026-01-26T04:05:51Z",
+      "surroundingText" : {
+        "after" : "",
+        "before" : "",
+        "selected" : "example.com/page?id=12345"
+      },
+      "windowTitle" : "Example Page Title - Safari"
+    },
+    "id" : "BF72A43A-D6A9-4A9D-AEC4-F32B8EA19D2A",
+    "pastedTo" : "com.apple.Safari",
+    "text" : "Hello"
+  },
+  "type" : "transcription"
+}

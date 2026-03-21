@@ -1,0 +1,17 @@
+{
+  "createdAt" : "2026-01-28T15:10:12Z",
+  "details" : {
+    "data" : {
+      "duration" : 37.00040292739868,
+      "hasMicAudio" : true,
+      "hasSystemAudio" : true,
+      "segmentCount" : 4,
+      "wordCount" : 222
+    },
+    "type" : "meeting"
+  },
+  "id" : "1D6DBD5A-AADD-4CA0-A3F9-6003A1E8713B",
+  "preview" : "You: The quarterly results show strong growth across all regions with particular strength in",
+  "type" : "meeting",
+  "updatedAt" : "2026-01-28T15:10:12Z"
+}
