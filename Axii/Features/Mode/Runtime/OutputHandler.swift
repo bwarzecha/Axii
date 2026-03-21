@@ -82,8 +82,6 @@ final class OutputHandler: ModeOutputExecuting {
                 )
             }
         }
-
-        state.phase = .done
     }
 
     // MARK: - Template Resolution
