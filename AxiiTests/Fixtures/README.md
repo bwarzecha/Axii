@@ -96,3 +96,27 @@ must remain exactly as committed.
 - When supporting older data formats, add representative historical fixtures.
 - When adding a fixture from real user data, anonymize aggressively per
   the process documented above.
+
+## Test Design Principles
+
+**Fixture decode tests** are compatibility/contract tests. They verify that
+committed JSON decodes into the expected model types with the expected
+field values. They should never mutate fixtures or depend on runtime state.
+
+**Integration tests** should prefer public behavioral contracts over
+implementation details:
+- Assert on persisted outcomes (files on disk, loadable interactions)
+- Assert on observable state (phase, finalText, needsManualCopy)
+- Assert via public APIs (listMetadata, loadInteraction, getAudioURL)
+- Avoid asserting on internal caches, helper objects, or scheduling
+  internals unless there is no public observable for the contract
+
+**Characterization tests** (e.g., dictation orchestration) may temporarily
+access internals where the current architecture makes it unavoidable.
+These are marked with inline `NOTE` comments explaining:
+- what behavioral contract they protect
+- why no public observable exists yet
+- when they should be replaced (typically during coordinator extraction)
+
+Future refactors should replace internal-touching tests with seam-based
+contract tests rather than re-entrenching the coupling.
