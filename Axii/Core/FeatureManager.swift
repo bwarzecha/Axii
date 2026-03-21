@@ -67,13 +67,24 @@ final class FeatureManager {
     // MARK: - Feature Lifecycle
 
     private func activateFeature(_ feature: any Feature) {
+        // Clear previous phase observation
+        disconnectPhaseObservation()
+
         // Cancel current feature if different
         if let current = activeFeature, current !== feature {
             current.cancel()
         }
 
         activeFeature = feature
-        statusSource.activeState = (feature as? ModeFeature)?.state
+
+        // Wire phase observation for the active mode's runtime state
+        if let modeFeature = feature as? ModeFeature {
+            let state = modeFeature.state
+            statusSource.update(phase: state.phase)
+            state.onPhaseChanged = { [weak self] phase in
+                self?.statusSource.update(phase: phase)
+            }
+        }
 
         // Update panel with feature's content
         panelController?.updateContent(feature.panelContent)
@@ -86,10 +97,17 @@ final class FeatureManager {
     }
 
     private func deactivateCurrentFeature() {
+        disconnectPhaseObservation()
         activeFeature = nil
-        statusSource.activeState = nil
+        statusSource.deactivate()
         panelController?.hide()
         hotkeyService.unregister(.escape)
+    }
+
+    private func disconnectPhaseObservation() {
+        if let modeFeature = activeFeature as? ModeFeature {
+            modeFeature.state.onPhaseChanged = nil
+        }
     }
 
     private func handleEscape() {

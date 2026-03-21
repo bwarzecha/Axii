@@ -47,25 +47,23 @@ extension AppStatus {
 
 /// Observable status source for the menu bar.
 ///
-/// Holds a reference to the active mode's `ModeRuntimeState`. The `appStatus`
-/// computed property reads `activeState.phase`, which is `@Observable`. This
-/// means SwiftUI views that read `appStatus` establish a real observation
-/// dependency on the underlying `ModeRuntimeState.phase` — no polling, no
-/// duplicate store, no manual synchronization needed.
-///
-/// `FeatureManager` updates `activeState` when modes activate/deactivate.
+/// Exposes a single `appStatus` property that is `@Observable`. FeatureManager
+/// calls `update(phase:)` whenever the active mode's phase changes, and
+/// `deactivate()` when no mode is active. SwiftUI views that read `appStatus`
+/// get a real observation dependency — no polling, no duplicate store needed.
 @MainActor @Observable
 final class AppStatusSource {
-    /// The runtime state of the currently active mode, or nil if no mode is active.
-    /// Set by FeatureManager on activate/deactivate.
-    var activeState: ModeRuntimeState?
+    /// The current app status. Updated by FeatureManager.
+    private(set) var appStatus: AppStatus = .ready
 
-    /// Current app status. Reading this in a SwiftUI view body creates an
-    /// observation dependency on both `activeState` (for activation changes)
-    /// and `activeState.phase` (for phase transitions within the active mode).
-    var appStatus: AppStatus {
-        guard let state = activeState else { return .ready }
-        return AppStatus.from(state.phase)
+    /// Update status from the active mode's current phase.
+    func update(phase: ModePhase) {
+        appStatus = AppStatus.from(phase)
+    }
+
+    /// Reset to ready when no mode is active.
+    func deactivate() {
+        appStatus = .ready
     }
 }
 
