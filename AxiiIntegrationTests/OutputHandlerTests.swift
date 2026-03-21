@@ -122,6 +122,73 @@ final class OutputHandlerTests: XCTestCase {
         }
     }
 
+    func testHistoryOutputWithAudioSavesCompressedRecording() async throws {
+        // Synthetic sine-wave samples (AAC needs varying data, not constant)
+        let sampleRate: Double = 44100
+        let sampleCount = Int(sampleRate) // 1 second
+        let samples: [Float] = (0..<sampleCount).map { i in
+            Float(sin(Double(i) * 2.0 * .pi * 440.0 / sampleRate) * 0.5)
+        }
+
+        let context = PipelineContext(
+            transcription: "Audio history test",
+            samples: samples,
+            sampleRate: sampleRate,
+            modeName: "Test"
+        )
+        let state = ModeRuntimeState()
+
+        // Execute with saveAudio: true, AAC format
+        await outputHandler.executeOutputs(
+            destinations: [.history(HistoryConfig(saveAudio: true, audioFormat: .aac))],
+            context: context,
+            state: state
+        )
+
+        // Verify transcription was saved
+        let allMetadata = historyService.listMetadata()
+        XCTAssertEqual(allMetadata.count, 1, "One transcription should be saved")
+        let meta = allMetadata.first!
+        XCTAssertEqual(meta.type, .transcription)
+
+        // Load full interaction and verify audio recording is attached
+        let interaction = try await historyService.loadInteraction(id: meta.id)
+        guard case .transcription(let t) = interaction else {
+            XCTFail("Expected transcription interaction")
+            return
+        }
+        XCTAssertEqual(t.text, "Audio history test")
+        XCTAssertNotNil(t.audioRecording, "AudioRecording should be attached after save-with-audio")
+
+        let recording = t.audioRecording!
+        XCTAssertTrue(recording.filename.hasSuffix(".m4a"), "Should use .m4a for AAC")
+        XCTAssertEqual(recording.sampleRate, sampleRate)
+        XCTAssertEqual(recording.duration, 1.0, accuracy: 0.01)
+
+        // Verify the actual audio file exists on disk
+        let audioURL = historyService.getAudioURL(recording, for: t.id)
+        XCTAssertNotNil(audioURL)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: audioURL!.path),
+            "Compressed audio file should exist on disk"
+        )
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: audioURL!.path)
+        let fileSize = attrs[.size] as? Int ?? 0
+        XCTAssertGreaterThan(fileSize, 0, "Audio file should have content")
+
+        // Verify metadata round-trips (reload from disk)
+        let metadataFile = tempHistoryDir
+            .appendingPathComponent(meta.folderName)
+            .appendingPathComponent("metadata.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: metadataFile.path))
+
+        let interactionFile = tempHistoryDir
+            .appendingPathComponent(meta.folderName)
+            .appendingPathComponent("interaction.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: interactionFile.path))
+    }
+
     func testFileOutputWritesToTempPath() async {
         let outputPath = tempOutputDir.appendingPathComponent("output.txt").path
         let fileConfig = FileOutputConfig(
