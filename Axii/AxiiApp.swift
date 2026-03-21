@@ -22,10 +22,10 @@ struct AxiiApp: App {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
-        // Menu bar for status and quit
+        // Menu bar — status derived from the active mode runtime, not legacy features
         MenuBarExtra {
             MenuBarView(
-                dictationState: controller.dictationFeature.state,
+                appStatus: controller.featureManager.appStatus,
                 hotkeyDisplay: controller.settings.hotkeyConfig.displayString,
                 onShowOnboarding: { openWindow(id: "onboarding") },
                 updaterService: updaterService
@@ -98,8 +98,9 @@ struct AxiiApp: App {
 }
 
 /// Menu bar dropdown content.
+/// Status is derived from the active mode runtime via AppStatus.
 struct MenuBarView: View {
-    var dictationState: DictationState
+    var appStatus: AppStatus
     var hotkeyDisplay: String
     var onShowOnboarding: () -> Void
     @ObservedObject var updaterService: UpdaterService
@@ -108,7 +109,7 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Text(statusText)
+            Text(appStatus.menuBarText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -160,25 +161,6 @@ struct MenuBarView: View {
             NSApp.activate(ignoringOtherApps: true)
         } else {
             openWindow(id: id)
-        }
-    }
-
-    private var statusText: String {
-        switch dictationState.phase {
-        case .idle:
-            return "Ready"
-        case .loadingModel:
-            return "Loading model..."
-        case .recording:
-            return "Recording..."
-        case .transcribing:
-            return "Transcribing..."
-        case .done:
-            return "Done"
-        case .doneNeedsCopy:
-            return "Copy pending"
-        case .error:
-            return "Error"
         }
     }
 }

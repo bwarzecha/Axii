@@ -96,6 +96,15 @@ final class FeatureManager {
         activeFeature != nil
     }
 
+    /// Current app status derived from the active mode runtime.
+    /// Returns .ready when no mode is active.
+    var appStatus: AppStatus {
+        guard let modeFeature = activeFeature as? ModeFeature else {
+            return .ready
+        }
+        return AppStatus.from(modeFeature.state.phase)
+    }
+
     // MARK: - Mode Config Updates
 
     /// Updates a ModeFeature's config (called by editor). Re-registers hotkey if changed.
