@@ -98,6 +98,22 @@ final class DictationOrchestrationTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// Poll until a condition becomes true or timeout expires.
+    private func waitUntil(
+        timeout: TimeInterval = 2.0,
+        interval: TimeInterval = 0.01,
+        _ condition: @escaping () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            guard Date() < deadline else {
+                XCTFail("Timed out waiting for condition after \(timeout)s")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(Int(interval * 1000)))
+        }
+    }
+
     /// Create a minimal dictation-style ModeConfig for testing.
     private func makeDictationConfig(
         outputs: [OutputDestination]? = nil,
@@ -158,10 +174,8 @@ final class DictationOrchestrationTests: XCTestCase {
         let feature = makeFeatureInRecordingState()
         feature.stopSimpleRecording()
 
-        // Wait for the async Task inside stopSimpleRecording to complete
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil { feature.state.phase == .done }
 
-        XCTAssertEqual(feature.state.phase, .done)
         XCTAssertEqual(feature.state.finalText, "Hello world")
         XCTAssertFalse(feature.state.needsManualCopy)
         XCTAssertEqual(fakePaste.lastPastedText, "Hello world")
@@ -173,9 +187,8 @@ final class DictationOrchestrationTests: XCTestCase {
         let feature = makeFeatureInRecordingState()
         feature.stopSimpleRecording()
 
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil { feature.state.phase == .done }
 
-        XCTAssertEqual(feature.state.phase, .done)
         XCTAssertEqual(feature.state.finalText, "No speech detected")
         XCTAssertNil(fakePaste.lastPastedText)
     }
@@ -187,9 +200,8 @@ final class DictationOrchestrationTests: XCTestCase {
         let feature = makeFeatureInRecordingState()
         feature.stopSimpleRecording()
 
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil { feature.state.phase == .done }
 
-        XCTAssertEqual(feature.state.phase, .done)
         XCTAssertTrue(feature.state.needsManualCopy)
         XCTAssertEqual(feature.state.manualCopyText, "Copy me manually")
         // Auto-dismiss should NOT have been scheduled
@@ -203,9 +215,8 @@ final class DictationOrchestrationTests: XCTestCase {
         let feature = makeFeatureInRecordingState()
         feature.stopSimpleRecording()
 
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil { feature.state.phase == .done }
 
-        XCTAssertEqual(feature.state.phase, .done)
         XCTAssertEqual(
             feature.state.finalText,
             "Fallback text\n(Copied: App not found)"
@@ -219,7 +230,10 @@ final class DictationOrchestrationTests: XCTestCase {
         let feature = makeFeatureInRecordingState()
         feature.stopSimpleRecording()
 
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil {
+            if case .error = feature.state.phase { return true }
+            return false
+        }
 
         if case .error(let msg) = feature.state.phase {
             XCTAssertEqual(msg, "Recording too short")
@@ -238,9 +252,8 @@ final class DictationOrchestrationTests: XCTestCase {
         let feature = makeFeatureInRecordingState(config: config)
         feature.stopSimpleRecording()
 
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil { feature.state.phase == .done }
 
-        XCTAssertEqual(feature.state.phase, .done)
         XCTAssertNil(feature.deactivationWorkItem)
     }
 
@@ -249,7 +262,8 @@ final class DictationOrchestrationTests: XCTestCase {
         feature.state.phase = .idle
         feature.stopSimpleRecording()
 
-        try await Task.sleep(for: .milliseconds(100))
+        // Give a brief yield to ensure no async work kicks off
+        try await Task.sleep(for: .milliseconds(50))
 
         // Phase should remain idle — guard prevented execution
         XCTAssertEqual(feature.state.phase, .idle)
@@ -262,9 +276,8 @@ final class DictationOrchestrationTests: XCTestCase {
         let feature = makeFeatureInRecordingState()
         feature.stopSimpleRecording()
 
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil { feature.state.phase == .done }
 
-        XCTAssertEqual(feature.state.phase, .done)
         XCTAssertEqual(
             feature.state.finalText,
             "Clipboard text\n(Copied to clipboard)"
