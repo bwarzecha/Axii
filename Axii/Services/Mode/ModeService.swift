@@ -19,11 +19,18 @@ final class ModeService {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    init() {
+    /// Create a ModeService using the default Application Support path.
+    convenience init() {
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first!.appendingPathComponent("Axii")
-        self.modesDirectory = appSupport.appendingPathComponent("Modes")
+        self.init(modesDirectory: appSupport.appendingPathComponent("Modes"))
+    }
+
+    /// Create a ModeService with an injected modes directory.
+    /// Use this in tests with a temp directory to avoid touching real user data.
+    init(modesDirectory: URL) {
+        self.modesDirectory = modesDirectory
         self.encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         self.decoder = JSONDecoder()

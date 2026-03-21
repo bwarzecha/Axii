@@ -59,14 +59,24 @@ final class HistoryService {
     private let decoder: JSONDecoder
 
     /// Base directory for history storage
-    private var historyDirectory: URL {
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("Axii/history", isDirectory: true)
-    }
+    private let historyDirectory: URL
 
     // MARK: - Initialization
 
-    init() {
+    /// Create a HistoryService using the default Application Support path.
+    convenience init() {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first!
+        let dir = appSupport.appendingPathComponent("Axii/history", isDirectory: true)
+        self.init(historyDirectory: dir)
+    }
+
+    /// Create a HistoryService with an injected base directory.
+    /// Use this in tests with a temp directory to avoid touching real user data.
+    init(historyDirectory: URL) {
+        self.historyDirectory = historyDirectory
+
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
