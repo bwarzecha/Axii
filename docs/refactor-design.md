@@ -584,7 +584,7 @@ History list reads metadata cache. Full interaction data is loaded on demand.
 | `Axii/Features/Mode/Config/DefaultModes.swift` | Built-in default modes | Source defaults for dictation/conversation/meeting |
 | `Axii/Services/Mode/ModeService.swift` | Mode persistence/migration | Hidden source of truth because persisted JSON overrides code defaults |
 | `Axii/Features/Mode/Runtime/ModeFeature.swift` | Generic runtime shell | Central mode runtime object and likely long-term source of truth |
-| `Axii/Features/Mode/Runtime/ModeFeatureRecording.swift` | Dictation/conversation recording flow | Good extraction point for a testable coordinator |
+| `Axii/Features/Mode/Runtime/ModeFeatureRecording.swift` | Dictation/conversation recording flow | Good extraction point for testable post-capture mode execution |
 | `Axii/Features/Mode/Runtime/ModeFeatureMeeting.swift` | Meeting-specific mode runtime | Demonstrates that the mode system is not fully generic yet |
 | `Axii/Features/Mode/Runtime/MeetingPipelineHandler.swift` | Meeting orchestration | High complexity, large file, multiple responsibilities |
 | `Axii/Features/Mode/Runtime/OutputHandler.swift` | Output execution | One of the cleaner seams in the codebase |
@@ -854,25 +854,25 @@ There should be exactly one active runtime system:
 - `ModeService`
 - `ModeConfig`
 - `ModeFeature`
-- specialized coordinators where necessary
+- specialized mode execution processors where necessary
 
 Legacy feature classes should be removed after parity is proven.
 
-### 2. Explicit coordinator / state machine layer
+### 2. Explicit execution / state machine layer
 
-Each user flow should have a coordinator that:
+Each mode execution family should have a testable execution owner that:
 
 - owns state transitions
 - accepts injected dependencies
 - returns effect requests or invokes narrow interfaces
 
-Recommended coordinators:
+Recommended execution owners:
 
-- `DictationSessionCoordinator`
-- `ConversationSessionCoordinator`
-- `MeetingSessionCoordinator`
+- `SingleShotModeTurnProcessor`
+- `MultiTurnModeTurnProcessor`
+- meeting-specific execution services where necessary
 
-These coordinators should be testable without real AppKit/audio/Accessibility.
+These execution owners should be testable without real AppKit/audio/Accessibility.
 
 ### 3. Narrow interfaces at the system boundary
 
@@ -918,7 +918,7 @@ Current priority should be:
 
 1. migration and fixture tests for old persisted data
 2. strong integration tests for active transcription and output pipelines
-3. unit tests for pure runtime logic and extracted coordinators
+3. unit tests for pure runtime logic and extracted execution processors
 4. only then broader UI/E2E or black-box smoke tests
 
 The current repo is not ready to start with hardware-heavy E2E as the first engineering investment.
@@ -996,29 +996,30 @@ The current repo is not ready to start with hardware-heavy E2E as the first engi
 - the app shell uses the mode runtime only
 - startup registration and runtime custom-mode registration share one construction seam
 
-### Phase 3: Extract Testable Dictation And Conversation Coordinators
+### Phase 3: Extract Testable Mode Turn Processors
 
 ### Goals
 
-- make the common microphone capture flows unit-testable
-- isolate orchestration from AppKit/audio services
+- make post-capture mode execution testable
+- isolate execution logic from AppKit/audio/runtime adapter code
 
 ### Deliverables
 
-- introduce coordinator(s) for dictation and conversation
-- move state transition logic out of `ModeFeatureRecording`
+- introduce processor(s) for the single-shot and multi-turn execution families
+- move post-capture execution logic out of `ModeFeatureRecording`
 - inject boundary interfaces for:
   - transcription
-  - focus capture
+  - pipeline execution
   - output execution
-  - media control
   - scheduling/deactivation
+  - conversation/history persistence where needed
 
 ### Acceptance criteria
 
-- dictation success/failure/manual copy flows are unit tested
-- conversation single-turn and multi-turn flows are unit tested
-- `ModeFeatureRecording` becomes a thin adapter rather than the owner of product logic
+- single-shot mode success/failure/manual copy flows are unit tested
+- multi-turn mode flows are unit tested
+- `ModeFeatureRecording` becomes a thin runtime adapter rather than the owner
+  of post-capture product logic
 
 ### Phase 4: Decompose The Meeting Runtime
 
@@ -1097,7 +1098,7 @@ Recommended order of work:
 3. Add strong integration tests for transcription/pipeline/output/history flows.
 4. Fix the meeting history audio attachment bug.
 5. Remove UI dependence on legacy runtime state.
-6. Start extracting a dictation coordinator.
+6. Start extracting the single-shot mode turn processor.
 
 This sequence gives the best risk reduction per day of work.
 
@@ -1164,7 +1165,7 @@ This section exists because the current automated coverage is minimal. A zero-co
 The end state should feel like this for a new engineer:
 
 - there is one obvious runtime architecture
-- product behavior can be traced from app shell to coordinator to service boundary
+- product behavior can be traced from app shell to execution path to service boundary
 - complex flows are testable without real hardware or system permissions
 - mode configuration is explicit and migration-aware
 - views are mostly declarative
@@ -1196,7 +1197,7 @@ The repository is not fundamentally broken, but it is carrying the cost of a hal
 The correct move is:
 
 - finish the transition to the mode runtime
-- extract testable coordinators around the active flows
+- extract testable execution processors around the active flows
 - reduce hidden state and callback-driven coupling
 - decompose the meeting path carefully
 

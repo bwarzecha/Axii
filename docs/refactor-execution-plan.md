@@ -19,7 +19,7 @@ The correct sequence is:
 1. protect current behavior with migration fixtures and integration tests
 2. fix active defects in the current runtime
 3. consolidate the active runtime to the mode system without changing persisted user data formats unnecessarily
-4. extract testable coordinators around dictation and conversation
+4. extract testable mode execution processors around the post-capture paths
 5. decompose meeting orchestration carefully
 6. only after the codebase is stable, add black-box smoke coverage for the real app behavior on a dedicated macOS environment
 
@@ -365,7 +365,7 @@ Allow tests to run against isolated temp storage and controlled dependencies wit
 2. `ModeService` should support an injected modes directory or storage root.
 3. `SettingsService` already supports injected `UserDefaults`; tests should use a temporary suite.
 4. `FileOutputService` tests should always write into temp paths.
-5. If dictation orchestration is tested before coordinator extraction, fake transcriber/paste boundaries should be injected through production-safe protocols or closures, not global flags.
+5. If dictation orchestration is tested before processor extraction, fake transcriber/paste boundaries should be injected through production-safe protocols or closures, not global flags.
 
 #### Rule
 
@@ -662,11 +662,21 @@ Success condition:
 - app shell and feature registration depend only on the mode runtime
 - legacy classes are no longer part of the live execution path
 
-## Phase 3: Extract Testable Dictation And Conversation Coordinators
+## Phase 3: Extract Testable Mode Turn Processors
+
+Authoritative execution brief:
+
+- [docs/refactor-phase-3a-brief.md](/Users/bartosz/dev/Axii/docs/refactor-phase-3a-brief.md)
+
+Architectural design reference:
+
+- [docs/refactor-phase-3a-design.md](/Users/bartosz/dev/Axii/docs/refactor-phase-3a-design.md)
 
 ## Goal
 
-Move the dictation and conversation orchestration logic out of `ModeFeatureRecording` and related runtime glue into explicit, testable coordinators.
+Move the single-shot and multi-turn post-capture execution logic out of
+`ModeFeatureRecording` and related runtime glue into explicit, testable mode
+turn processors.
 
 ## Why this phase matters
 
@@ -674,7 +684,8 @@ This is where testability materially improves.
 
 Without this phase:
 
-- dictation and conversation remain `@MainActor` orchestration blobs with side effects mixed into state changes
+- single-shot and multi-turn mode execution remain `@MainActor`
+  orchestration blobs with side effects mixed into state changes
 
 ## Entry Criteria
 
@@ -682,40 +693,44 @@ Without this phase:
 
 ## Target outcome
 
-Introduce coordinator-style abstractions such as:
+Introduce execution-path abstractions such as:
 
-- `DictationSessionCoordinator`
-- `ConversationSessionCoordinator`
+- `SingleShotModeTurnProcessor`
+- `MultiTurnModeTurnProcessor`
 
 These names are suggestions, not mandatory final API.
 
+The important design rule is that these abstractions represent mode execution
+families, not built-in-feature UI coordinators.
+
 ## Workstreams
 
-### Workstream A: Define boundary interfaces
+### Workstream A: Define boundary interfaces and the completed-capture seam
 
 #### Tasks
 
-Define narrow interfaces for the boundaries actually needed by dictation/conversation:
+Define narrow interfaces for the boundaries actually needed by the post-capture
+execution path:
 
-- recorder or recording session provider
 - transcriber
 - output executor
-- focus capturer
-- media control
 - scheduler/deactivation
-- conversation store/history store
+- pipeline executor
+- conversation/history store for multi-turn execution
+- a small `CompletedCapture` boundary object
 
 #### Rule
 
 Do not protocolize the whole app. Only abstract the edges this phase needs.
 
-### Workstream B: Extract dictation flow
+### Workstream B: Extract single-shot execution flow first
 
 #### Tasks
 
-1. Model state transitions explicitly.
-2. Move success/failure/manual-copy handling out of `ModeFeatureRecording`.
-3. Keep `ModeFeature` as the adapter that binds coordinator outputs to panel/UI state.
+1. Extract the single-shot post-capture path into a dedicated processor.
+2. Move success/failure/manual-copy/dismiss handling out of `ModeFeatureRecording`.
+3. Keep `ModeFeature` as the runtime adapter that owns capture start/stop,
+   panel wiring, and feature lifecycle.
 
 #### Test coverage
 
@@ -726,12 +741,13 @@ Do not protocolize the whole app. Only abstract the edges this phase needs.
 - transcription error
 - cancel during active recording
 
-### Workstream C: Extract conversation flow
+### Workstream C: Extract multi-turn execution flow
 
 #### Tasks
 
-1. Move transcription-to-LLM orchestration into its own coordinator.
-2. Keep `ConversationHandler` only if it remains a narrow collaborator; otherwise absorb it into the coordinator.
+1. Move transcription-to-LLM/session orchestration into its own processor.
+2. Keep `ConversationHandler` only if it remains a narrow collaborator;
+   otherwise absorb it into the processor.
 3. Preserve multi-turn history behavior.
 
 #### Test coverage
@@ -744,25 +760,30 @@ Do not protocolize the whole app. Only abstract the edges this phase needs.
 ## Risks
 
 - too much abstraction can slow delivery
-- coordinator extraction may accidentally change panel behavior
+- processor extraction may accidentally change panel behavior
+- the code may drift back toward feature-specific abstractions instead of
+  mode-family execution paths
 
 ## Mitigations
 
 - preserve current state model at first
 - keep adapters thin
 - assert state transition sequences in tests before changing UI representations
+- keep the architectural cut at the completed-capture seam, not the generic
+  capture/session layer
 
 ## Proof-of-Concept Tasks
 
-### POC 3.1: Extract only dictation first
+### POC 3.1: Extract only the single-shot execution family first
 
 Goal:
 
-- validate the coordinator pattern on the smallest high-value runtime path
+- validate the mode-turn processor pattern on the smallest high-value runtime
+  path
 
 Success condition:
 
-- dictation coordinator exists with meaningful integration coverage
+- single-shot mode processor exists with meaningful coverage
 - `ModeFeatureRecording` becomes thinner without functional regressions
 
 ## PR Breakdown
@@ -770,17 +791,17 @@ Success condition:
 ### PR 3A
 
 - boundary interfaces
-- dictation coordinator
+- single-shot mode processor
 - tests
 
 ### PR 3B
 
-- conversation coordinator
+- multi-turn mode processor
 - tests
 
 ## Exit Criteria
 
-- dictation and conversation orchestration are coordinator-based
+- single-shot and multi-turn post-capture execution are processor-based
 - integration and state-transition tests cover the main behavior matrix
 - `ModeFeatureRecording` is materially simpler
 
@@ -1012,7 +1033,7 @@ High.
 
 ### Mitigation
 
-- dictation integration tests before coordinator extraction
+- dictation integration tests before processor extraction
 - narrow PRs
 
 ## Risk 3: Meeting regressions are hard to notice until late
