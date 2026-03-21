@@ -3,7 +3,7 @@
 //  Axii
 //
 //  Helper that encapsulates AudioSession lifecycle, sample accumulation,
-//  and visualization updates. Used by DictationFeature and ConversationFeature.
+//  and visualization updates. Used by ModeFeature (and legacy feature classes).
 //
 
 #if os(macOS)

@@ -2,7 +2,11 @@
 //  MeetingFeature.swift
 //  Axii
 //
-//  Meeting transcription feature with You vs Remote speaker labels.
+//  LEGACY / TRANSITIONAL — not part of the active app-shell execution path.
+//  The mode runtime (ModeFeature) handles all meeting behavior.
+//  This file remains for rollback safety and reference during later deletion.
+//
+//  Original: Meeting transcription feature with You vs Remote speaker labels.
 //  Uses combined audio capture (mic + system audio) for meeting transcription.
 //
 

@@ -2,7 +2,11 @@
 //  ConversationFeature.swift
 //  Axii
 //
-//  Self-contained conversation/agent feature. Registers hotkey, manages state machine.
+//  LEGACY / TRANSITIONAL — not part of the active app-shell execution path.
+//  The mode runtime (ModeFeature) handles all conversation behavior.
+//  This file remains for rollback safety and reference during later deletion.
+//
+//  Original: Self-contained conversation/agent feature. Registers hotkey, manages state machine.
 //  Uses RecordingSessionHelper for microphone capture.
 //
 

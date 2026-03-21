@@ -2,7 +2,11 @@
 //  DictationFeature.swift
 //  Axii
 //
-//  Self-contained dictation feature. Registers hotkey, manages state machine.
+//  LEGACY / TRANSITIONAL — not part of the active app-shell execution path.
+//  The mode runtime (ModeFeature) handles all dictation behavior.
+//  This file remains for rollback safety and reference during later deletion.
+//
+//  Original: Self-contained dictation feature. Registers hotkey, manages state machine.
 //  Uses RecordingSessionHelper for microphone capture.
 //
 
