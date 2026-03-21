@@ -1,0 +1,57 @@
+{
+  "data" : {
+    "appName" : "Zoom",
+    "createdAt" : "2025-06-15T14:00:00Z",
+    "duration" : 300,
+    "id" : "33333333-4444-5555-6666-777777777777",
+    "micRecording" : {
+      "duration" : 300,
+      "filename" : "audio\/mic.m4a",
+      "id" : "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+      "sampleRate" : 16000,
+      "timestamp" : "2025-06-15T14:00:00Z"
+    },
+    "segments" : [
+      {
+        "endTime" : 45,
+        "id" : "CCCC0001-0000-0000-0000-000000000001",
+        "isFromMicrophone" : true,
+        "speakerId" : "You",
+        "startTime" : 0,
+        "text" : "Let's discuss the project timeline. I think we need to push the deadline by two weeks given the current progress."
+      },
+      {
+        "endTime" : 120,
+        "id" : "CCCC0001-0000-0000-0000-000000000002",
+        "isFromMicrophone" : false,
+        "speakerId" : "Remote",
+        "startTime" : 46,
+        "text" : "I agree. The backend integration is taking longer than expected. We should also consider adding more resources to the frontend team."
+      },
+      {
+        "endTime" : 200,
+        "id" : "CCCC0001-0000-0000-0000-000000000003",
+        "isFromMicrophone" : true,
+        "speakerId" : "You",
+        "startTime" : 121,
+        "text" : "Good point. Let me check the budget and see if we can bring in a contractor for the next sprint."
+      },
+      {
+        "endTime" : 300,
+        "id" : "CCCC0001-0000-0000-0000-000000000004",
+        "isFromMicrophone" : false,
+        "speakerId" : "Remote",
+        "startTime" : 201,
+        "text" : "Sounds like a plan. I will prepare the updated timeline and share it with the team by end of day tomorrow."
+      }
+    ],
+    "systemRecording" : {
+      "duration" : 300,
+      "filename" : "audio\/system.m4a",
+      "id" : "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD",
+      "sampleRate" : 48000,
+      "timestamp" : "2025-06-15T14:00:00Z"
+    }
+  },
+  "type" : "meeting"
+}

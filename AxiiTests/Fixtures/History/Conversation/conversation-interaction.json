@@ -1,0 +1,50 @@
+{
+  "data" : {
+    "audioRecordings" : [
+
+    ],
+    "createdAt" : "2025-06-15T11:00:00Z",
+    "id" : "22222222-3333-4444-5555-666666666666",
+    "messages" : [
+      {
+        "audioRecordingId" : null,
+        "content" : "What is the weather like today?",
+        "id" : "AAAA0001-0000-0000-0000-000000000001",
+        "role" : "user",
+        "timestamp" : "2025-06-15T11:00:00Z",
+        "toolCalls" : null,
+        "toolResult" : null
+      },
+      {
+        "audioRecordingId" : null,
+        "content" : "I don't have access to real-time weather data, but I can help you find that information.",
+        "id" : "AAAA0001-0000-0000-0000-000000000002",
+        "role" : "assistant",
+        "timestamp" : "2025-06-15T11:01:00Z",
+        "toolCalls" : null,
+        "toolResult" : null
+      },
+      {
+        "audioRecordingId" : null,
+        "content" : "Tell me about the seasons instead.",
+        "id" : "AAAA0001-0000-0000-0000-000000000003",
+        "role" : "user",
+        "timestamp" : "2025-06-15T11:03:00Z",
+        "toolCalls" : null,
+        "toolResult" : null
+      },
+      {
+        "audioRecordingId" : null,
+        "content" : "Sure, there are four seasons: spring, summer, autumn, and winter.",
+        "id" : "AAAA0001-0000-0000-0000-000000000004",
+        "role" : "assistant",
+        "timestamp" : "2025-06-15T11:04:00Z",
+        "toolCalls" : null,
+        "toolResult" : null
+      }
+    ],
+    "title" : null,
+    "updatedAt" : "2025-06-15T11:05:00Z"
+  },
+  "type" : "conversation"
+}

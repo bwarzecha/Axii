@@ -1,0 +1,78 @@
+{
+  "audioCapture" : {
+    "dual" : {
+      "_0" : {
+        "appSelection" : "userSelected",
+        "chunkDuration" : 15,
+        "devicePreference" : "lastUsed",
+        "silenceThreshold" : 0.001
+      }
+    }
+  },
+  "icon" : "person.2.fill",
+  "id" : "00000000-0000-0000-0000-000000000003",
+  "isBuiltIn" : true,
+  "lifecycle" : {
+    "captureFocus" : false,
+    "enableCrashRecovery" : true,
+    "escapeBehavior" : "blockWhileRecording",
+    "panelPersistence" : {
+      "stayOpen" : {
+
+      }
+    },
+    "pauseMedia" : false,
+    "permissions" : [
+      "microphone",
+      "screenRecording"
+    ],
+    "startMode" : "manual"
+  },
+  "name" : "Meeting",
+  "outputs" : [
+    {
+      "display" : {
+
+      }
+    },
+    {
+      "history" : {
+        "audioFormat" : "aac",
+        "saveAudio" : true
+      }
+    }
+  ],
+  "panel" : {
+    "layout" : "standard",
+    "preferences" : {
+      "compactModeEnabled" : true,
+      "recordingIndicatorStyle" : "pulsingDot",
+      "showCopyButton" : false,
+      "showDurationTimer" : true,
+      "transcriptDisplay" : "full"
+    }
+  },
+  "processing" : [
+    {
+      "diarize" : {
+        "_0" : {
+          "mode" : {
+            "sourceLabels" : {
+              "micLabel" : "You",
+              "systemLabel" : "Remote"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "transcription" : {
+    "streaming" : {
+      "_0" : {
+        "chunkDurationSeconds" : 15,
+        "enableFinalTranscription" : true,
+        "enableRealTimeDisplay" : true
+      }
+    }
+  }
+}

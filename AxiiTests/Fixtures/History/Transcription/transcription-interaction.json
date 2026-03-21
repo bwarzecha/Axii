@@ -1,0 +1,23 @@
+{
+  "data" : {
+    "audioRecording" : {
+      "duration" : 2.5,
+      "filename" : "audio\/aaaaaa.wav",
+      "id" : "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
+      "sampleRate" : 16000,
+      "timestamp" : "2025-06-15T10:30:00Z"
+    },
+    "createdAt" : "2025-06-15T10:30:00Z",
+    "focusContext" : {
+      "appBundleId" : "com.apple.TextEdit",
+      "appName" : "TextEdit",
+      "capturedAt" : "2025-06-15T10:29:59Z",
+      "surroundingText" : null,
+      "windowTitle" : "Untitled.txt"
+    },
+    "id" : "11111111-2222-3333-4444-555555555555",
+    "pastedTo" : "com.apple.TextEdit",
+    "text" : "Hello world this is a test transcription"
+  },
+  "type" : "transcription"
+}

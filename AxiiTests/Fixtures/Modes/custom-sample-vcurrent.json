@@ -1,0 +1,82 @@
+{
+  "audioCapture" : {
+    "simple" : {
+      "_0" : {
+        "devicePreference" : "systemDefault",
+        "enableStreamingChunks" : false
+      }
+    }
+  },
+  "icon" : "wand.and.stars",
+  "id" : "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+  "isBuiltIn" : false,
+  "lifecycle" : {
+    "captureFocus" : false,
+    "enableCrashRecovery" : false,
+    "escapeBehavior" : "alwaysCancel",
+    "panelPersistence" : {
+      "autoDismiss" : {
+        "delay" : 3
+      }
+    },
+    "pauseMedia" : false,
+    "permissions" : [
+      "microphone"
+    ],
+    "startMode" : "automatic"
+  },
+  "name" : "Custom Test Mode",
+  "outputs" : [
+    {
+      "display" : {
+
+      }
+    },
+    {
+      "clipboard" : {
+
+      }
+    },
+    {
+      "history" : {
+        "audioFormat" : "aac",
+        "saveAudio" : false
+      }
+    }
+  ],
+  "panel" : {
+    "layout" : "standard",
+    "preferences" : {
+      "compactModeEnabled" : false,
+      "recordingIndicatorStyle" : "radialBar",
+      "showCopyButton" : true,
+      "showDurationTimer" : false,
+      "transcriptDisplay" : "none"
+    }
+  },
+  "processing" : [
+    {
+      "segmentMerge" : {
+        "_0" : {
+          "mergeConsecutiveSameSpeaker" : true
+        }
+      }
+    },
+    {
+      "llmTransform" : {
+        "_0" : {
+          "label" : "summary",
+          "multiTurn" : false,
+          "systemPrompt" : "Summarize this"
+        }
+      }
+    }
+  ],
+  "transcription" : {
+    "batch" : {
+      "_0" : {
+        "minimumDuration" : 0.5
+      }
+    }
+  }
+}

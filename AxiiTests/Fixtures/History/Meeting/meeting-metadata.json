@@ -1,0 +1,18 @@
+{
+  "createdAt" : "2025-06-15T14:00:00Z",
+  "details" : {
+    "data" : {
+      "appName" : "Zoom",
+      "duration" : 300,
+      "hasMicAudio" : true,
+      "hasSystemAudio" : true,
+      "segmentCount" : 4,
+      "wordCount" : 120
+    },
+    "type" : "meeting"
+  },
+  "id" : "33333333-4444-5555-6666-777777777777",
+  "preview" : "You: Let's discuss the project timeline",
+  "type" : "meeting",
+  "updatedAt" : "2025-06-15T14:00:00Z"
+}

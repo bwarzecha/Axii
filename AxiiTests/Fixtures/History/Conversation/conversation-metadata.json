@@ -1,0 +1,15 @@
+{
+  "createdAt" : "2025-06-15T11:00:00Z",
+  "details" : {
+    "data" : {
+      "hasAudio" : false,
+      "messageCount" : 4,
+      "turnCount" : 2
+    },
+    "type" : "conversation"
+  },
+  "id" : "22222222-3333-4444-5555-666666666666",
+  "preview" : "What is the weather like today?",
+  "type" : "conversation",
+  "updatedAt" : "2025-06-15T11:05:00Z"
+}
