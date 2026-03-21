@@ -2,11 +2,8 @@
 //  MeetingSaveRegressionTests.swift
 //  AxiiIntegrationTests
 //
-//  Regression tests capturing the known meeting-save bug where audio files
-//  are saved to disk but the AudioRecording values are discarded, leaving
-//  the Meeting metadata without recording references.
-//
-//  These tests exercise the real ModeFeature.saveMeetingToHistory method.
+//  Integration tests for meeting save behavior via ModeFeature.saveMeetingToHistory.
+//  Tests exercise the real production method and verify persisted outcomes.
 //
 
 import XCTest
@@ -78,11 +75,11 @@ final class MeetingSaveRegressionTests: XCTestCase {
         }
     }
 
-    // MARK: - Regression: Known Bug via Real Production Path
+    // MARK: - Active Save Path: Audio Attached After Reload
 
-    /// Exercises the real ModeFeature.saveMeetingToHistory and demonstrates
-    /// that audio files are saved to disk but not attached to the Meeting.
-    func testSaveMeetingToHistory_KnownBug_AudioNotAttached() async throws {
+    /// Exercises the real ModeFeature.saveMeetingToHistory and verifies
+    /// that both audio recordings are attached to the persisted Meeting.
+    func testSaveMeetingToHistory_AttachesBothRecordings() async throws {
         let sampleRate: Double = 44100
         let result = MeetingStopResult(
             micSamples: syntheticSamples(count: Int(sampleRate), sampleRate: sampleRate),
@@ -99,13 +96,13 @@ final class MeetingSaveRegressionTests: XCTestCase {
             appName: "Zoom"
         )
 
-        // Call the real production method
         await modeFeature.saveMeetingToHistory(result)
 
-        // Find the saved meeting in the cache
+        // Verify meeting is listed
         let meetings = historyService.listMetadata(type: .meeting)
         XCTAssertEqual(meetings.count, 1, "One meeting should be saved")
 
+        // Load and verify recordings are attached
         let meetingId = meetings.first!.id
         let loaded = try await historyService.loadInteraction(id: meetingId)
         guard case .meeting(let loadedMeeting) = loaded else {
@@ -113,40 +110,26 @@ final class MeetingSaveRegressionTests: XCTestCase {
             return
         }
 
-        // Verify segments and duration were saved correctly
         XCTAssertEqual(loadedMeeting.segments.count, 2)
         XCTAssertEqual(loadedMeeting.duration, 60.0)
         XCTAssertEqual(loadedMeeting.appName, "Zoom")
+        XCTAssertNotNil(loadedMeeting.micRecording, "Mic recording should be attached")
+        XCTAssertNotNil(loadedMeeting.systemRecording, "System recording should be attached")
 
-        // BUG: Audio files exist on disk but are NOT attached to the Meeting.
-        // The saveMeetingToHistory method discards the AudioRecording return values.
-        XCTAssertNil(
-            loadedMeeting.micRecording,
-            "Known bug: mic audio saved to disk but not attached to Meeting"
-        )
-        XCTAssertNil(
-            loadedMeeting.systemRecording,
-            "Known bug: system audio saved to disk but not attached to Meeting"
-        )
-
-        // Verify the audio files DO exist on disk (orphaned)
+        // Verify audio files exist on disk
         let metadata = meetings.first!
         let folderURL = tempDir.appendingPathComponent(metadata.folderName)
         let audioDir = folderURL.appendingPathComponent("audio")
-        if FileManager.default.fileExists(atPath: audioDir.path) {
-            let audioFiles = try FileManager.default.contentsOfDirectory(
-                at: audioDir, includingPropertiesForKeys: nil
-            )
-            XCTAssertEqual(
-                audioFiles.count, 2,
-                "Two audio files should be orphaned on disk"
-            )
-        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: audioDir.path))
+
+        let audioFiles = try FileManager.default.contentsOfDirectory(
+            at: audioDir, includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(audioFiles.count, 2, "Mic + system audio files")
     }
 
-    /// Uses compressed audio (AAC) like the real meeting flow does.
-    func testSaveMeetingToHistory_UsesCompressedAudio() async throws {
-        // Set AAC format (matches real meeting behavior)
+    /// Verifies the active save path uses the configured compressed format (AAC -> .m4a).
+    func testSaveMeetingToHistory_UsesConfiguredCompressedFormat() async throws {
         settings.setAudioStorageFormat(.aac)
 
         let sampleRate: Double = 44100
@@ -165,67 +148,70 @@ final class MeetingSaveRegressionTests: XCTestCase {
 
         await modeFeature.saveMeetingToHistory(result)
 
-        // Verify the compressed audio files were created
         let meetings = historyService.listMetadata(type: .meeting)
         XCTAssertEqual(meetings.count, 1)
 
+        // Load and verify recordings use .m4a extension
+        let loaded = try await historyService.loadInteraction(id: meetings.first!.id)
+        guard case .meeting(let m) = loaded else {
+            XCTFail("Expected meeting interaction")
+            return
+        }
+
+        XCTAssertNotNil(m.micRecording, "Mic recording should be attached")
+        XCTAssertNotNil(m.systemRecording, "System recording should be attached")
+        XCTAssertTrue(m.micRecording?.filename.hasSuffix(".m4a") == true,
+                       "Mic recording should use .m4a for AAC")
+        XCTAssertTrue(m.systemRecording?.filename.hasSuffix(".m4a") == true,
+                       "System recording should use .m4a for AAC")
+
+        // Verify files exist on disk
         let metadata = meetings.first!
         let folderURL = tempDir.appendingPathComponent(metadata.folderName)
         let audioDir = folderURL.appendingPathComponent("audio")
-
-        XCTAssertTrue(FileManager.default.fileExists(atPath: audioDir.path),
-                       "Audio directory should exist")
-
         let audioFiles = try FileManager.default.contentsOfDirectory(
             at: audioDir, includingPropertiesForKeys: nil
         )
-        XCTAssertEqual(audioFiles.count, 2, "Mic + system audio files")
-
-        // All files should be .m4a (compressed)
+        XCTAssertEqual(audioFiles.count, 2)
         for file in audioFiles {
-            XCTAssertEqual(file.pathExtension, "m4a",
-                           "Compressed audio should use .m4a extension")
+            XCTAssertEqual(file.pathExtension, "m4a")
         }
     }
 
-    // MARK: - Correct Behavior Reference
-
-    /// Shows what the fix should produce: Meeting with recordings attached.
-    func testMeetingSaveWithAudioAttached_CorrectBehavior() async throws {
-        let segments = [
-            MeetingSegment(text: "Hello", speakerId: "You",
-                           isFromMicrophone: true, startTime: 0, endTime: 5),
-        ]
-
-        // Manually perform the correct save flow
-        let meeting = Meeting(segments: segments, duration: 60.0, appName: "Zoom")
-        try await historyService.save(.meeting(meeting))
-
+    /// Verifies that a newly saved meeting persists valid recording references
+    /// that can be resolved to audio file URLs.
+    func testSaveMeetingToHistory_RecordingReferencesAreResolvable() async throws {
         let sampleRate: Double = 44100
-        let micRecording = try await historyService.saveAudioCompressed(
-            samples: syntheticSamples(count: Int(sampleRate), sampleRate: sampleRate),
-            sampleRate: sampleRate, format: .aac, for: meeting.id
-        )
-        let sysRecording = try await historyService.saveAudioCompressed(
-            samples: syntheticSamples(count: Int(sampleRate), sampleRate: sampleRate),
-            sampleRate: sampleRate, format: .aac, for: meeting.id
+        let result = MeetingStopResult(
+            micSamples: syntheticSamples(count: Int(sampleRate), sampleRate: sampleRate),
+            micSampleRate: sampleRate,
+            systemSamples: syntheticSamples(count: Int(sampleRate), sampleRate: sampleRate),
+            systemSampleRate: sampleRate,
+            segments: [
+                MeetingSegment(text: "Hello", speakerId: "You",
+                               isFromMicrophone: true, startTime: 0, endTime: 5),
+            ],
+            duration: 45.0,
+            appName: "Zoom"
         )
 
-        // Re-save with recordings attached (the correct pattern)
-        let updated = Meeting(
-            id: meeting.id, segments: segments, duration: 60.0,
-            micRecording: micRecording, systemRecording: sysRecording,
-            appName: "Zoom", createdAt: meeting.createdAt
-        )
-        try await historyService.save(.meeting(updated))
+        await modeFeature.saveMeetingToHistory(result)
 
-        let loaded = try await historyService.loadInteraction(id: meeting.id)
+        let meetings = historyService.listMetadata(type: .meeting)
+        let loaded = try await historyService.loadInteraction(id: meetings.first!.id)
         guard case .meeting(let m) = loaded else {
-            XCTFail("Expected meeting")
+            XCTFail("Expected meeting interaction")
             return
         }
-        XCTAssertNotNil(m.micRecording, "Mic recording should be attached")
-        XCTAssertNotNil(m.systemRecording, "System recording should be attached")
-        XCTAssertTrue(m.micRecording?.filename.hasSuffix(".m4a") == true)
+
+        // Recording references should resolve to existing files via HistoryService
+        let micURL = historyService.getAudioURL(m.micRecording!, for: m.id)
+        let sysURL = historyService.getAudioURL(m.systemRecording!, for: m.id)
+        XCTAssertNotNil(micURL)
+        XCTAssertNotNil(sysURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: micURL!.path),
+                       "Mic audio file should exist at resolved URL")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sysURL!.path),
+                       "System audio file should exist at resolved URL")
     }
 }
