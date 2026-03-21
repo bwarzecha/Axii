@@ -3,9 +3,9 @@
 //  AxiiIntegrationTests
 //
 //  Integration tests for OutputHandler output effects. Tests display, file,
-//  and history outputs that do not require hardware (AppKit paste/clipboard).
-//  Turn-completion phase (.done) is owned by the processor layer, not
-//  OutputHandler — these tests only assert output effects.
+//  history, and paste-outcome behavior using real OutputHandler with fake
+//  PasteProviding. Turn-completion phase (.done) is owned by the processor
+//  layer, not OutputHandler — these tests only assert output effects.
 //
 
 import XCTest
@@ -217,5 +217,146 @@ final class OutputHandlerTests: XCTestCase {
 
         let written = try? String(contentsOfFile: outputPath, encoding: .utf8)
         XCTAssertEqual(written, "File output content")
+    }
+}
+
+// MARK: - Paste Outcome Tests
+
+/// Tests the real OutputHandler paste-outcome branches using a fake PasteProviding.
+/// These cover the user-visible state mutations for each PasteService.Outcome.
+@MainActor
+final class OutputHandlerPasteOutcomeTests: XCTestCase {
+
+    private var fakePaste: FakePasteProvider!
+    private var outputHandler: OutputHandler!
+    private var settings: SettingsService!
+
+    override func setUp() {
+        fakePaste = FakePasteProvider()
+        let defaults = UserDefaults(suiteName: "test-\(UUID().uuidString)")!
+        settings = SettingsService(defaults: defaults)
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AxiiPasteTests-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        outputHandler = OutputHandler(
+            pasteService: fakePaste,
+            clipboardService: ClipboardService(),
+            historyService: HistoryService(historyDirectory: tempDir),
+            settings: settings
+        )
+    }
+
+    override func tearDown() {
+        outputHandler = nil
+        settings = nil
+        fakePaste = nil
+    }
+
+    private func makeContext(_ text: String) -> PipelineContext {
+        PipelineContext(transcription: text, modeName: "Test")
+    }
+
+    // MARK: - .pasted
+
+    func testPasted_SetsFinalText() async {
+        fakePaste.outcomeToReturn = .pasted
+        let state = ModeRuntimeState()
+
+        await outputHandler.executeOutputs(
+            destinations: [.pasteAtCursor(PasteConfig())],
+            context: makeContext("Hello"),
+            state: state
+        )
+
+        XCTAssertEqual(state.finalText, "Hello")
+        XCTAssertFalse(state.needsManualCopy)
+    }
+
+    // MARK: - .pastedAndCopied
+
+    func testPastedAndCopied_SetsFinalText() async {
+        fakePaste.outcomeToReturn = .pastedAndCopied
+        let state = ModeRuntimeState()
+
+        await outputHandler.executeOutputs(
+            destinations: [.pasteAtCursor(PasteConfig())],
+            context: makeContext("Hello"),
+            state: state
+        )
+
+        XCTAssertEqual(state.finalText, "Hello")
+        XCTAssertFalse(state.needsManualCopy)
+    }
+
+    // MARK: - .copiedOnly
+
+    func testCopiedOnly_AppendsCopiedToClipboard() async {
+        fakePaste.outcomeToReturn = .copiedOnly
+        let state = ModeRuntimeState()
+
+        await outputHandler.executeOutputs(
+            destinations: [.pasteAtCursor(PasteConfig())],
+            context: makeContext("Clipboard text"),
+            state: state
+        )
+
+        XCTAssertTrue(
+            state.finalText.hasSuffix("(Copied to clipboard)"),
+            "Expected clipboard suffix, got: \(state.finalText)"
+        )
+        XCTAssertFalse(state.needsManualCopy)
+    }
+
+    // MARK: - .copiedFallback
+
+    func testCopiedFallback_IncludesReason() async {
+        fakePaste.outcomeToReturn = .copiedFallback(reason: "App not found")
+        let state = ModeRuntimeState()
+
+        await outputHandler.executeOutputs(
+            destinations: [.pasteAtCursor(PasteConfig())],
+            context: makeContext("Fallback text"),
+            state: state
+        )
+
+        XCTAssertTrue(
+            state.finalText.contains("(Copied: App not found)"),
+            "Expected fallback reason, got: \(state.finalText)"
+        )
+        XCTAssertFalse(state.needsManualCopy)
+    }
+
+    // MARK: - .needsManualCopy
+
+    func testNeedsManualCopy_SetsManualCopyState() async {
+        fakePaste.outcomeToReturn = .needsManualCopy(reason: "No AX access")
+        let state = ModeRuntimeState()
+
+        await outputHandler.executeOutputs(
+            destinations: [.pasteAtCursor(PasteConfig())],
+            context: makeContext("Manual copy text"),
+            state: state
+        )
+
+        XCTAssertEqual(state.finalText, "Manual copy text")
+        XCTAssertTrue(state.needsManualCopy)
+        XCTAssertEqual(state.manualCopyText, "Manual copy text")
+    }
+
+    // MARK: - .skipped
+
+    func testSkipped_ShowsNoSpeechDetected() async {
+        fakePaste.outcomeToReturn = .skipped
+        let state = ModeRuntimeState()
+
+        await outputHandler.executeOutputs(
+            destinations: [.pasteAtCursor(PasteConfig())],
+            context: makeContext("Should be overwritten"),
+            state: state
+        )
+
+        XCTAssertEqual(state.finalText, "No speech detected")
+        XCTAssertFalse(state.needsManualCopy)
     }
 }

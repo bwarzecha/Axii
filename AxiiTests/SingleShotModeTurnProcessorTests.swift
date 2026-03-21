@@ -36,12 +36,15 @@ private final class FakePipeline: PipelineExecuting {
     var contextToReturn: PipelineContext?
     var errorToThrow: Error?
     var receivedSteps: [ProcessingStep] = []
+    /// Called during run() — allows tests to observe state mid-execution.
+    var onRun: (() -> Void)?
 
     func run(
         steps: [ProcessingStep],
         context: PipelineContext
     ) async throws -> PipelineContext {
         receivedSteps = steps
+        onRun?()
         if let error = errorToThrow { throw error }
         return contextToReturn ?? context
     }
@@ -181,23 +184,20 @@ final class SingleShotModeTurnProcessorTests: XCTestCase {
         await transcriber.setTextToReturn("Raw text")
         let step = ProcessingStep.segmentMerge(SegmentMergeConfig())
 
-        var phasesDuringExecution: [ModePhase] = []
-        pipeline.contextToReturn = nil // pass-through
-        let originalRun = pipeline.run
-        // Track the phase when pipeline runs
-        pipeline.contextToReturn = nil
-        output.onExecute = { state in
-            phasesDuringExecution.append(state.phase)
+        // Capture the phase during pipeline execution
+        var phaseDuringPipelineRun: ModePhase?
+        pipeline.onRun = { [state] in
+            phaseDuringPipelineRun = state!.phase
         }
 
-        // We can't easily intercept pipeline mid-run to check phase,
-        // so we verify the final state instead
         await processor.process(
             capture: makeCapture(),
             config: makeConfig(processing: [step]),
             state: state
         )
 
+        XCTAssertEqual(phaseDuringPipelineRun, .processing,
+                        "Processor must enter .processing before pipeline runs")
         XCTAssertEqual(state.phase, .done)
         XCTAssertEqual(pipeline.receivedSteps.count, 1)
     }

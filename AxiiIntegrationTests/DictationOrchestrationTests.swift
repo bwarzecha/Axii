@@ -229,10 +229,25 @@ final class DictationOrchestrationTests: XCTestCase {
         fakePaste.outcomeToReturn = .pasted
 
         let feature = makeFeatureInRecordingState()
+
+        // Set a non-nil focusSnapshot so the assertion is meaningful
+        feature.state.focusSnapshot = FocusSnapshot(
+            appPID: 12345,
+            elementSignature: FocusSnapshot.ElementSignature(
+                role: "AXTextField", subrole: nil, identifier: nil, windowNumber: nil
+            ),
+            selectionSignature: nil,
+            appName: "TestApp",
+            windowTitle: "Test Window",
+            surroundingText: nil
+        )
+        XCTAssertNotNil(feature.state.focusSnapshot, "Precondition: snapshot is set")
+
         feature.stopSimpleRecording()
 
         try await waitUntil { feature.state.phase == .done }
 
-        XCTAssertNil(feature.state.focusSnapshot)
+        XCTAssertNil(feature.state.focusSnapshot,
+                      "focusSnapshot must be cleared by the adapter after processing")
     }
 }
