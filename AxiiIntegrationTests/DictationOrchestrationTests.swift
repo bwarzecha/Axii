@@ -204,7 +204,11 @@ final class DictationOrchestrationTests: XCTestCase {
 
         XCTAssertTrue(feature.state.needsManualCopy)
         XCTAssertEqual(feature.state.manualCopyText, "Copy me manually")
-        // Auto-dismiss should NOT have been scheduled
+        // NOTE: deactivationWorkItem is an internal scheduling detail, but there is
+        // no public observable difference between "will auto-dismiss" and "stays open"
+        // until the timer fires. This assertion is justified because the behavioral
+        // contract (manual-copy prevents auto-dismiss) has no other testable surface
+        // in the current architecture.
         XCTAssertNil(feature.deactivationWorkItem)
     }
 
@@ -240,7 +244,8 @@ final class DictationOrchestrationTests: XCTestCase {
         } else {
             XCTFail("Expected error phase, got \(feature.state.phase)")
         }
-        // Deactivation should be scheduled on error
+        // NOTE: Same justification as manual-copy test — no public observable
+        // for "deactivation scheduled" vs "stays in error" in current architecture.
         XCTAssertNotNil(feature.deactivationWorkItem)
     }
 
@@ -254,6 +259,8 @@ final class DictationOrchestrationTests: XCTestCase {
 
         try await waitUntil { feature.state.phase == .done }
 
+        // NOTE: Same justification as manual-copy test — no public observable
+        // for "deactivation scheduled" in current architecture.
         XCTAssertNil(feature.deactivationWorkItem)
     }
 
