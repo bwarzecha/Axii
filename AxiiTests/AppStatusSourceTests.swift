@@ -157,38 +157,4 @@ final class AppStatusSourceTests: XCTestCase {
         XCTAssertEqual(source.appStatus, .ready)
     }
 
-    // MARK: - onPhaseChanged callback wiring
-
-    /// Verifies that ModeRuntimeState.onPhaseChanged propagates phase changes
-    /// to AppStatusSource — the same pattern FeatureManager uses.
-    func testPhaseChangedCallback_PropagatesUpdates() {
-        let state = ModeRuntimeState()
-        state.onPhaseChanged = { [weak source] phase in
-            source?.update(phase: phase)
-        }
-
-        // Simulate activation
-        source.update(phase: state.phase)
-        XCTAssertEqual(source.appStatus, .ready)
-
-        // Runtime changes phase
-        state.phase = .recording
-        XCTAssertEqual(source.appStatus, .recording)
-
-        state.phase = .transcribing
-        XCTAssertEqual(source.appStatus, .processing)
-
-        state.phase = .done
-        XCTAssertEqual(source.appStatus, .ready)
-
-        // Simulate deactivation
-        state.onPhaseChanged = nil
-        source.deactivate()
-        XCTAssertEqual(source.appStatus, .ready)
-
-        // Further phase changes on the state should NOT affect source
-        state.phase = .error("disconnected")
-        XCTAssertEqual(source.appStatus, .ready,
-                        "After disconnecting callback, phase changes should not propagate")
-    }
 }

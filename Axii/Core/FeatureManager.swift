@@ -66,10 +66,10 @@ final class FeatureManager {
 
     // MARK: - Feature Lifecycle
 
-    private func activateFeature(_ feature: any Feature) {
-        // Clear previous phase observation
-        disconnectPhaseObservation()
+    /// Incremented on each activation to invalidate stale observation callbacks.
+    private var observationGeneration: Int = 0
 
+    private func activateFeature(_ feature: any Feature) {
         // Cancel current feature if different
         if let current = activeFeature, current !== feature {
             current.cancel()
@@ -77,13 +77,11 @@ final class FeatureManager {
 
         activeFeature = feature
 
-        // Wire phase observation for the active mode's runtime state
+        // Start phase observation for the active mode's runtime state
         if let modeFeature = feature as? ModeFeature {
-            let state = modeFeature.state
-            statusSource.update(phase: state.phase)
-            state.onPhaseChanged = { [weak self] phase in
-                self?.statusSource.update(phase: phase)
-            }
+            statusSource.update(phase: modeFeature.state.phase)
+            observationGeneration += 1
+            observePhase(of: modeFeature.state, generation: observationGeneration)
         }
 
         // Update panel with feature's content
@@ -97,16 +95,25 @@ final class FeatureManager {
     }
 
     private func deactivateCurrentFeature() {
-        disconnectPhaseObservation()
+        observationGeneration += 1 // Invalidate any pending observation callback
         activeFeature = nil
         statusSource.deactivate()
         panelController?.hide()
         hotkeyService.unregister(.escape)
     }
 
-    private func disconnectPhaseObservation() {
-        if let modeFeature = activeFeature as? ModeFeature {
-            modeFeature.state.onPhaseChanged = nil
+    /// Self-re-arming observation of ModeRuntimeState.phase using withObservationTracking.
+    /// The generation parameter ensures stale callbacks are discarded after deactivation
+    /// or feature switch.
+    private func observePhase(of state: ModeRuntimeState, generation: Int) {
+        withObservationTracking {
+            _ = state.phase
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.observationGeneration == generation else { return }
+                self.statusSource.update(phase: state.phase)
+                self.observePhase(of: state, generation: generation)
+            }
         }
     }
 

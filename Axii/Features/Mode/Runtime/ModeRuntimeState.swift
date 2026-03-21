@@ -12,14 +12,7 @@ import SwiftUI
 @MainActor @Observable
 final class ModeRuntimeState {
     // Phase
-    var phase: ModePhase = .idle {
-        didSet { onPhaseChanged?(phase) }
-    }
-
-    /// Optional callback fired when phase changes. Used by FeatureManager
-    /// to keep AppStatusSource in sync with the active mode's phase.
-    @ObservationIgnored
-    var onPhaseChanged: ((ModePhase) -> Void)?
+    var phase: ModePhase = .idle
 
     // Audio visualization
     var audioLevel: Float = 0
