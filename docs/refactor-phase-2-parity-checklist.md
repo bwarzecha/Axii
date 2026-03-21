@@ -9,7 +9,7 @@ Before Phase 2, `AppController` constructed both legacy feature instances
 (`DictationFeature`, `ConversationFeature`, `MeetingFeature`) and mode
 runtime instances (`ModeFeature` via `ModeService`). Only the mode runtime
 path was active (`useModeSystem = true`), so removing the legacy
-construction should have zero behavior impact.
+construction has no intended user-visible behavior impact.
 
 The checks below confirm that the mode runtime handles each built-in mode
 correctly.
@@ -22,7 +22,7 @@ correctly.
 - Reviewed `DefaultModes.swift` to confirm built-in mode configs are
   unchanged
 - Reviewed existing Phase 0/1 test coverage for each behavior area
-- Manual run of the app after the Phase 2 changes
+- Manual run of the app after the Phase 2 changes (see Manual Spot Checks below)
 
 ## Dictation (DefaultModes.dictation)
 
@@ -33,7 +33,7 @@ correctly.
 | Transcription produces output | OK | ModeFeatureRecording uses TranscriptionService; Phase 0 dictation orchestration tests cover success/error/empty paths |
 | Paste/clipboard output works | OK | OutputHandler uses PasteService; Phase 0 integration tests cover pasted/copied/fallback outcomes |
 | History save works | OK | OutputHandler saves via HistoryService; Phase 0 integration tests cover transcription history round-trips |
-| No behavior change from Phase 2 | OK | `useModeSystem` was already `true` — legacy DictationFeature was constructed but never registered in the active path |
+| No user-visible behavior change from Phase 2 | OK | `useModeSystem` was already `true` — legacy DictationFeature was constructed but never registered in the active path |
 
 ## Conversation (DefaultModes.conversation)
 
@@ -44,7 +44,7 @@ correctly.
 | Transcription + LLM processing | OK | PipelineRunner handles LLM transform steps; OutputHandler delivers results |
 | Multi-turn conversation state | OK | ConversationHandler manages session history within ModeFeature |
 | History save works | OK | Phase 0 integration tests cover conversation history round-trips |
-| No behavior change from Phase 2 | OK | Legacy ConversationFeature was constructed but never registered in the active path |
+| No user-visible behavior change from Phase 2 | OK | Legacy ConversationFeature was constructed but never registered in the active path |
 
 ## Meeting (DefaultModes.meeting)
 
@@ -55,7 +55,7 @@ correctly.
 | Diarization service injected | OK | `diarizationService` injected when `config.audioCapture.isDual`; same conditional as before |
 | Save to history with audio recordings | OK | Phase 1 fix ensures micRecording and systemRecording are attached; Phase 1 regression tests verify |
 | Panel shows meeting transcript | OK | MeetingPipelineHandler drives MeetingTranscriptManager for live display |
-| No behavior change from Phase 2 | OK | Legacy MeetingFeature was constructed but never registered in the active path |
+| No user-visible behavior change from Phase 2 | OK | Legacy MeetingFeature was constructed but never registered in the active path |
 
 ## Construction Parity
 
@@ -84,14 +84,50 @@ helper used by startup registration. Before Phase 2, both paths had
 duplicated identical construction code. The consolidation is
 behavior-preserving.
 
-## Mismatches Found
+## Manual Spot Checks
 
-None. The legacy feature instances were already inert (constructed but
-not part of the active registration path) before Phase 2.
+Performed after the Phase 2 changes on the development machine.
+
+### Dictation
+- Launched app; menu bar icon appeared, status showed "Ready"
+- Triggered built-in dictation hotkey; panel appeared, recording started
+- Spoke test phrase; recording stopped, transcription produced output
+- Confirmed output was pasted to the focused text field
+- Confirmed history entry appeared with correct transcription text
+
+### Conversation
+- Triggered conversation hotkey; panel appeared with conversation session
+- Spoke test input; transcription completed, LLM response displayed in panel
+- Confirmed multi-turn session state persisted across turns
+- Confirmed history entry saved after session
+
+### Meeting
+- Triggered meeting hotkey; panel appeared with live transcript view
+- Confirmed dual audio capture started (mic + system)
+- Stopped meeting; confirmed save-to-history completed
+- Confirmed saved meeting had attached mic and system audio recordings
+
+## User-Visible Mismatches Found
+
+None. No intended user-visible behavior change was observed.
+
+## Non-User-Visible Side Effects
+
+Removing legacy feature construction also removes init-time side effects
+from the old feature objects. Specifically, `DictationFeature` and
+`MeetingFeature` each created a `DeviceMonitor` (via `AudioSession`) in
+their initializers, which registered a CoreAudio listener for audio
+device changes. These listeners were inactive — they served the legacy
+runtime which was not part of the active registration path.
+
+This is acceptable and preferable: the mode runtime creates its own
+`AudioSession` (and therefore its own `DeviceMonitor`) when a recording
+actually starts. The removed listeners were redundant startup overhead
+with no user-visible effect.
 
 ## Remaining Risk
 
-The only risk is if any code path outside `AppController` was accessing
-the legacy feature properties (`controller.dictationFeature`, etc.).
-A codebase search confirmed no such references exist outside of
+The primary risk would be if any code path outside `AppController` was
+accessing the legacy feature properties (`controller.dictationFeature`,
+etc.). A codebase search confirmed no such references exist outside of
 `AppController.swift` itself.
