@@ -168,6 +168,124 @@ final class HistoryServiceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: folderURL.path))
     }
 
+    // MARK: - Compressed Audio Tests
+
+    /// Generate a synthetic sine-wave audio buffer for testing compressed audio.
+    /// AAC encoders need varying samples (constant buffers can fail).
+    private func syntheticSamples(count: Int, sampleRate: Double = 44100) -> [Float] {
+        (0..<count).map { i in
+            Float(sin(Double(i) * 2.0 * .pi * 440.0 / sampleRate) * 0.5)
+        }
+    }
+
+    func testSaveAudioCompressedCreatesM4AFile() async throws {
+        let transcription = Transcription(text: "Compressed audio test")
+        try await historyService.save(.transcription(transcription))
+
+        let sampleRate: Double = 44100
+        let samples = syntheticSamples(count: Int(sampleRate), sampleRate: sampleRate)
+        let recording = try await historyService.saveAudioCompressed(
+            samples: samples,
+            sampleRate: sampleRate,
+            format: .aac,
+            for: transcription.id
+        )
+
+        XCTAssertEqual(recording.duration, 1.0, accuracy: 0.01)
+        XCTAssertEqual(recording.sampleRate, sampleRate)
+        XCTAssertTrue(recording.filename.hasSuffix(".m4a"), "AAC should use .m4a extension")
+
+        let audioURL = historyService.getAudioURL(recording, for: transcription.id)
+        XCTAssertNotNil(audioURL)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: audioURL!.path),
+            "Compressed audio file should exist on disk"
+        )
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: audioURL!.path)
+        let fileSize = attrs[.size] as? Int ?? 0
+        XCTAssertGreaterThan(fileSize, 0, "Audio file should have content")
+    }
+
+    func testSaveAudioCompressedALACCreatesM4AFile() async throws {
+        let transcription = Transcription(text: "ALAC audio test")
+        try await historyService.save(.transcription(transcription))
+
+        let samples = syntheticSamples(count: 16000, sampleRate: 16000)
+        let recording = try await historyService.saveAudioCompressed(
+            samples: samples,
+            sampleRate: 16000,
+            format: .alac,
+            for: transcription.id
+        )
+
+        XCTAssertTrue(recording.filename.hasSuffix(".m4a"), "ALAC should also use .m4a extension")
+
+        let audioURL = historyService.getAudioURL(recording, for: transcription.id)
+        XCTAssertNotNil(audioURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL!.path))
+    }
+
+    func testSaveCompressedAudioThenReloadTranscriptionWithRecording() async throws {
+        // Mirrors the real OutputHandler.saveTranscriptionHistory flow
+        let text = "Full output handler flow test"
+        let transcription = Transcription(text: text)
+        try await historyService.save(.transcription(transcription))
+
+        let sampleRate: Double = 44100
+        let samples = syntheticSamples(count: Int(sampleRate), sampleRate: sampleRate)
+        let audioRecording = try await historyService.saveAudioCompressed(
+            samples: samples,
+            sampleRate: sampleRate,
+            format: .aac,
+            for: transcription.id
+        )
+
+        let updated = Transcription(
+            id: transcription.id,
+            text: text,
+            audioRecording: audioRecording,
+            createdAt: transcription.createdAt
+        )
+        try await historyService.save(.transcription(updated))
+
+        let loaded = try await historyService.loadInteraction(id: transcription.id)
+        guard case .transcription(let t) = loaded else {
+            XCTFail("Expected transcription")
+            return
+        }
+        XCTAssertNotNil(t.audioRecording)
+        XCTAssertEqual(t.audioRecording?.sampleRate, sampleRate)
+        XCTAssertTrue(t.audioRecording?.filename.hasSuffix(".m4a") == true)
+    }
+
+    func testMeetingCompressedAudioRoundTrip() async throws {
+        let meeting = Meeting(
+            segments: [
+                MeetingSegment(text: "Hello", speakerId: "You", isFromMicrophone: true, startTime: 0, endTime: 5),
+            ],
+            duration: 30.0,
+            appName: "Zoom"
+        )
+        try await historyService.save(.meeting(meeting))
+
+        let sampleRate: Double = 44100
+        let micSamples = syntheticSamples(count: Int(sampleRate), sampleRate: sampleRate)
+        let sysSamples = syntheticSamples(count: Int(sampleRate), sampleRate: sampleRate)
+        let micRecording = try await historyService.saveAudioCompressed(
+            samples: micSamples, sampleRate: sampleRate, format: .aac, for: meeting.id
+        )
+        let sysRecording = try await historyService.saveAudioCompressed(
+            samples: sysSamples, sampleRate: sampleRate, format: .aac, for: meeting.id
+        )
+
+        XCTAssertNotEqual(micRecording.filename, sysRecording.filename)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: historyService.getAudioURL(micRecording, for: meeting.id)!.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: historyService.getAudioURL(sysRecording, for: meeting.id)!.path))
+    }
+
+    // MARK: - Sorting Tests
+
     func testListMetadataSortsNewestFirst() async throws {
         let date1 = Date(timeIntervalSince1970: 1_000_000)
         let date2 = Date(timeIntervalSince1970: 2_000_000)
