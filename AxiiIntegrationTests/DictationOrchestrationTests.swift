@@ -2,9 +2,13 @@
 //  DictationOrchestrationTests.swift
 //  AxiiIntegrationTests
 //
-//  Integration tests for ModeFeature.stopSimpleRecording() orchestration.
-//  Uses fake TranscriptionProviding and PasteProviding to verify state
-//  transitions and output effects without hardware dependencies.
+//  Adapter-level integration tests for ModeFeature single-shot wiring.
+//  These verify that the runtime adapter correctly delegates to the
+//  processor and handles adapter-owned concerns (guard, cleanup, media).
+//
+//  The primary single-shot behavior matrix (success, empty, copy fallback,
+//  manual copy, errors, dismiss decisions) lives in
+//  SingleShotModeTurnProcessorTests, not here.
 //
 
 import XCTest
@@ -165,9 +169,10 @@ final class DictationOrchestrationTests: XCTestCase {
         return feature
     }
 
-    // MARK: - Test Cases
+    // MARK: - Adapter Wiring Tests
 
-    func testSuccessfulTranscriptionPastesAndReachesDone() async throws {
+    /// Verify the adapter delegates to the processor and reaches done.
+    func testAdapterDelegatesToProcessorAndReachesDone() async throws {
         await fakeTranscriber.setTextToReturn("Hello world")
         fakePaste.outcomeToReturn = .pasted
 
@@ -177,93 +182,9 @@ final class DictationOrchestrationTests: XCTestCase {
         try await waitUntil { feature.state.phase == .done }
 
         XCTAssertEqual(feature.state.finalText, "Hello world")
-        XCTAssertFalse(feature.state.needsManualCopy)
-        XCTAssertEqual(fakePaste.lastPastedText, "Hello world")
     }
 
-    func testEmptyTranscriptionShowsNoSpeechDetected() async throws {
-        await fakeTranscriber.setTextToReturn("")
-
-        let feature = makeFeatureInRecordingState()
-        feature.stopSimpleRecording()
-
-        try await waitUntil { feature.state.phase == .done }
-
-        XCTAssertEqual(feature.state.finalText, "No speech detected")
-        XCTAssertNil(fakePaste.lastPastedText)
-    }
-
-    func testNeedsManualCopyPreventsAutoDismiss() async throws {
-        await fakeTranscriber.setTextToReturn("Copy me manually")
-        fakePaste.outcomeToReturn = .needsManualCopy(reason: "No AX access")
-
-        let feature = makeFeatureInRecordingState()
-        feature.stopSimpleRecording()
-
-        try await waitUntil { feature.state.phase == .done }
-
-        XCTAssertTrue(feature.state.needsManualCopy)
-        XCTAssertEqual(feature.state.manualCopyText, "Copy me manually")
-        // NOTE: deactivationWorkItem is an internal scheduling detail, but there is
-        // no public observable difference between "will auto-dismiss" and "stays open"
-        // until the timer fires. This assertion is justified because the behavioral
-        // contract (manual-copy prevents auto-dismiss) has no other testable surface
-        // in the current architecture.
-        XCTAssertNil(feature.deactivationWorkItem)
-    }
-
-    func testCopiedFallbackSetsExpectedStateText() async throws {
-        await fakeTranscriber.setTextToReturn("Fallback text")
-        fakePaste.outcomeToReturn = .copiedFallback(reason: "App not found")
-
-        let feature = makeFeatureInRecordingState()
-        feature.stopSimpleRecording()
-
-        try await waitUntil { feature.state.phase == .done }
-
-        XCTAssertEqual(
-            feature.state.finalText,
-            "Fallback text\n(Copied: App not found)"
-        )
-        XCTAssertFalse(feature.state.needsManualCopy)
-    }
-
-    func testTranscriptionErrorSetsErrorPhase() async throws {
-        await fakeTranscriber.setErrorToThrow(TranscriptionError.tooShort)
-
-        let feature = makeFeatureInRecordingState()
-        feature.stopSimpleRecording()
-
-        try await waitUntil {
-            if case .error = feature.state.phase { return true }
-            return false
-        }
-
-        if case .error(let msg) = feature.state.phase {
-            XCTAssertEqual(msg, "Recording too short")
-        } else {
-            XCTFail("Expected error phase, got \(feature.state.phase)")
-        }
-        // NOTE: Same justification as manual-copy test — no public observable
-        // for "deactivation scheduled" vs "stays in error" in current architecture.
-        XCTAssertNotNil(feature.deactivationWorkItem)
-    }
-
-    func testStayOpenPersistenceDoesNotScheduleDeactivation() async throws {
-        await fakeTranscriber.setTextToReturn("Keep open")
-        fakePaste.outcomeToReturn = .pasted
-
-        let config = makeDictationConfig(panelPersistence: .stayOpen)
-        let feature = makeFeatureInRecordingState(config: config)
-        feature.stopSimpleRecording()
-
-        try await waitUntil { feature.state.phase == .done }
-
-        // NOTE: Same justification as manual-copy test — no public observable
-        // for "deactivation scheduled" in current architecture.
-        XCTAssertNil(feature.deactivationWorkItem)
-    }
-
+    /// Guard: stopSimpleRecording does nothing when not recording.
     func testGuardRejectsWhenNotRecording() async throws {
         let feature = makeFeatureInRecordingState()
         feature.state.phase = .idle
@@ -276,18 +197,42 @@ final class DictationOrchestrationTests: XCTestCase {
         XCTAssertEqual(feature.state.phase, .idle)
     }
 
-    func testCopiedOnlySetsClipboardMessage() async throws {
-        await fakeTranscriber.setTextToReturn("Clipboard text")
-        fakePaste.outcomeToReturn = .copiedOnly
+    /// Verify that recording helper is cleared after stop.
+    func testRecordingHelperClearedAfterStop() async throws {
+        await fakeTranscriber.setTextToReturn("test")
+        fakePaste.outcomeToReturn = .pasted
+
+        let feature = makeFeatureInRecordingState()
+        feature.stopSimpleRecording()
+
+        // Helper should be cleared synchronously
+        XCTAssertNil(feature.recordingHelper)
+    }
+
+    /// Verify that visualization state is cleared after stop.
+    func testVisualizationStateClearedAfterStop() async throws {
+        await fakeTranscriber.setTextToReturn("test")
+        fakePaste.outcomeToReturn = .pasted
+
+        let feature = makeFeatureInRecordingState()
+        feature.state.audioLevel = 0.8
+        feature.state.isWaitingForSignal = true
+        feature.stopSimpleRecording()
+
+        XCTAssertEqual(feature.state.audioLevel, 0)
+        XCTAssertFalse(feature.state.isWaitingForSignal)
+    }
+
+    /// Verify that focusSnapshot is cleared after processing completes.
+    func testFocusSnapshotClearedAfterProcessing() async throws {
+        await fakeTranscriber.setTextToReturn("test")
+        fakePaste.outcomeToReturn = .pasted
 
         let feature = makeFeatureInRecordingState()
         feature.stopSimpleRecording()
 
         try await waitUntil { feature.state.phase == .done }
 
-        XCTAssertEqual(
-            feature.state.finalText,
-            "Clipboard text\n(Copied to clipboard)"
-        )
+        XCTAssertNil(feature.state.focusSnapshot)
     }
 }
