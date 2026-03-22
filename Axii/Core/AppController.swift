@@ -32,7 +32,6 @@ final class AppController {
     let settings: SettingsService
     let llmSettings: LLMSettingsService
     let llmService: LLMService
-    private let playbackService: AudioPlaybackService
     let historyService: HistoryService
     let modelDownloadService: ModelDownloadService
     let mediaControlService: MediaControlService
@@ -69,7 +68,6 @@ final class AppController {
         screenPermission = ScreenRecordingPermissionService()
         llmSettings = LLMSettingsService()
         llmService = LLMService(settings: llmSettings)
-        playbackService = AudioPlaybackService()
         historyService = HistoryService()
         modelDownloadService = ModelDownloadService()
         mediaControlService = MediaControlService()
