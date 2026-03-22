@@ -46,19 +46,15 @@ final class ModeFeature: Feature, ModeDismissControlling {
     )
 
     // Multi-turn post-capture processor — lazy because it captures self as dismissController.
-    // Internal setter for test injection of deterministic fakes.
-    lazy var multiTurnProcessor: MultiTurnModeTurnProcessor? = {
-        guard let llm = llmService else { return nil }
-        return MultiTurnModeTurnProcessor(
-            transcriber: transcriptionService,
-            responder: llm,
-            sessionStore: ConversationSessionStore(historyService: historyService),
-            dismissController: self
-        )
+    // Built via multiTurnProcessorFactory so tests can inject a deterministic factory
+    // without widening the processor property's setter.
+    private(set) lazy var multiTurnProcessor: MultiTurnModeTurnProcessor? = {
+        multiTurnProcessorFactory(self)
     }()
 
-    /// Whether this mode uses multi-turn conversation execution.
-    let hasMultiTurnLLM: Bool
+    /// Factory for constructing the multi-turn processor. Tests can supply a
+    /// custom factory at init time to inject deterministic fakes.
+    private let multiTurnProcessorFactory: @MainActor (ModeFeature) -> MultiTurnModeTurnProcessor?
 
     var deviceUIDKey: String { "mode_\(config.id)_selectedMic" }
     var selectedDeviceUID: String? {
@@ -77,7 +73,8 @@ final class ModeFeature: Feature, ModeDismissControlling {
         historyService: HistoryService,
         mediaControlService: MediaControlService,
         llmService: LLMService? = nil,
-        diarizationService: DiarizationService? = nil
+        diarizationService: DiarizationService? = nil,
+        multiTurnProcessorFactory: (@MainActor (ModeFeature) -> MultiTurnModeTurnProcessor?)? = nil
     ) {
         self.config = config
         self.state = ModeRuntimeState()
@@ -98,9 +95,16 @@ final class ModeFeature: Feature, ModeDismissControlling {
             llmService: llmService,
             diarizationService: diarizationService
         )
-        self.hasMultiTurnLLM = config.processing.contains { step in
-            if case .llmTransform(let cfg) = step { return cfg.multiTurn }
-            return false
+
+        // Use provided factory or default: build from llmService if available
+        self.multiTurnProcessorFactory = multiTurnProcessorFactory ?? { feature in
+            guard let llm = feature.llmService else { return nil }
+            return MultiTurnModeTurnProcessor(
+                transcriber: feature.transcriptionService,
+                responder: llm,
+                sessionStore: ConversationSessionStore(historyService: feature.historyService),
+                dismissController: feature
+            )
         }
 
         if config.audioCapture.isDual,
@@ -172,9 +176,13 @@ final class ModeFeature: Feature, ModeDismissControlling {
     }
 
     func cancel() {
+        teardownRuntime()
+    }
+
+    /// Shared teardown for cancel and cancelAndDeactivate.
+    private func teardownRuntime() {
         cancelScheduledDismiss()
-        recordingHelper?.cancel()
-        recordingHelper = nil
+        recordingHelper?.cancel(); recordingHelper = nil
         meetingHandler?.cancel()
         state.clearConversationSession()
         state.reset()
@@ -301,12 +309,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
     // MARK: - Helpers
 
     func cancelAndDeactivate() {
-        cancelScheduledDismiss()
-        recordingHelper?.cancel(); recordingHelper = nil
-        meetingHandler?.cancel()
-        state.clearConversationSession()
-        state.reset(); isActive = false
-        mediaControlService.resetState()
+        teardownRuntime()
         context?.onDeactivate?()
     }
 

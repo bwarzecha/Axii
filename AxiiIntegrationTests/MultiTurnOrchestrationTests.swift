@@ -130,12 +130,15 @@ final class MultiTurnOrchestrationTests: XCTestCase {
     }
 
     /// Build a ModeFeature for multi-turn testing in recording state.
-    /// Injects a deterministic multi-turn processor with fake collaborators
-    /// so tests do not depend on real LLM provider configuration.
+    /// Uses the multiTurnProcessorFactory seam to inject deterministic
+    /// fakes so tests do not depend on real LLM provider configuration.
     private func makeFeatureInRecordingState(
         config: ModeConfig? = nil
     ) -> ModeFeature {
         let cfg = config ?? makeConversationConfig()
+        let transcriber = fakeTranscriber!
+        let responder = fakeResponder!
+        let store = fakeStore!
         let feature = ModeFeature(
             config: cfg,
             transcriptionService: fakeTranscriber,
@@ -144,15 +147,15 @@ final class MultiTurnOrchestrationTests: XCTestCase {
             clipboardService: clipboardService,
             settings: settings,
             historyService: historyService,
-            mediaControlService: mediaControlService
-        )
-
-        // Inject deterministic processor — no real LLM dependency
-        feature.multiTurnProcessor = MultiTurnModeTurnProcessor(
-            transcriber: fakeTranscriber,
-            responder: fakeResponder,
-            sessionStore: fakeStore,
-            dismissController: feature
+            mediaControlService: mediaControlService,
+            multiTurnProcessorFactory: { feature in
+                MultiTurnModeTurnProcessor(
+                    transcriber: transcriber,
+                    responder: responder,
+                    sessionStore: store,
+                    dismissController: feature
+                )
+            }
         )
 
         feature.state.phase = .recording
@@ -179,12 +182,12 @@ final class MultiTurnOrchestrationTests: XCTestCase {
     }
 
     /// Guard: stopAndProcessMultiTurn does nothing when not recording.
+    /// The guard is synchronous — no async wait needed after the call.
     func testGuardRejectsWhenNotRecording() async throws {
         let feature = makeFeatureInRecordingState()
         feature.state.phase = .idle
         feature.stopAndProcessMultiTurn()
 
-        try await Task.sleep(for: .milliseconds(50))
         XCTAssertEqual(feature.state.phase, .idle)
     }
 
