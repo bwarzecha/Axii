@@ -186,8 +186,9 @@ final class SingleShotModeTurnProcessorTests: XCTestCase {
 
         // Capture the phase during pipeline execution
         var phaseDuringPipelineRun: ModePhase?
-        pipeline.onRun = { [state] in
-            phaseDuringPipelineRun = state!.phase
+        let observedState = self.state
+        pipeline.onRun = {
+            phaseDuringPipelineRun = observedState?.phase
         }
 
         await processor.process(

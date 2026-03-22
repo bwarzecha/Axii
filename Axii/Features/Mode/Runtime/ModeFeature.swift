@@ -37,8 +37,13 @@ final class ModeFeature: Feature, ModeDismissControlling {
     var meetingHandler: MeetingPipelineHandler?
     let pipelineRunner: PipelineRunner
 
-    // Single-shot post-capture processor (created in init after pipelineRunner/outputHandler)
-    var singleShotProcessor: SingleShotModeTurnProcessor!
+    // Single-shot post-capture processor — lazy because it captures self as dismissController.
+    private(set) lazy var singleShotProcessor = SingleShotModeTurnProcessor(
+        transcriber: transcriptionService,
+        pipeline: pipelineRunner,
+        output: outputHandler,
+        dismissController: self
+    )
 
     var deviceUIDKey: String { "mode_\(config.id)_selectedMic" }
     var selectedDeviceUID: String? {
@@ -100,13 +105,6 @@ final class ModeFeature: Feature, ModeDismissControlling {
             )
         }
 
-        // Single-shot processor for post-capture turn execution
-        self.singleShotProcessor = SingleShotModeTurnProcessor(
-            transcriber: transcriptionService,
-            pipeline: pipelineRunner,
-            output: outputHandler,
-            dismissController: self
-        )
     }
 
     // MARK: - Feature Protocol

@@ -230,12 +230,13 @@ final class OutputHandlerPasteOutcomeTests: XCTestCase {
     private var fakePaste: FakePasteProvider!
     private var outputHandler: OutputHandler!
     private var settings: SettingsService!
+    private var tempDir: URL!
 
     override func setUp() {
         fakePaste = FakePasteProvider()
         let defaults = UserDefaults(suiteName: "test-\(UUID().uuidString)")!
         settings = SettingsService(defaults: defaults)
-        let tempDir = FileManager.default.temporaryDirectory
+        tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("AxiiPasteTests-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
@@ -248,7 +249,11 @@ final class OutputHandlerPasteOutcomeTests: XCTestCase {
     }
 
     override func tearDown() {
+        if let tempDir, FileManager.default.fileExists(atPath: tempDir.path) {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
         outputHandler = nil
+        tempDir = nil
         settings = nil
         fakePaste = nil
     }
