@@ -73,7 +73,7 @@ final class SingleShotModeTurnProcessor {
                 focusSnapshot: capture.focusSnapshot
             )
 
-            // Filter out multi-turn LLM steps — those use ConversationHandler
+            // Filter out multi-turn LLM steps — those use MultiTurnModeTurnProcessor
             let pipelineSteps = config.processing.filter {
                 if case .llmTransform(let cfg) = $0 { return !cfg.multiTurn }
                 return true

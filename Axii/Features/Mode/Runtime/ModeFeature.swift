@@ -33,9 +33,9 @@ final class ModeFeature: Feature, ModeDismissControlling {
     private let deviceMonitor = DeviceMonitor()
 
     // Pipeline handlers (created based on config)
-    var conversationHandler: ConversationHandler?
     var meetingHandler: MeetingPipelineHandler?
     let pipelineRunner: PipelineRunner
+    private let llmService: LLMService?
 
     // Single-shot post-capture processor — lazy because it captures self as dismissController.
     private(set) lazy var singleShotProcessor = SingleShotModeTurnProcessor(
@@ -44,6 +44,20 @@ final class ModeFeature: Feature, ModeDismissControlling {
         output: outputHandler,
         dismissController: self
     )
+
+    // Multi-turn post-capture processor — lazy because it captures self as dismissController.
+    private(set) lazy var multiTurnProcessor: MultiTurnModeTurnProcessor? = {
+        guard let llm = llmService else { return nil }
+        return MultiTurnModeTurnProcessor(
+            transcriber: transcriptionService,
+            responder: llm,
+            sessionStore: ConversationSessionStore(historyService: historyService),
+            dismissController: self
+        )
+    }()
+
+    /// Whether this mode uses multi-turn conversation execution.
+    let hasMultiTurnLLM: Bool
 
     var deviceUIDKey: String { "mode_\(config.id)_selectedMic" }
     var selectedDeviceUID: String? {
@@ -62,7 +76,6 @@ final class ModeFeature: Feature, ModeDismissControlling {
         historyService: HistoryService,
         mediaControlService: MediaControlService,
         llmService: LLMService? = nil,
-        playbackService: AudioPlaybackService? = nil,
         diarizationService: DiarizationService? = nil
     ) {
         self.config = config
@@ -73,6 +86,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
         self.settings = settings
         self.mediaControlService = mediaControlService
         self.historyService = historyService
+        self.llmService = llmService
         self.outputHandler = OutputHandler(
             pasteService: pasteService,
             clipboardService: clipboardService,
@@ -83,19 +97,11 @@ final class ModeFeature: Feature, ModeDismissControlling {
             llmService: llmService,
             diarizationService: diarizationService
         )
-
-        // Create handlers based on config shape (not explicit session type)
-        let hasMultiTurnLLM = config.processing.contains { step in
+        self.hasMultiTurnLLM = config.processing.contains { step in
             if case .llmTransform(let cfg) = step { return cfg.multiTurn }
             return false
         }
-        if hasMultiTurnLLM,
-           let llm = llmService, let playback = playbackService {
-            self.conversationHandler = ConversationHandler(
-                state: state, llmService: llm,
-                playbackService: playback, historyService: historyService
-            )
-        }
+
         if config.audioCapture.isDual,
            let screen = screenPermission {
             self.meetingHandler = MeetingPipelineHandler(
@@ -104,7 +110,6 @@ final class ModeFeature: Feature, ModeDismissControlling {
                 micPermission: micPermission, settings: settings
             )
         }
-
     }
 
     // MARK: - Feature Protocol
@@ -170,7 +175,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
         recordingHelper?.cancel()
         recordingHelper = nil
         meetingHandler?.cancel()
-        conversationHandler?.clearSession()
+        state.clearConversationSession()
         state.reset()
         isActive = false
         mediaControlService.resetState()
@@ -241,7 +246,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
     private func handleHotkey() {
         if meetingHandler != nil {
             handleLongRunningHotkey()
-        } else if conversationHandler != nil {
+        } else if hasMultiTurnLLM {
             handleMultiTurnHotkey()
         } else {
             handleSingleShotHotkey()
@@ -298,7 +303,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
         cancelScheduledDismiss()
         recordingHelper?.cancel(); recordingHelper = nil
         meetingHandler?.cancel()
-        conversationHandler?.clearSession()
+        state.clearConversationSession()
         state.reset(); isActive = false
         mediaControlService.resetState()
         context?.onDeactivate?()

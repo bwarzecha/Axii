@@ -108,7 +108,6 @@ final class AppController {
             historyService: historyService,
             mediaControlService: mediaControlService,
             llmService: llmService,
-            playbackService: playbackService,
             diarizationService: config.audioCapture.isDual ? diarizationService : nil
         )
     }

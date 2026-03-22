@@ -75,33 +75,20 @@ extension ModeFeature {
         recordingHelper = nil
         state.audioLevel = 0; state.isWaitingForSignal = false; state.phase = .processing
 
+        let capture = CompletedCapture(
+            samples: samples, sampleRate: sampleRate, focusSnapshot: nil
+        )
+        let llmConfig = config.processing.compactMap { step -> LLMTransformConfig? in
+            if case .llmTransform(let cfg) = step { return cfg }
+            return nil
+        }.first ?? LLMTransformConfig(multiTurn: true)
+
+        let turnConfig = MultiTurnTurnConfig(llmTransform: llmConfig)
+
         Task {
-            do {
-                let text = try await transcriptionService.transcribe(samples: samples, sampleRate: sampleRate)
-                guard !text.isEmpty else {
-                    state.phase = .done
-                    scheduleDismiss(after: 2.0)
-                    return
-                }
-                state.liveTranscript = text
-
-                let llmConfig = config.processing.compactMap { step -> LLMTransformConfig? in
-                    if case .llmTransform(let cfg) = step { return cfg }
-                    return nil
-                }.first
-
-                if let llmConfig, let handler = conversationHandler {
-                    let response = try await handler.processTranscription(text, config: llmConfig)
-                    state.finalText = response
-                } else {
-                    state.messages.append(DisplayMessage(role: .user, content: text))
-                    state.finalText = text
-                }
-                state.phase = .done
-            } catch {
-                let msg = (error as? LocalizedError)?.errorDescription ?? "Processing failed"
-                state.phase = .error(msg)
-            }
+            await multiTurnProcessor?.process(
+                capture: capture, config: turnConfig, state: state
+            )
         }
     }
 

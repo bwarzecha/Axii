@@ -52,6 +52,15 @@ final class ModeRuntimeState {
     var manualCopyText: String = ""
     var focusSnapshot: FocusSnapshot? = nil
 
+    /// Clear conversation session state. Called by the runtime shell
+    /// on cancel/deactivate — not by the turn processor or session store.
+    func clearConversationSession() {
+        messages.removeAll()
+        currentSessionId = nil
+        liveTranscript = ""
+        finalText = ""
+    }
+
     func reset() {
         phase = .idle
         audioLevel = 0
@@ -59,6 +68,8 @@ final class ModeRuntimeState {
         isWaitingForSignal = false
         liveTranscript = ""
         finalText = ""
+        messages = []
+        currentSessionId = nil
         segments = []
         duration = 0
         processingProgress = 0
