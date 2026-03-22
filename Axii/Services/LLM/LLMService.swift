@@ -74,7 +74,11 @@ final class LLMService {
     }
 }
 
-extension LLMService: ConversationResponding {}
+extension LLMService: ConversationResponding {
+    func send(message: String) async throws -> String {
+        try await send(message: message, systemPrompt: nil)
+    }
+}
 
 enum LLMServiceError: LocalizedError {
     case providerNotImplemented(LLMProvider)
