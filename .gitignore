@@ -6,6 +6,8 @@ docs/*
 !docs/refactor-phase-2-parity-checklist.md
 !docs/refactor-phase-3a-design.md
 !docs/refactor-phase-3a-brief.md
+!docs/refactor-phase-3b-design.md
+!docs/refactor-phase-3b-brief.md
 
 # macOS
 .DS_Store

@@ -1013,6 +1013,9 @@ The current repo is not ready to start with hardware-heavy E2E as the first engi
   - output execution
   - scheduling/deactivation
   - conversation/history persistence where needed
+- Phase 3A uses the single-shot processor family
+- Phase 3B uses the multi-turn processor family and a narrow persisted-session
+  collaborator
 
 ### Acceptance criteria
 

@@ -667,10 +667,12 @@ Success condition:
 Authoritative execution brief:
 
 - [docs/refactor-phase-3a-brief.md](/Users/bartosz/dev/Axii/docs/refactor-phase-3a-brief.md)
+- [docs/refactor-phase-3b-brief.md](/Users/bartosz/dev/Axii/docs/refactor-phase-3b-brief.md)
 
 Architectural design reference:
 
 - [docs/refactor-phase-3a-design.md](/Users/bartosz/dev/Axii/docs/refactor-phase-3a-design.md)
+- [docs/refactor-phase-3b-design.md](/Users/bartosz/dev/Axii/docs/refactor-phase-3b-design.md)
 
 ## Goal
 
