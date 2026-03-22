@@ -35,7 +35,6 @@ final class ModeFeature: Feature, ModeDismissControlling {
     // Pipeline handlers (created based on config)
     var meetingHandler: MeetingPipelineHandler?
     let pipelineRunner: PipelineRunner
-    private let llmService: LLMService?
 
     // Single-shot post-capture processor — lazy because it captures self as dismissController.
     private(set) lazy var singleShotProcessor = SingleShotModeTurnProcessor(
@@ -45,16 +44,23 @@ final class ModeFeature: Feature, ModeDismissControlling {
         dismissController: self
     )
 
-    // Multi-turn post-capture processor — lazy because it captures self as dismissController.
-    // Built via multiTurnProcessorFactory so tests can inject a deterministic factory
-    // without widening the processor property's setter.
-    private(set) lazy var multiTurnProcessor: MultiTurnModeTurnProcessor? = {
-        multiTurnProcessorFactory(self)
-    }()
+    // Multi-turn collaborators — injected at init for testability.
+    // Production uses LLMService/ConversationSessionStore; tests inject fakes.
+    private let conversationResponder: (any ConversationResponding)?
+    private let conversationSessionStore: (any ConversationSessionStoring)?
 
-    /// Factory for constructing the multi-turn processor. Tests can supply a
-    /// custom factory at init time to inject deterministic fakes.
-    private let multiTurnProcessorFactory: @MainActor (ModeFeature) -> MultiTurnModeTurnProcessor?
+    // Multi-turn post-capture processor — lazy because it captures self as dismissController.
+    // Built from the injected collaborators; nil when no responder is available.
+    private(set) lazy var multiTurnProcessor: MultiTurnModeTurnProcessor? = {
+        guard let responder = conversationResponder else { return nil }
+        guard let store = conversationSessionStore else { return nil }
+        return MultiTurnModeTurnProcessor(
+            transcriber: transcriptionService,
+            responder: responder,
+            sessionStore: store,
+            dismissController: self
+        )
+    }()
 
     var deviceUIDKey: String { "mode_\(config.id)_selectedMic" }
     var selectedDeviceUID: String? {
@@ -74,7 +80,8 @@ final class ModeFeature: Feature, ModeDismissControlling {
         mediaControlService: MediaControlService,
         llmService: LLMService? = nil,
         diarizationService: DiarizationService? = nil,
-        multiTurnProcessorFactory: (@MainActor (ModeFeature) -> MultiTurnModeTurnProcessor?)? = nil
+        conversationResponder: (any ConversationResponding)? = nil,
+        conversationSessionStore: (any ConversationSessionStoring)? = nil
     ) {
         self.config = config
         self.state = ModeRuntimeState()
@@ -84,7 +91,6 @@ final class ModeFeature: Feature, ModeDismissControlling {
         self.settings = settings
         self.mediaControlService = mediaControlService
         self.historyService = historyService
-        self.llmService = llmService
         self.outputHandler = OutputHandler(
             pasteService: pasteService,
             clipboardService: clipboardService,
@@ -96,16 +102,10 @@ final class ModeFeature: Feature, ModeDismissControlling {
             diarizationService: diarizationService
         )
 
-        // Use provided factory or default: build from llmService if available
-        self.multiTurnProcessorFactory = multiTurnProcessorFactory ?? { feature in
-            guard let llm = feature.llmService else { return nil }
-            return MultiTurnModeTurnProcessor(
-                transcriber: feature.transcriptionService,
-                responder: llm,
-                sessionStore: ConversationSessionStore(historyService: feature.historyService),
-                dismissController: feature
-            )
-        }
+        // Multi-turn collaborators: use injected fakes or default production instances
+        self.conversationResponder = conversationResponder ?? llmService
+        self.conversationSessionStore = conversationSessionStore
+            ?? (llmService != nil ? ConversationSessionStore(historyService: historyService) : nil)
 
         if config.audioCapture.isDual,
            let screen = screenPermission {

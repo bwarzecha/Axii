@@ -130,15 +130,12 @@ final class MultiTurnOrchestrationTests: XCTestCase {
     }
 
     /// Build a ModeFeature for multi-turn testing in recording state.
-    /// Uses the multiTurnProcessorFactory seam to inject deterministic
-    /// fakes so tests do not depend on real LLM provider configuration.
+    /// Injects fake responder and session store directly so tests do
+    /// not depend on real LLM provider configuration.
     private func makeFeatureInRecordingState(
         config: ModeConfig? = nil
     ) -> ModeFeature {
         let cfg = config ?? makeConversationConfig()
-        let transcriber = fakeTranscriber!
-        let responder = fakeResponder!
-        let store = fakeStore!
         let feature = ModeFeature(
             config: cfg,
             transcriptionService: fakeTranscriber,
@@ -148,14 +145,8 @@ final class MultiTurnOrchestrationTests: XCTestCase {
             settings: settings,
             historyService: historyService,
             mediaControlService: mediaControlService,
-            multiTurnProcessorFactory: { feature in
-                MultiTurnModeTurnProcessor(
-                    transcriber: transcriber,
-                    responder: responder,
-                    sessionStore: store,
-                    dismissController: feature
-                )
-            }
+            conversationResponder: fakeResponder,
+            conversationSessionStore: fakeStore
         )
 
         feature.state.phase = .recording
