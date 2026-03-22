@@ -71,6 +71,12 @@ extension ModeFeature {
 
     func stopAndProcessMultiTurn() {
         guard state.phase.isRecording, let helper = recordingHelper else { return }
+        guard let processor = multiTurnProcessor else {
+            state.phase = .error("Conversation not available")
+            scheduleDismiss(after: 2.0)
+            return
+        }
+
         let (samples, sampleRate) = helper.stop()
         recordingHelper = nil
         state.audioLevel = 0; state.isWaitingForSignal = false; state.phase = .processing
@@ -86,7 +92,7 @@ extension ModeFeature {
         let turnConfig = MultiTurnTurnConfig(llmTransform: llmConfig)
 
         Task {
-            await multiTurnProcessor?.process(
+            await processor.process(
                 capture: capture, config: turnConfig, state: state
             )
         }

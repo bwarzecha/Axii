@@ -46,7 +46,8 @@ final class ModeFeature: Feature, ModeDismissControlling {
     )
 
     // Multi-turn post-capture processor — lazy because it captures self as dismissController.
-    private(set) lazy var multiTurnProcessor: MultiTurnModeTurnProcessor? = {
+    // Internal setter for test injection of deterministic fakes.
+    lazy var multiTurnProcessor: MultiTurnModeTurnProcessor? = {
         guard let llm = llmService else { return nil }
         return MultiTurnModeTurnProcessor(
             transcriber: transcriptionService,
@@ -246,7 +247,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
     private func handleHotkey() {
         if meetingHandler != nil {
             handleLongRunningHotkey()
-        } else if hasMultiTurnLLM {
+        } else if multiTurnProcessor != nil {
             handleMultiTurnHotkey()
         } else {
             handleSingleShotHotkey()

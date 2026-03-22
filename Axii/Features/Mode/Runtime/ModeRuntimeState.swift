@@ -54,6 +54,9 @@ final class ModeRuntimeState {
 
     /// Clear conversation session state. Called by the runtime shell
     /// on cancel/deactivate — not by the turn processor or session store.
+    /// This is the ONLY method that clears messages and currentSessionId.
+    /// reset() intentionally does NOT touch these fields so that
+    /// error-retry in multi-turn modes preserves the conversation.
     func clearConversationSession() {
         messages.removeAll()
         currentSessionId = nil
@@ -61,6 +64,10 @@ final class ModeRuntimeState {
         finalText = ""
     }
 
+    /// Reset non-conversation runtime state to idle defaults.
+    /// Does NOT clear messages or currentSessionId — use
+    /// clearConversationSession() for that, called explicitly by
+    /// cancel/cancelAndDeactivate when the session should end.
     func reset() {
         phase = .idle
         audioLevel = 0
@@ -68,8 +75,6 @@ final class ModeRuntimeState {
         isWaitingForSignal = false
         liveTranscript = ""
         finalText = ""
-        messages = []
-        currentSessionId = nil
         segments = []
         duration = 0
         processingProgress = 0
