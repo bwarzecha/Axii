@@ -74,6 +74,8 @@ final class LLMService {
     }
 }
 
+extension LLMService: ConversationResponding {}
+
 enum LLMServiceError: LocalizedError {
     case providerNotImplemented(LLMProvider)
     case notConfigured(LLMProvider)
