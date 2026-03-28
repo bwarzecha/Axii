@@ -31,16 +31,9 @@ enum MeetingAppConstants {
 
 // MARK: - MeetingStopResult
 
-/// Result returned when a meeting recording is stopped with save enabled.
-struct MeetingStopResult {
-    let micSamples: [Float]
-    let micSampleRate: Double
-    let systemSamples: [Float]
-    let systemSampleRate: Double
-    let segments: [MeetingSegment]
-    let duration: TimeInterval
-    let appName: String?
-}
+/// Backward-compatible alias. The canonical boundary type is now
+/// MeetingPersistencePayload, defined in its own file.
+typealias MeetingStopResult = MeetingPersistencePayload
 
 // MARK: - MeetingPipelineHandler
 
