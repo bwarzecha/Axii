@@ -35,6 +35,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
     // Pipeline handlers (created based on config)
     var meetingHandler: MeetingPipelineHandler?
     let pipelineRunner: PipelineRunner
+    let meetingPersistence: any MeetingPersisting
 
     // Single-shot post-capture processor — lazy because it captures self as dismissController.
     private(set) lazy var singleShotProcessor = SingleShotModeTurnProcessor(
@@ -95,7 +96,8 @@ final class ModeFeature: Feature, ModeDismissControlling {
         llmService: LLMService? = nil,
         diarizationService: DiarizationService? = nil,
         conversationResponder: (any ConversationResponding)? = nil,
-        conversationSessionStore: (any ConversationSessionStoring)? = nil
+        conversationSessionStore: (any ConversationSessionStoring)? = nil,
+        meetingPersistence: (any MeetingPersisting)? = nil
     ) {
         self.config = config
         self.state = ModeRuntimeState()
@@ -105,6 +107,8 @@ final class ModeFeature: Feature, ModeDismissControlling {
         self.settings = settings
         self.mediaControlService = mediaControlService
         self.historyService = historyService
+        self.meetingPersistence = meetingPersistence
+            ?? MeetingPersistenceService(historyService: historyService)
         self.outputHandler = OutputHandler(
             pasteService: pasteService,
             clipboardService: clipboardService,
