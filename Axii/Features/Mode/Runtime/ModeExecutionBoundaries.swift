@@ -10,6 +10,23 @@
 #if os(macOS)
 import Foundation
 
+/// The high-level hotkey execution family for a mode. This is config-driven
+/// for single-shot vs multi-turn so that collaborator availability does not
+/// silently change user-visible mode behavior.
+enum ModeHotkeyRoute: Equatable {
+    case meeting
+    case multiTurn
+    case singleShot
+
+    static func select(
+        hasMeetingHandler: Bool,
+        config: ModeConfig
+    ) -> ModeHotkeyRoute {
+        if hasMeetingHandler { return .meeting }
+        return config.usesMultiTurnProcessing ? .multiTurn : .singleShot
+    }
+}
+
 /// Wraps PipelineRunner for processor-level testing.
 @MainActor
 protocol PipelineExecuting {

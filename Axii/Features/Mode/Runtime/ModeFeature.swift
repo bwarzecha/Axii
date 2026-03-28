@@ -51,7 +51,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
 
     // Multi-turn post-capture processor — lazy because it captures self as dismissController.
     // Built from the injected collaborators; nil when no responder is available.
-    private(set) lazy var multiTurnProcessor: MultiTurnModeTurnProcessor? = {
+    private lazy var configuredMultiTurnProcessor: MultiTurnModeTurnProcessor? = {
         guard let responder = conversationResponder else { return nil }
         guard let store = conversationSessionStore else { return nil }
         return MultiTurnModeTurnProcessor(
@@ -61,6 +61,20 @@ final class ModeFeature: Feature, ModeDismissControlling {
             dismissController: self
         )
     }()
+
+    /// Multi-turn execution is config-driven, not provider-driven. Dictation
+    /// must remain single-shot even when the app has an LLM service available.
+    var multiTurnProcessor: MultiTurnModeTurnProcessor? {
+        guard config.usesMultiTurnProcessing else { return nil }
+        return configuredMultiTurnProcessor
+    }
+
+    var hotkeyRoute: ModeHotkeyRoute {
+        ModeHotkeyRoute.select(
+            hasMeetingHandler: meetingHandler != nil,
+            config: config
+        )
+    }
 
     var deviceUIDKey: String { "mode_\(config.id)_selectedMic" }
     var selectedDeviceUID: String? {
@@ -253,11 +267,12 @@ final class ModeFeature: Feature, ModeDismissControlling {
     // MARK: - Hotkey Routing
 
     private func handleHotkey() {
-        if meetingHandler != nil {
+        switch hotkeyRoute {
+        case .meeting:
             handleLongRunningHotkey()
-        } else if multiTurnProcessor != nil {
+        case .multiTurn:
             handleMultiTurnHotkey()
-        } else {
+        case .singleShot:
             handleSingleShotHotkey()
         }
     }
@@ -322,7 +337,8 @@ final class ModeFeature: Feature, ModeDismissControlling {
     func scheduleDismiss(after delay: TimeInterval) {
         cancelScheduledDismiss()
         let item = DispatchWorkItem { [weak self] in
-            self?.deactivationWorkItem = nil; self?.cancelAndDeactivate()
+            self?.deactivationWorkItem = nil
+            self?.cancelAndDeactivate()
         }
         deactivationWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)

@@ -9,11 +9,32 @@
 import SwiftUI
 import HotKey
 
+@MainActor
+protocol HotkeyRegistering {
+    func register(
+        _ id: HotkeyID,
+        key: Key,
+        modifiers: NSEvent.ModifierFlags,
+        handler: @escaping () -> Void
+    )
+    func unregister(_ id: HotkeyID)
+}
+
+@MainActor
+protocol AdvancedHotkeyRegistering {
+    func register(
+        _ id: HotkeyID,
+        config: HotkeyConfig,
+        handler: @escaping () -> Void
+    )
+    func unregister(_ id: HotkeyID)
+}
+
 /// Context provided to features for registration and signaling.
 @MainActor
 final class FeatureContext {
-    let hotkeyService: HotkeyService
-    let advancedHotkeyService: AdvancedHotkeyService?
+    let hotkeyService: any HotkeyRegistering
+    let advancedHotkeyService: (any AdvancedHotkeyRegistering)?
     let settings: SettingsService
 
     /// Call when feature becomes active (shows UI, takes over)
@@ -23,8 +44,8 @@ final class FeatureContext {
     var onDeactivate: (() -> Void)?
 
     init(
-        hotkeyService: HotkeyService,
-        advancedHotkeyService: AdvancedHotkeyService? = nil,
+        hotkeyService: any HotkeyRegistering,
+        advancedHotkeyService: (any AdvancedHotkeyRegistering)? = nil,
         settings: SettingsService
     ) {
         self.hotkeyService = hotkeyService

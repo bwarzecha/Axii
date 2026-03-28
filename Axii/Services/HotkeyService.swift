@@ -85,4 +85,6 @@ final class HotkeyService {
         Array(hotkeys.keys)
     }
 }
+
+extension HotkeyService: HotkeyRegistering {}
 #endif

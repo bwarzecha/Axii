@@ -24,6 +24,16 @@ struct ModeConfig: Codable, Identifiable {
     var outputs: [OutputDestination]
     var lifecycle: LifecycleConfig
     var panel: PanelConfig
+
+    /// A mode is multi-turn only when it explicitly declares an LLM transform
+    /// step with multiTurn enabled. Collaborator availability must not change
+    /// the mode's execution family.
+    var usesMultiTurnProcessing: Bool {
+        processing.contains {
+            if case .llmTransform(let cfg) = $0 { return cfg.multiTurn }
+            return false
+        }
+    }
 }
 
 // MARK: - Audio Capture

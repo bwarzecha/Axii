@@ -43,7 +43,11 @@ final class MeetingTranscriptManager {
     // Serialization chain: ensures only one transcription runs at a time.
     // AsrManager (FluidAudio) is not reentrant - concurrent calls cause
     // use-after-free on TdtDecoderState.
-    private var transcriptionChain: Task<Void, Never> = Task {}
+    //
+    // Keep this optional instead of eagerly creating a placeholder Task.
+    // Lightweight helper instances are created during crash-recovery checks,
+    // and they should not allocate/deallocate unused Task machinery.
+    private var transcriptionChain: Task<Void, Never>?
 
     // MARK: - Callbacks
 
@@ -74,12 +78,17 @@ final class MeetingTranscriptManager {
         self.transcriptionService = transcriptionService
     }
 
+    deinit {
+        autoSaveTimer?.invalidate()
+        transcriptionChain?.cancel()
+    }
+
     // MARK: - Lifecycle
 
     /// Reset for a new meeting.
     func reset() {
-        transcriptionChain.cancel()
-        transcriptionChain = Task {}
+        transcriptionChain?.cancel()
+        transcriptionChain = nil
         segments = []
         recordingStartTime = Date()
         selectedAppName = nil
@@ -174,7 +183,7 @@ final class MeetingTranscriptManager {
     func transcribeChunk(_ chunk: TranscriptionChunk) -> Task<Void, Never> {
         let previous = transcriptionChain
         let task = Task { [weak self] in
-            await previous.value
+            await previous?.value
             guard let self, !Task.isCancelled else { return }
             await self.performTranscription(chunk)
         }

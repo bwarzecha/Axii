@@ -236,4 +236,6 @@ final class AdvancedHotkeyService {
         return cgFlags
     }
 }
+
+extension AdvancedHotkeyService: AdvancedHotkeyRegistering {}
 #endif
