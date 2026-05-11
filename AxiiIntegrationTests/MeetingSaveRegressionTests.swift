@@ -58,11 +58,15 @@ final class MeetingSaveRegressionTests: XCTestCase {
     }
 
     /// A persistence fake that always throws, for failure regression.
+    @MainActor
     private final class FailingPersistence: MeetingPersisting {
+        private(set) var callCount = 0
+
         func persist(
             payload: MeetingPersistencePayload,
             audioFormat: AudioStorageFormat
         ) async throws -> Meeting {
+            callCount += 1
             throw NSError(
                 domain: "test", code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Simulated persistence failure"]
@@ -71,6 +75,7 @@ final class MeetingSaveRegressionTests: XCTestCase {
     }
 
     /// A persistence fake that records whether it was called.
+    @MainActor
     private final class SpyPersistence: MeetingPersisting {
         private(set) var callCount = 0
 
@@ -87,11 +92,53 @@ final class MeetingSaveRegressionTests: XCTestCase {
         }
     }
 
+    /// A meeting handler fake that lets tests exercise ModeFeature.stopMeeting.
+    @MainActor
+    private final class StubMeetingHandler: MeetingPipelineHandling {
+        private let stopResult: MeetingStopResult?
+        private(set) var stopCallCount = 0
+        private(set) var stopSaveToHistory: Bool?
+
+        init(stopResult: MeetingStopResult?) {
+            self.stopResult = stopResult
+        }
+
+        func start() async {}
+
+        func stop(saveToHistory: Bool) async -> MeetingStopResult? {
+            stopCallCount += 1
+            stopSaveToHistory = saveToHistory
+            return stopResult
+        }
+
+        func cancel() {}
+        func selectApp(_ app: AudioApp?) {}
+        func switchMicrophone(
+            to device: AudioDevice?,
+            micSource: AudioSource.MicrophoneSource
+        ) async {}
+        func refreshAppList() async {}
+        func checkCrashRecovery() {}
+    }
+
+    private func makePayload() -> MeetingPersistencePayload {
+        MeetingPersistencePayload(
+            micSamples: [0.1, 0.2],
+            micSampleRate: 44100,
+            systemSamples: [],
+            systemSampleRate: 0,
+            segments: [],
+            duration: 10,
+            appName: nil
+        )
+    }
+
     private func makeFeature(
+        meetingHandler: any MeetingPipelineHandling,
         meetingPersistence: (any MeetingPersisting)? = nil
     ) -> ModeFeature {
         ModeFeature(
-            config: DefaultModes.dictation(),
+            config: DefaultModes.meeting(),
             transcriptionService: StubTranscriber(),
             micPermission: MicrophonePermissionService(),
             pasteService: StubPasteProvider(),
@@ -99,6 +146,7 @@ final class MeetingSaveRegressionTests: XCTestCase {
             settings: settings,
             historyService: historyService,
             mediaControlService: MediaControlService(),
+            meetingHandler: meetingHandler,
             meetingPersistence: meetingPersistence
         )
     }
@@ -107,25 +155,21 @@ final class MeetingSaveRegressionTests: XCTestCase {
 
     func testHistoryDisabled_MeetingStopDoesNotPersist() async throws {
         historyService.isEnabled = false
+        let handler = StubMeetingHandler(stopResult: makePayload())
         let spy = SpyPersistence()
-        let feature = makeFeature(meetingPersistence: spy)
-
-        // Simulate the adapter path directly: stopMeeting delegates
-        // but guards on historyService.isEnabled before calling persist.
-        // We can't call stopMeeting without a real MeetingPipelineHandler,
-        // so test the guard by calling the same conditional path.
-        let payload = MeetingPersistencePayload(
-            micSamples: [], micSampleRate: 0,
-            systemSamples: [], systemSampleRate: 0,
-            segments: [], duration: 0, appName: nil
+        let feature = makeFeature(
+            meetingHandler: handler,
+            meetingPersistence: spy
         )
+        feature.state.phase = .processing
 
-        // Replicate adapter guard
-        if historyService.isEnabled {
-            _ = try await spy.persist(payload: payload, audioFormat: .aac)
-        }
+        let stopTask = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
+        await stopTask.value
 
+        XCTAssertEqual(handler.stopCallCount, 1)
+        XCTAssertEqual(handler.stopSaveToHistory, true)
         XCTAssertEqual(spy.callCount, 0, "Persistence should not be called when history is disabled")
+        XCTAssertEqual(feature.state.phase, .idle)
 
         let meetings = historyService.listMetadata(type: .meeting)
         XCTAssertTrue(meetings.isEmpty, "No meetings should be persisted when history is disabled")
@@ -134,27 +178,21 @@ final class MeetingSaveRegressionTests: XCTestCase {
     // MARK: - Persistence Failure Returns To Idle
 
     func testPersistenceFailure_PhaseReturnsToIdle() async throws {
-        let feature = makeFeature(meetingPersistence: FailingPersistence())
-
-        // Simulate what stopMeeting does after handler.stop returns a result:
-        // catch/log and always return to idle
-        feature.state.phase = .processing
-        let payload = MeetingPersistencePayload(
-            micSamples: [0.1, 0.2], micSampleRate: 44100,
-            systemSamples: [], systemSampleRate: 0,
-            segments: [], duration: 10, appName: nil
+        let handler = StubMeetingHandler(stopResult: makePayload())
+        let persistence = FailingPersistence()
+        let feature = makeFeature(
+            meetingHandler: handler,
+            meetingPersistence: persistence
         )
 
-        do {
-            _ = try await feature.meetingPersistence.persist(
-                payload: payload, audioFormat: .aac
-            )
-            XCTFail("Expected persistence to throw")
-        } catch {
-            // Adapter catches and returns to idle
-            feature.state.phase = .idle
-        }
+        feature.state.phase = .processing
 
+        let stopTask = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
+        await stopTask.value
+
+        XCTAssertEqual(handler.stopCallCount, 1)
+        XCTAssertEqual(handler.stopSaveToHistory, true)
+        XCTAssertEqual(persistence.callCount, 1)
         XCTAssertEqual(feature.state.phase, .idle,
                        "Phase must return to idle even after persistence failure")
     }

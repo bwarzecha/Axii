@@ -8,6 +8,8 @@ docs/*
 !docs/refactor-phase-3a-brief.md
 !docs/refactor-phase-3b-design.md
 !docs/refactor-phase-3b-brief.md
+!docs/refactor-phase-4a-design.md
+!docs/refactor-phase-4a-brief.md
 
 # macOS
 .DS_Store

@@ -33,7 +33,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
     private let deviceMonitor = DeviceMonitor()
 
     // Pipeline handlers (created based on config)
-    var meetingHandler: MeetingPipelineHandler?
+    var meetingHandler: (any MeetingPipelineHandling)?
     let pipelineRunner: PipelineRunner
     let meetingPersistence: any MeetingPersisting
 
@@ -97,6 +97,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
         diarizationService: DiarizationService? = nil,
         conversationResponder: (any ConversationResponding)? = nil,
         conversationSessionStore: (any ConversationSessionStoring)? = nil,
+        meetingHandler: (any MeetingPipelineHandling)? = nil,
         meetingPersistence: (any MeetingPersisting)? = nil
     ) {
         self.config = config
@@ -119,13 +120,15 @@ final class ModeFeature: Feature, ModeDismissControlling {
             llmService: llmService,
             diarizationService: diarizationService
         )
+        self.meetingHandler = meetingHandler
 
         // Multi-turn collaborators: use injected fakes or default production instances
         self.conversationResponder = conversationResponder ?? llmService
         self.conversationSessionStore = conversationSessionStore
             ?? (llmService != nil ? ConversationSessionStore(historyService: historyService) : nil)
 
-        if config.audioCapture.isDual,
+        if self.meetingHandler == nil,
+           config.audioCapture.isDual,
            let screen = screenPermission {
             self.meetingHandler = MeetingPipelineHandler(
                 state: state, transcriptionService: transcriptionService,

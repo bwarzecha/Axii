@@ -31,9 +31,10 @@ extension ModeFeature {
         Task { await handler.start() }
     }
 
-    func stopMeeting(saveToHistory: Bool) {
-        guard let handler = meetingHandler else { return }
-        Task {
+    @discardableResult
+    func stopMeeting(saveToHistory: Bool) -> Task<Void, Never>? {
+        guard let handler = meetingHandler else { return nil }
+        let task = Task { @MainActor in
             let result = await handler.stop(saveToHistory: saveToHistory)
             if let result, saveToHistory, historyService.isEnabled {
                 do {
@@ -47,6 +48,7 @@ extension ModeFeature {
             }
             state.phase = .idle
         }
+        return task
     }
 }
 #endif

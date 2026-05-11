@@ -35,10 +35,27 @@ enum MeetingAppConstants {
 /// MeetingPersistencePayload, defined in its own file.
 typealias MeetingStopResult = MeetingPersistencePayload
 
+// MARK: - MeetingPipelineHandling
+
+/// Adapter-facing surface for meeting runtime coordination.
+@MainActor
+protocol MeetingPipelineHandling: AnyObject {
+    func start() async
+    func stop(saveToHistory: Bool) async -> MeetingStopResult?
+    func cancel()
+    func selectApp(_ app: AudioApp?)
+    func switchMicrophone(
+        to device: AudioDevice?,
+        micSource: AudioSource.MicrophoneSource
+    ) async
+    func refreshAppList() async
+    func checkCrashRecovery()
+}
+
 // MARK: - MeetingPipelineHandler
 
 @MainActor
-final class MeetingPipelineHandler {
+final class MeetingPipelineHandler: MeetingPipelineHandling {
 
     // MARK: - Dependencies
 
