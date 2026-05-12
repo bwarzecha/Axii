@@ -65,6 +65,7 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
     private let micPermission: MicrophonePermissionService
     private let settings: SettingsService
     private let state: ModeRuntimeState
+    private let finalizationService: MeetingFinalizationService
 
     // MARK: - Managers
 
@@ -86,7 +87,8 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
         diarizationService: DiarizationService?,
         screenPermission: ScreenRecordingPermissionService,
         micPermission: MicrophonePermissionService,
-        settings: SettingsService
+        settings: SettingsService,
+        finalizationService: MeetingFinalizationService? = nil
     ) {
         self.state = state
         self.transcriptionService = transcriptionService
@@ -94,6 +96,12 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
         self.screenPermission = screenPermission
         self.micPermission = micPermission
         self.settings = settings
+        self.finalizationService = finalizationService
+            ?? MeetingFinalizationService(transcriptionService: transcriptionService)
+        self.finalizationService.onProgressUpdated = { [weak state] progress, status in
+            state?.processingProgress = progress
+            state?.processingStatus = status
+        }
     }
 
     // MARK: - Start
@@ -145,26 +153,26 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
             let micSamples = audio.readSamplesFromFile(micFile)
             let systemSamples = audio.readSamplesFromFile(systemFile)
 
-            // Final transcription (resamples to 16kHz internally)
-            await transcriptManager?.transcribeFullAudio(
-                micSamples: micSamples,
-                micSampleRate: micRate,
-                systemSamples: systemSamples,
-                systemSampleRate: systemRate
+            // Delegate final transcription and segment assembly.
+            let payload = await finalizationService.finalize(
+                input: MeetingFinalizationInput(
+                    micSamples: micSamples,
+                    micSampleRate: micRate,
+                    systemSamples: systemSamples,
+                    systemSampleRate: systemRate,
+                    duration: duration,
+                    appName: state.selectedApp?.name
+                )
             )
+
+            // Reflect the finalized transcript in live state so the UI can
+            // show the final transcript before persistence completes.
+            state.segments = payload.segments
 
             transcriptManager?.clearAutoSave()
             audio.cleanupTempFiles()
 
-            return MeetingStopResult(
-                micSamples: micSamples,
-                micSampleRate: micRate,
-                systemSamples: systemSamples,
-                systemSampleRate: systemRate,
-                segments: transcriptManager?.segments ?? [],
-                duration: duration,
-                appName: state.selectedApp?.name
-            )
+            return payload
         } else {
             audio.cleanupTempFiles()
             return nil
@@ -294,13 +302,11 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
             self?.state.phase = .error(message)
         }
 
-        // Wire transcript callbacks
+        // Wire transcript callbacks. Final-transcription progress is
+        // driven by MeetingFinalizationService (wired in init); the
+        // transcript manager only owns live segment updates now.
         transcript.onSegmentsUpdated = { [weak self] segments in
             self?.state.segments = segments
-        }
-        transcript.onProgressUpdated = { [weak self] progress, status in
-            self?.state.processingProgress = progress
-            self?.state.processingStatus = status
         }
 
         transcript.setSelectedApp(state.selectedApp)

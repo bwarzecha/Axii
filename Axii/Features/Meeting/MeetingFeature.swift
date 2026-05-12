@@ -289,10 +289,6 @@ final class MeetingFeature: Feature {
         transcript.onSegmentsUpdated = { [weak self] segments in
             self?.state.segments = segments
         }
-        transcript.onProgressUpdated = { [weak self] progress, status in
-            self?.state.processingProgress = progress
-            self?.state.processingStatus = status
-        }
         transcript.setSelectedApp(state.selectedApp)
         transcript.reset()
 
@@ -358,13 +354,25 @@ final class MeetingFeature: Feature {
                 let micSamples = audio.readSamplesFromFile(micFile)
                 let sysSamples = audio.readSamplesFromFile(systemFile)
 
-                // Final transcription (resamples to 16kHz internally)
-                await transcriptManager?.transcribeFullAudio(
-                    micSamples: micSamples,
-                    micSampleRate: micRate,
-                    systemSamples: sysSamples,
-                    systemSampleRate: systemRate
+                // Final transcription via MeetingFinalizationService.
+                let finalization = MeetingFinalizationService(
+                    transcriptionService: transcriptionService
                 )
+                finalization.onProgressUpdated = { [weak self] progress, status in
+                    self?.state.processingProgress = progress
+                    self?.state.processingStatus = status
+                }
+                let finalized = await finalization.finalize(
+                    input: MeetingFinalizationInput(
+                        micSamples: micSamples,
+                        micSampleRate: micRate,
+                        systemSamples: sysSamples,
+                        systemSampleRate: systemRate,
+                        duration: duration,
+                        appName: state.selectedApp?.name
+                    )
+                )
+                state.segments = finalized.segments
 
                 // Clear auto-save
                 transcriptManager?.clearAutoSave()
