@@ -30,18 +30,25 @@ enum ModelState: Equatable {
 /// Actor-based transcription service wrapping FluidAudio.
 actor TranscriptionService {
     private var asrManager: AsrManager?
+    private var decoderState: TdtDecoderState?
     private let audioConverter = AudioConverter()
     private(set) var modelState: ModelState = .notLoaded
 
     var isReady: Bool {
-        modelState == .ready
+        if case .ready = modelState { return true }
+        return false
     }
 
     /// Prepare the transcription service by loading models.
     /// - Parameter modelsDirectory: Optional directory containing pre-downloaded models.
     ///   If nil, uses FluidAudio's default download behavior.
     func prepare(modelsDirectory: URL? = nil) async throws {
-        guard modelState != .ready && modelState != .loading else { return }
+        switch modelState {
+        case .ready, .loading:
+            return
+        case .notLoaded, .failed:
+            break
+        }
 
         modelState = .loading
 
@@ -58,12 +65,15 @@ actor TranscriptionService {
 
             // Initialize the ASR manager
             let manager = AsrManager(config: .default)
-            try await manager.initialize(models: models)
+            try await manager.loadModels(models)
+            let decoderLayerCount = await manager.decoderLayerCount
 
             self.asrManager = manager
+            self.decoderState = try TdtDecoderState(decoderLayers: decoderLayerCount)
             modelState = .ready
         } catch {
             modelState = .failed(message: error.localizedDescription)
+            decoderState = nil
             throw error
         }
     }
@@ -77,6 +87,9 @@ actor TranscriptionService {
         guard let manager = asrManager else {
             throw TranscriptionError.notReady
         }
+        guard var decoderState else {
+            throw TranscriptionError.notReady
+        }
 
         // Resample to 16kHz (FluidAudio requirement)
         let resampled = try audioConverter.resample(samples, from: sampleRate)
@@ -86,7 +99,8 @@ actor TranscriptionService {
             throw TranscriptionError.tooShort
         }
 
-        let result = try await manager.transcribe(resampled, source: .microphone)
+        let result = try await manager.transcribe(resampled, decoderState: &decoderState)
+        self.decoderState = decoderState
         return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
