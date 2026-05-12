@@ -6,7 +6,6 @@
 //
 
 #if os(macOS)
-import Accelerate
 import Foundation
 
 /// Auto-save data structure for crash recovery.
@@ -52,7 +51,6 @@ final class MeetingTranscriptManager {
     // MARK: - Callbacks
 
     var onSegmentsUpdated: (([MeetingSegment]) -> Void)?
-    var onProgressUpdated: ((Double, String) -> Void)?
 
     // MARK: - Auto-save Path
 
@@ -297,170 +295,5 @@ final class MeetingTranscriptManager {
         onSegmentsUpdated?(segments)
     }
 
-    // MARK: - Final Transcription
-
-    /// Transcribe full audio files for best quality (call after recording stops).
-    /// Accepts samples at any sample rate - resamples to 16kHz internally.
-    func transcribeFullAudio(
-        micSamples: [Float],
-        micSampleRate: Double,
-        systemSamples: [Float],
-        systemSampleRate: Double
-    ) async {
-        // Clear real-time segments
-        segments = []
-        lastMicSegmentIndex = nil
-        lastSystemSegmentIndex = nil
-
-        // Resample to 16kHz for transcription
-        let micResampled = resample(micSamples, from: micSampleRate)
-        let systemResampled = resample(systemSamples, from: systemSampleRate)
-
-        // Calculate total chunks for progress
-        let chunkSize = Int(Self.targetSampleRate * 30.0)
-        let micChunks = micResampled.isEmpty ? 0 : (micResampled.count + chunkSize - 1) / chunkSize
-        let systemChunks = systemResampled.isEmpty ? 0 : (systemResampled.count + chunkSize - 1) / chunkSize
-        let totalChunks = micChunks + systemChunks
-        var completedChunks = 0
-
-        // Transcribe mic audio
-        onProgressUpdated?(0, "Transcribing your audio...")
-        await transcribeFullTrack(
-            samples: micResampled,
-            speakerId: "You",
-            isFromMicrophone: true
-        ) { [weak self] in
-            completedChunks += 1
-            let progress = totalChunks > 0 ? Double(completedChunks) / Double(totalChunks) : 0
-            self?.onProgressUpdated?(progress, "Transcribing your audio...")
-        }
-
-        // Transcribe system audio
-        onProgressUpdated?(Double(micChunks) / Double(max(totalChunks, 1)), "Transcribing remote audio...")
-        await transcribeFullTrack(
-            samples: systemResampled,
-            speakerId: "Remote",
-            isFromMicrophone: false
-        ) { [weak self] in
-            completedChunks += 1
-            let progress = totalChunks > 0 ? Double(completedChunks) / Double(totalChunks) : 0
-            self?.onProgressUpdated?(progress, "Transcribing remote audio...")
-        }
-
-        // Merge and sort by time
-        onProgressUpdated?(0.95, "Merging transcript...")
-        mergeConsecutiveSpeakerSegments()
-
-        onProgressUpdated?(1.0, "Done")
-        onSegmentsUpdated?(segments)
-    }
-
-    private func transcribeFullTrack(
-        samples: [Float],
-        speakerId: String,
-        isFromMicrophone: Bool,
-        onChunkComplete: @escaping () -> Void
-    ) async {
-        guard !samples.isEmpty else { return }
-
-        // Use 30-second chunks for better quality
-        let chunkSize = Int(Self.targetSampleRate * 30.0)
-        var currentOffset = 0
-
-        while currentOffset < samples.count {
-            let endOffset = min(currentOffset + chunkSize, samples.count)
-            let chunk = Array(samples[currentOffset..<endOffset])
-
-            // Skip silent chunks
-            let maxAmp = chunk.map { abs($0) }.max() ?? 0.0
-            if maxAmp < 0.001 {
-                currentOffset = endOffset
-                onChunkComplete()
-                continue
-            }
-
-            let chunkStartTime = Double(currentOffset) / Self.targetSampleRate
-            let chunkEndTime = Double(endOffset) / Self.targetSampleRate
-
-            do {
-                let text = try await transcriptionService.transcribe(
-                    samples: chunk,
-                    sampleRate: Self.targetSampleRate
-                )
-
-                let cleanedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !cleanedText.isEmpty {
-                    let segment = MeetingSegment(
-                        text: cleanedText,
-                        speakerId: speakerId,
-                        isFromMicrophone: isFromMicrophone,
-                        startTime: chunkStartTime,
-                        endTime: chunkEndTime
-                    )
-                    segments.append(segment)
-                }
-            } catch {
-                print("MeetingTranscriptManager: Final transcription error: \(error)")
-            }
-
-            currentOffset = endOffset
-            onChunkComplete()
-        }
-    }
-
-    /// Resample audio to 16kHz for transcription. Returns input unchanged if already 16kHz.
-    private func resample(_ samples: [Float], from sampleRate: Double) -> [Float] {
-        guard !samples.isEmpty, sampleRate > 0 else { return [] }
-        guard sampleRate != Self.targetSampleRate else { return samples }
-        guard samples.count > 1 else { return samples }
-
-        let ratio = Self.targetSampleRate / sampleRate
-        let outputCount = Int(Double(samples.count) * ratio)
-        guard outputCount > 0 else { return [] }
-
-        var output = [Float](repeating: 0, count: outputCount)
-        var indices = [Float](repeating: 0, count: outputCount)
-        var index: Float = 0
-        var increment = Float(sampleRate / Self.targetSampleRate)
-        vDSP_vramp(&index, &increment, &indices, 1, vDSP_Length(outputCount))
-
-        var maxIndex = Float(samples.count - 1)
-        vDSP_vclip(indices, 1, &index, &maxIndex, &indices, 1, vDSP_Length(outputCount))
-        vDSP_vlint(samples, indices, 1, &output, 1, vDSP_Length(outputCount), vDSP_Length(samples.count))
-
-        return output
-    }
-
-    private func mergeConsecutiveSpeakerSegments() {
-        guard segments.count > 1 else { return }
-
-        // Sort by start time
-        segments.sort { $0.startTime < $1.startTime }
-
-        var merged: [MeetingSegment] = []
-        var current = segments[0]
-
-        for i in 1..<segments.count {
-            let next = segments[i]
-
-            if current.speakerId == next.speakerId {
-                // Merge same speaker
-                current = MeetingSegment(
-                    id: current.id,
-                    text: current.text + " " + next.text,
-                    speakerId: current.speakerId,
-                    isFromMicrophone: current.isFromMicrophone,
-                    startTime: current.startTime,
-                    endTime: max(current.endTime, next.endTime)
-                )
-            } else {
-                merged.append(current)
-                current = next
-            }
-        }
-        merged.append(current)
-
-        segments = merged
-    }
 }
 #endif

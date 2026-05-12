@@ -15,14 +15,20 @@ actor DiarizationService {
     private(set) var modelState: ModelState = .notLoaded
 
     var isReady: Bool {
-        modelState == .ready
+        if case .ready = modelState { return true }
+        return false
     }
 
     /// Prepare the diarization service by loading models.
     /// - Parameter modelsDirectory: Optional directory containing pre-downloaded models.
     ///   If nil, uses FluidAudio's default download behavior.
     func prepare(modelsDirectory: URL? = nil) async throws {
-        guard modelState != .ready && modelState != .loading else { return }
+        switch modelState {
+        case .ready, .loading:
+            return
+        case .notLoaded, .failed:
+            break
+        }
 
         modelState = .loading
 
