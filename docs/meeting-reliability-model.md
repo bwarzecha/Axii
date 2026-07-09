@@ -57,6 +57,29 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   audio lives in the system temp directory and is not re-read by recovery;
   it does not survive reboots.
 
+## Test harness layers
+
+- **Schedule fuzzer** (`MeetingConcurrencyFuzzTests`): every async dependency
+  in the chaos fakes suspends on a `GateHub`, so the driver controls exactly
+  which suspended call proceeds next. 500 seeded random schedules of
+  start/stop/cancel/switch/chunk/error/start-failure operations are checked
+  against conservation invariants at quiescence. A failing seed is a
+  reproducible bug report.
+- **Crash matrix** (`MeetingCrashRecoveryTests`): the real transcript manager
+  against temp-dir autosave files, simulating crashes at each lifecycle point.
+- **Commit-point tests** (`MeetingSaveRegressionTests`): recovery artifacts
+  observed on disk across persist success/failure/history-disabled, plus
+  stale-stop-vs-newer-stop phase contention.
+- **Real-ASR quirks** (`RealTranscriptionQuirkTests`): opt-in tests against
+  the actual Parakeet models with `say`-synthesized speech — long-audio
+  chunking, concurrent inference, resampling, hang detection (every call is
+  deadline-bounded). Run with:
+  `TEST_RUNNER_AXII_REAL_ASR=1 xcodebuild test -project Axii.xcodeproj
+  -scheme Axii -destination 'platform=macOS'
+  -only-testing:AxiiIntegrationTests/RealTranscriptionQuirkTests`
+- **TSan sweep**: run the suite with `-enableThreadSanitizer YES` to check
+  the real-thread components (MicrophoneCapture queues, transcription actor).
+
 ## Executor confinement
 
 - `MicrophoneCapture`: delegate-facing state (`currentDevice`, `sampleRate`,
