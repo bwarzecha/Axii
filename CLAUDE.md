@@ -37,6 +37,10 @@ headers); the meeting audio/transcript managers there are still used.
   - **MeetingFinalizationService** - final transcription and segment assembly
   - **MeetingPersistenceService** - writes final meetings and audio
 
+Meeting capture has hard concurrency/crash-safety invariants (epoch guards,
+detach-before-await, commit-after-persist recovery artifacts) — read
+`docs/meeting-reliability-model.md` before changing the meeting runtime.
+
 ### Data Flow
 ```
 Hotkey → AppController/FeatureManager → ModeFeature → capture (AudioSession)

@@ -11,6 +11,7 @@ docs/*
 !docs/refactor-phase-4a-design.md
 !docs/refactor-phase-4a-brief.md
 !docs/refactor-phase-4b-brief.md
+!docs/meeting-reliability-model.md
 
 # macOS
 .DS_Store
