@@ -30,7 +30,7 @@ enum ModelState: Equatable {
 /// Actor-based transcription service wrapping FluidAudio.
 actor TranscriptionService {
     private var asrManager: AsrManager?
-    private var decoderState: TdtDecoderState?
+    private var decoderLayerCount: Int?
     private let audioConverter = AudioConverter()
     private(set) var modelState: ModelState = .notLoaded
 
@@ -66,14 +66,13 @@ actor TranscriptionService {
             // Initialize the ASR manager
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
-            let decoderLayerCount = await manager.decoderLayerCount
 
             self.asrManager = manager
-            self.decoderState = try TdtDecoderState(decoderLayers: decoderLayerCount)
+            self.decoderLayerCount = await manager.decoderLayerCount
             modelState = .ready
         } catch {
             modelState = .failed(message: error.localizedDescription)
-            decoderState = nil
+            decoderLayerCount = nil
             throw error
         }
     }
@@ -84,10 +83,7 @@ actor TranscriptionService {
     ///   - sampleRate: Sample rate of the input audio
     /// - Returns: Transcribed text
     func transcribe(samples: [Float], sampleRate: Double) async throws -> String {
-        guard let manager = asrManager else {
-            throw TranscriptionError.notReady
-        }
-        guard var decoderState else {
+        guard let manager = asrManager, let decoderLayerCount else {
             throw TranscriptionError.notReady
         }
 
@@ -99,8 +95,14 @@ actor TranscriptionService {
             throw TranscriptionError.tooShort
         }
 
+        // Fresh decoder state per call. The actor is reentrant at the await
+        // below, so a shared state would be mutated by interleaved calls
+        // (TdtDecoderState copies share their MLMultiArray buffers — that is
+        // a use-after-free, not just an accuracy bug). Per-call state also
+        // keeps independent streams (dictation, meeting mic, meeting system)
+        // from polluting each other's decoder context.
+        var decoderState = try TdtDecoderState(decoderLayers: decoderLayerCount)
         let result = try await manager.transcribe(resampled, decoderState: &decoderState)
-        self.decoderState = decoderState
         return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
