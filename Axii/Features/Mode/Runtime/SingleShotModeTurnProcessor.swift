@@ -39,16 +39,23 @@ final class SingleShotModeTurnProcessor {
 
     /// Execute the single-shot post-capture turn.
     /// Caller is responsible for setting state.phase = .transcribing before calling.
+    ///
+    /// isCurrent gates every post-await effect: when the owning turn has been
+    /// superseded (teardown, new recording), a resuming await must not write
+    /// state, paste into whatever app is now frontmost, or schedule a dismiss
+    /// that would tear down someone else's session.
     func process(
         capture: CompletedCapture,
         config: SingleShotTurnConfig,
-        state: ModeRuntimeState
+        state: ModeRuntimeState,
+        isCurrent: @escaping () -> Bool = { true }
     ) async {
         do {
             let text = try await transcriber.transcribe(
                 samples: capture.samples,
                 sampleRate: capture.sampleRate
             )
+            guard isCurrent() else { return }
 
             if text.isEmpty {
                 state.finalText = "No speech detected"
@@ -85,6 +92,7 @@ final class SingleShotModeTurnProcessor {
                 finalContext = try await pipeline.run(
                     steps: pipelineSteps, context: initialContext
                 )
+                guard isCurrent() else { return }
             } else {
                 finalContext = initialContext
             }
@@ -95,6 +103,7 @@ final class SingleShotModeTurnProcessor {
                 context: finalContext,
                 state: state
             )
+            guard isCurrent() else { return }
 
             // Turn completion — processor owns this, not the output executor
             state.phase = .done
@@ -105,6 +114,7 @@ final class SingleShotModeTurnProcessor {
                 dismissController?.scheduleDismiss(after: delay)
             }
         } catch {
+            guard isCurrent() else { return }
             let msg = (error as? TranscriptionError)?.errorDescription
                 ?? (error as? LocalizedError)?.errorDescription
                 ?? "Processing failed"

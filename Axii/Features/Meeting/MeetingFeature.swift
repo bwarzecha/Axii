@@ -156,7 +156,7 @@ final class MeetingFeature: Feature {
         } else {
             // Otherwise, dismiss panel
             cancel()
-            context?.onDeactivate?()
+            context?.onDeactivate?(self)
         }
     }
 
@@ -164,7 +164,7 @@ final class MeetingFeature: Feature {
     func closePanel() {
         if !state.isRecording && !state.isProcessing {
             cancel()
-            context?.onDeactivate?()
+            context?.onDeactivate?(self)
         }
     }
 
@@ -186,7 +186,7 @@ final class MeetingFeature: Feature {
             break
         case .error:
             cancel()
-            context?.onDeactivate?()
+            context?.onDeactivate?(self)
         }
     }
 
@@ -400,7 +400,7 @@ final class MeetingFeature: Feature {
             state.phase = .idle
             state.audioLevel = 0
             isActive = false
-            context?.onDeactivate?()
+            context?.onDeactivate?(self)
         }
     }
 

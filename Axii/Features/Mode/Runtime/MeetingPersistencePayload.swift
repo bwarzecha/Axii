@@ -19,7 +19,7 @@ struct MeetingPersistencePayload {
     let micSampleRate: Double
     let systemSamples: [Float]
     let systemSampleRate: Double
-    let segments: [MeetingSegment]
+    var segments: [MeetingSegment]
     let duration: TimeInterval
     let appName: String?
     /// Recovery data kept alive until this payload is durably persisted.

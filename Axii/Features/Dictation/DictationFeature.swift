@@ -391,7 +391,7 @@ final class DictationFeature: Feature {
         isActive = false
         // Reset media control state on cancel (don't resume)
         mediaControlService.resetState()
-        context?.onDeactivate?()
+        context?.onDeactivate?(self)
     }
 
     private func cancelDeactivationTimer() {

@@ -51,6 +51,9 @@ protocol MeetingPipelineHandling: AnyObject {
     func refreshAppList() async
     @discardableResult
     func checkCrashRecovery() -> MeetingCrashRecovery?
+    /// True while audio is actively being captured — exits that would
+    /// destroy a live capture consult this to salvage instead.
+    var hasLiveCapture: Bool { get }
 }
 
 // MARK: - MeetingPipelineHandler
@@ -150,6 +153,11 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
             state.phase = .idle
         }
 
+        // Snapshot the streamed transcript before finalization can replace
+        // it: if final transcription fails wholesale, the live segments are
+        // the best copy in existence and must not be overwritten by nothing.
+        let liveSegments = state.segments
+
         guard let capturedAudio = await captureSession.stop(
             saveToHistory: saveToHistory
         ) else {
@@ -171,6 +179,10 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
                 self.state.processingStatus = status
             }
         )
+
+        if payload.segments.isEmpty, !liveSegments.isEmpty {
+            payload.segments = liveSegments
+        }
 
         payload.recoveryArtifacts = capturedAudio.recoveryArtifacts
 
@@ -220,6 +232,10 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
         state.availableApps = sortAppsForMeetings(apps)
     }
 
+    var hasLiveCapture: Bool {
+        captureSession.isRecording
+    }
+
     // MARK: - Crash Recovery
 
     @discardableResult
@@ -250,8 +266,14 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
         captureSession.onSegmentsUpdated = { [weak state] segments in
             state?.segments = segments
         }
-        captureSession.onError = { [weak state] message in
-            state?.phase = .error(message)
+        captureSession.onError = { [weak self] message in
+            guard let self else { return }
+            // Protect the recording FIRST: errors often precede an exit,
+            // and the recovery file may be up to 60s stale.
+            if self.captureSession.isRecording {
+                self.captureSession.flushAutoSaveNow()
+            }
+            self.state.phase = .error(message)
         }
         captureSession.onDurationUpdated = { [weak state] duration in
             state?.duration = duration

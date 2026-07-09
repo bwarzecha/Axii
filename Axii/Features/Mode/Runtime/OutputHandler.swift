@@ -50,7 +50,7 @@ final class OutputHandler: ModeOutputExecuting {
             case .pasteAtCursor(let pasteConfig):
                 let text = resolveContent(pasteConfig.contentTemplate, context: context)
                 pastedToApp = await executePaste(
-                    config: pasteConfig, text: text, state: state
+                    config: pasteConfig, text: text, context: context, state: state
                 )
 
             case .clipboard(let clipConfig):
@@ -78,7 +78,7 @@ final class OutputHandler: ModeOutputExecuting {
                     samples: context.samples,
                     sampleRate: context.sampleRate,
                     pastedToApp: pastedToApp,
-                    focusSnapshot: state.focusSnapshot
+                    focusSnapshot: context.focusSnapshot
                 )
             }
         }
@@ -101,11 +101,12 @@ final class OutputHandler: ModeOutputExecuting {
     private func executePaste(
         config: PasteConfig,
         text: String,
+        context: PipelineContext,
         state: ModeRuntimeState
     ) async -> String? {
         let outcome = await pasteService.paste(
             text: text,
-            focusSnapshot: state.focusSnapshot,
+            focusSnapshot: context.focusSnapshot,
             finishBehavior: settings.finishBehavior,
             failureBehavior: config.failureBehavior
         )
@@ -113,7 +114,7 @@ final class OutputHandler: ModeOutputExecuting {
         switch outcome {
         case .pasted, .pastedAndCopied:
             state.finalText = text
-            return state.focusSnapshot?.bundleIdentifier
+            return context.focusSnapshot?.bundleIdentifier
 
         case .copiedOnly:
             state.finalText = "\(text)\n(Copied to clipboard)"

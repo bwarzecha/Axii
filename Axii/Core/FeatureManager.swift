@@ -59,8 +59,9 @@ final class FeatureManager {
             self?.activateFeature(feature)
         }
 
-        context.onDeactivate = { [weak self] in
-            self?.deactivateCurrentFeature()
+        context.onDeactivate = { [weak self] requester in
+            guard let self, requester === self.activeFeature else { return }
+            self.deactivateCurrentFeature()
         }
 
         feature.register(with: context)

@@ -30,7 +30,8 @@ extension ModeFeature {
             MeetingAudioManager.cleanExpiredSpoolFiles()
         }
         guard let recovery = handler.checkCrashRecovery() else { return nil }
-        guard historyService.isEnabled, !recovery.segments.isEmpty else { return nil }
+        let hasContent = !recovery.segments.isEmpty || recovery.audioFiles != nil
+        guard historyService.isEnabled, hasContent else { return nil }
 
         return Task { @MainActor in
             // Restore the audio too when the spool files survived the crash.
@@ -40,6 +41,26 @@ extension ModeFeature {
             let systemSamples = MeetingAudioManager.readRawSamples(
                 from: recovery.audioFiles?.systemFileURL
             )
+
+            // Streaming-off sessions have audio but no live segments —
+            // build the transcript from the recovered audio.
+            var segments = recovery.segments
+            if segments.isEmpty, !micSamples.isEmpty || !systemSamples.isEmpty {
+                let finalized = await MeetingFinalizationService(
+                    transcriptionService: transcriptionService
+                ).finalize(
+                    input: MeetingFinalizationInput(
+                        micSamples: micSamples,
+                        micSampleRate: recovery.audioFiles?.micSampleRate ?? 0,
+                        systemSamples: systemSamples,
+                        systemSampleRate: recovery.audioFiles?.systemSampleRate ?? 0,
+                        duration: recovery.duration,
+                        appName: recovery.appName
+                    )
+                )
+                segments = finalized.segments
+            }
+
             do {
                 _ = try await meetingPersistence.persist(
                     payload: MeetingPersistencePayload(
@@ -47,7 +68,7 @@ extension ModeFeature {
                         micSampleRate: recovery.audioFiles?.micSampleRate ?? 0,
                         systemSamples: systemSamples,
                         systemSampleRate: recovery.audioFiles?.systemSampleRate ?? 0,
-                        segments: recovery.segments,
+                        segments: segments,
                         duration: recovery.duration,
                         appName: recovery.appName
                     ),
@@ -91,15 +112,31 @@ extension ModeFeature {
             state.phase = .error("Meeting handler not configured")
             return
         }
+        if handler.hasLiveCapture, case .error = state.phase {
+            // Retry after an error: the wounded session is salvaged to
+            // history first — cancel-on-reentry would destroy it.
+            let salvage = stopMeeting(saveToHistory: true)
+            Task { @MainActor in
+                await salvage?.value
+                await handler.start()
+            }
+            return
+        }
         Task { await handler.start() }
     }
 
     @discardableResult
     func stopMeeting(saveToHistory: Bool) -> Task<Void, Never>? {
         guard let handler = meetingHandler else { return nil }
+        if saveToHistory, let inFlight = meetingStopTask {
+            // Coalesce: a double-tap joins the running save instead of
+            // issuing a second stop against an already-detached capture.
+            return inFlight
+        }
         meetingStopGeneration += 1
         let gen = meetingStopGeneration
         let task = Task { @MainActor in
+            defer { self.meetingStopTask = nil }
             let result = await handler.stop(saveToHistory: saveToHistory)
             if let result, saveToHistory {
                 if historyService.isEnabled {
@@ -134,6 +171,7 @@ extension ModeFeature {
                 state.phase = .idle
             }
         }
+        if saveToHistory { meetingStopTask = task }
         return task
     }
 }

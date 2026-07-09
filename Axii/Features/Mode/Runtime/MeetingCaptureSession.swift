@@ -223,6 +223,12 @@ final class MeetingCaptureSession {
         await task.value
     }
 
+    /// Write the live transcript to the recovery file immediately — called
+    /// when an error puts the recording at risk of a destructive exit.
+    func flushAutoSaveNow() {
+        transcriptManager?.flushAutoSave()
+    }
+
     // MARK: - Crash Recovery
 
     func checkCrashRecovery() -> MeetingCrashRecovery? {

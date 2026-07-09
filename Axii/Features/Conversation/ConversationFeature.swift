@@ -267,14 +267,14 @@ final class ConversationFeature: Feature {
         playbackService.stop()
         resetState(clearConversation: true)
         isActive = false
-        context?.onDeactivate?()
+        context?.onDeactivate?(self)
     }
 
     private func deactivateKeepingConversation() {
         playbackService.stop()
         resetState(clearConversation: false)
         isActive = false
-        context?.onDeactivate?()
+        context?.onDeactivate?(self)
     }
 
     private func resetState(clearConversation: Bool) {

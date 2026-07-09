@@ -146,8 +146,13 @@ final class MeetingTranscriptManager {
     }
 
     /// Perform auto-save to disk.
+    /// Written even with zero segments as long as audio references exist:
+    /// with streaming transcription OFF a meeting produces no live segments,
+    /// and without this file the spooled audio is unreachable after a crash
+    /// (the expiry sweep would silently delete a complete recording).
     private func performAutoSave() {
-        guard !segments.isEmpty else { return }
+        let audioFiles = audioFileReferenceProvider?()
+        guard !segments.isEmpty || audioFiles != nil else { return }
 
         let duration = Date().timeIntervalSince(recordingStartTime ?? Date())
         let data = AutoSaveData(
@@ -156,7 +161,7 @@ final class MeetingTranscriptManager {
             startTime: recordingStartTime ?? Date(),
             selectedAppName: selectedAppName,
             sessionID: sessionID,
-            audioFiles: audioFileReferenceProvider?()
+            audioFiles: audioFiles
         )
 
         do {

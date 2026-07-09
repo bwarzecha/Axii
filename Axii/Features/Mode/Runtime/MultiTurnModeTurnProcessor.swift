@@ -42,7 +42,8 @@ final class MultiTurnModeTurnProcessor {
     func process(
         capture: CompletedCapture,
         config: MultiTurnTurnConfig,
-        state: ModeRuntimeState
+        state: ModeRuntimeState,
+        isCurrent: @escaping () -> Bool = { true }
     ) async {
         do {
             // 1. Transcribe
@@ -50,6 +51,7 @@ final class MultiTurnModeTurnProcessor {
                 samples: capture.samples,
                 sampleRate: capture.sampleRate
             )
+            guard isCurrent() else { return }
 
             // 2. Empty transcription → done + dismiss
             guard !text.isEmpty else {
@@ -69,6 +71,7 @@ final class MultiTurnModeTurnProcessor {
                 userText: text,
                 currentSessionId: state.currentSessionId
             )
+            guard isCurrent() else { return }
             state.currentSessionId = turn.sessionId
 
             // 6. Choose LLM request shape and get response
@@ -84,6 +87,7 @@ final class MultiTurnModeTurnProcessor {
                 // First turn or single-message mode
                 response = try await responder.send(message: text)
             }
+            guard isCurrent() else { return }
 
             // 7. Append assistant display message
             state.messages.append(DisplayMessage(role: .assistant, content: response))
@@ -94,6 +98,7 @@ final class MultiTurnModeTurnProcessor {
                     sessionId: sessionId,
                     text: response
                 )
+                guard isCurrent() else { return }
             }
 
             // 9. Update final text and phase
@@ -101,6 +106,7 @@ final class MultiTurnModeTurnProcessor {
             state.phase = .done
 
         } catch {
+            guard isCurrent() else { return }
             let msg = (error as? TranscriptionError)?.errorDescription
                 ?? (error as? LocalizedError)?.errorDescription
                 ?? "Processing failed"

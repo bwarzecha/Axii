@@ -126,6 +126,7 @@ final class MeetingSaveRegressionTests: XCTestCase {
         func refreshAppList() async {}
         @discardableResult
         func checkCrashRecovery() -> MeetingCrashRecovery? { recovery }
+        var hasLiveCapture: Bool { false }
     }
 
     private func makePayload() -> MeetingPersistencePayload {
@@ -362,7 +363,7 @@ final class MeetingSaveRegressionTests: XCTestCase {
         }
     }
 
-    func testStaleStopDoesNotStompNewerStopsProcessingPhase() async throws {
+    func testConcurrentSaveStopsCoalesceIntoOne() async throws {
         let gated = GatedPersistence()
         let handler = StubMeetingHandler(stopResult: makePayload())
         let feature = makeFeature(meetingHandler: handler, meetingPersistence: gated)
@@ -375,24 +376,33 @@ final class MeetingSaveRegressionTests: XCTestCase {
             spins += 1
         }
 
-        // A newer stop (B) begins while A is still persisting; B's own
-        // handler.stop would set .processing again.
-        feature.state.phase = .processing
+        // A double-tap while the save is in flight must JOIN it — a second
+        // handler.stop against the already-detached capture would flip the
+        // UI to idle mid-save and suppress the first stop's error reporting.
         let stopB = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
+        XCTAssertEqual(feature.state.phase, .processing,
+                       "The joined stop must not disturb the in-flight save")
+
+        gated.release(0)
+        await stopA.value
+        await stopB.value
+        XCTAssertEqual(handler.stopCallCount, 1,
+                       "Coalesced stops issue exactly one handler.stop")
+        XCTAssertEqual(gated.continuations.count, 1,
+                       "Coalesced stops persist exactly once")
+        XCTAssertEqual(feature.state.phase, .idle)
+
+        // A LATER save-stop (after the first completed) is a fresh flow.
+        feature.state.phase = .processing
+        let stopC = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
         spins = 0
         while gated.continuations.count < 2, spins < 10_000 {
             await Task.yield()
             spins += 1
         }
-
-        gated.release(0)
-        await stopA.value
-        XCTAssertEqual(feature.state.phase, .processing,
-                       "A stale stop must not resolve a newer stop's .processing phase")
-
         gated.release(1)
-        await stopB.value
-        XCTAssertEqual(feature.state.phase, .idle)
+        await stopC.value
+        XCTAssertEqual(handler.stopCallCount, 2)
     }
 
     func testCrashRecovery_RestoresAudioFromSpoolFiles() async throws {

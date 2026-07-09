@@ -38,6 +38,22 @@ final class ModeFeature: Feature, ModeDismissControlling {
     /// occupy .processing, so a phase-value check alone cannot tell "my
     /// processing" from a newer session's. Incremented per stopMeeting.
     var meetingStopGeneration = 0
+    /// Identity token for single-shot/multi-turn turns. Bumped by teardown
+    /// and by each new turn: a processor resuming from an await must not
+    /// write state, paste, or schedule dismissal for a superseded turn.
+    var turnGeneration = 0
+    /// The in-flight post-capture turn, cancelled on teardown.
+    var turnTask: Task<Void, Never>?
+    /// The in-flight meeting save-stop: a second Stop tap must join it, not
+    /// race it (a second handler.stop would flip the UI to idle mid-save and
+    /// generation-suppress the first stop's error reporting).
+    var meetingStopTask: Task<Void, Never>?
+    /// Audio captured before a mid-recording mic switch: switching devices
+    /// must never destroy what was already said. Combined at stop.
+    var carriedRecordingSegments: [(samples: [Float], sampleRate: Double)] = []
+    /// The delayed restart after a mic switch — cancellable so a teardown
+    /// in the 0.1s gap cannot be resurrected by it.
+    var micSwitchRestartWorkItem: DispatchWorkItem?
     let pipelineRunner: PipelineRunner
     let meetingPersistence: any MeetingPersisting
 
@@ -206,9 +222,21 @@ final class ModeFeature: Feature, ModeDismissControlling {
 
     /// Shared teardown for cancel and cancelAndDeactivate.
     private func teardownRuntime() {
+        turnGeneration += 1
+        turnTask?.cancel(); turnTask = nil
         cancelScheduledDismiss()
+        micSwitchRestartWorkItem?.cancel(); micSwitchRestartWorkItem = nil
+        carriedRecordingSegments = []
         recordingHelper?.cancel(); recordingHelper = nil
-        meetingHandler?.cancel()
+        if let handler = meetingHandler, handler.hasLiveCapture,
+           case .error = state.phase {
+            // An errored meeting still holds a live capture: every exit
+            // salvages it to history (UX-2); the detached stop survives the
+            // reset below. Discard stays available via history delete.
+            stopMeeting(saveToHistory: true)
+        } else {
+            meetingHandler?.cancel()
+        }
         state.clearConversationSession()
         state.reset()
         isActive = false
@@ -319,7 +347,13 @@ final class ModeFeature: Feature, ModeDismissControlling {
         case .done:
             if state.needsManualCopy { copyAndDismiss(state.manualCopyText) }
             else { cancelScheduledDismiss(); startSimpleRecording() }
-        case .transcribing, .error: cancelAndDeactivate()
+        case .transcribing: cancelAndDeactivate()
+        case .error:
+            // The panel labels the hotkey "Retry" in this phase — retry,
+            // don't dismiss.
+            cancelScheduledDismiss()
+            state.reset()
+            startSimpleRecording()
         case .preparing, .processing: break
         }
     }
@@ -360,7 +394,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
 
     func cancelAndDeactivate() {
         teardownRuntime()
-        context?.onDeactivate?()
+        context?.onDeactivate?(self)
     }
 
     // MARK: - ModeDismissControlling

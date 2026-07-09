@@ -41,7 +41,10 @@ final class FeatureContext {
     var onActivate: ((any Feature) -> Void)?
 
     /// Call when feature is done (hides UI, releases control)
-    var onDeactivate: (() -> Void)?
+    /// Deactivation is identity-checked: the requester passes itself so a
+    /// stale dismiss from a superseded turn can never tear down a DIFFERENT
+    /// feature's live session.
+    var onDeactivate: ((any Feature) -> Void)?
 
     init(
         hotkeyService: any HotkeyRegistering,
