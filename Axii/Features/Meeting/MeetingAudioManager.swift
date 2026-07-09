@@ -99,10 +99,26 @@ final class MeetingAudioManager {
         }
 
         // Start combined capture
-        try await session.start(config: SessionConfig(
-            source: .combined(microphone: micSource, apps: appSelection),
-            onDeviceDisconnect: .fallbackToDefault
-        ))
+        do {
+            try await session.start(config: SessionConfig(
+                source: .combined(microphone: micSource, apps: appSelection),
+                onDeviceDisconnect: .fallbackToDefault
+            ))
+        } catch {
+            // The stream tasks await continuations that never finish when
+            // start throws (AudioSession.stop no-ops before isRunning), so
+            // they must be cancelled here or they leak for the app lifetime.
+            chunkTask?.cancel()
+            eventTask?.cancel()
+            chunkTask = nil
+            eventTask = nil
+            audioSession = nil
+            try? micFileHandle?.close()
+            try? systemFileHandle?.close()
+            micFileHandle = nil
+            systemFileHandle = nil
+            throw error
+        }
 
         isRecording = true
     }
@@ -193,10 +209,24 @@ final class MeetingAudioManager {
             }
         }
 
-        try await session.start(config: SessionConfig(
-            source: .combined(microphone: micSource, apps: appSelection),
-            onDeviceDisconnect: .fallbackToDefault
-        ))
+        do {
+            try await session.start(config: SessionConfig(
+                source: .combined(microphone: micSource, apps: appSelection),
+                onDeviceDisconnect: .fallbackToDefault
+            ))
+        } catch {
+            chunkTask?.cancel()
+            eventTask?.cancel()
+            chunkTask = nil
+            eventTask = nil
+            audioSession = nil
+            try? micFileHandle?.close()
+            try? systemFileHandle?.close()
+            micFileHandle = nil
+            systemFileHandle = nil
+            onError?("Failed to switch audio source: \(error.localizedDescription)")
+            throw error
+        }
 
         isRecording = true
     }
@@ -252,10 +282,13 @@ final class MeetingAudioManager {
 
     private func setupTempAudioFiles() {
         let tempDir = FileManager.default.temporaryDirectory
-        let timestamp = Int(Date().timeIntervalSince1970)
+        // UUID, not a timestamp: a stop-and-restart within the same second
+        // must never produce colliding paths, or the finishing session reads
+        // and deletes the new session's live files.
+        let sessionToken = UUID().uuidString
 
-        micFilePath = tempDir.appendingPathComponent("meeting_mic_\(timestamp).raw")
-        systemFilePath = tempDir.appendingPathComponent("meeting_system_\(timestamp).raw")
+        micFilePath = tempDir.appendingPathComponent("meeting_mic_\(sessionToken).raw")
+        systemFilePath = tempDir.appendingPathComponent("meeting_system_\(sessionToken).raw")
         micSampleCount = 0
         systemSampleCount = 0
 
