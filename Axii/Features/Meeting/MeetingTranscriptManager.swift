@@ -59,7 +59,9 @@ final class MeetingTranscriptManager {
 
     // MARK: - Auto-save Path
 
-    private static var autoSavePath: URL {
+    /// The production autosave location. Injectable per instance so tests
+    /// never read or write a real user's recovery file.
+    static var defaultAutosaveFileURL: URL {
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -75,12 +77,17 @@ final class MeetingTranscriptManager {
         return axiiDir.appendingPathComponent("meeting_autosave.json")
     }
 
-    private var autoSavePath: URL { Self.autoSavePath }
+    let autosaveFileURL: URL
+    private var autoSavePath: URL { autosaveFileURL }
 
     // MARK: - Initialization
 
-    init(transcriptionService: any TranscriptionProviding) {
+    init(
+        transcriptionService: any TranscriptionProviding,
+        autosaveFileURL: URL? = nil
+    ) {
         self.transcriptionService = transcriptionService
+        self.autosaveFileURL = autosaveFileURL ?? Self.defaultAutosaveFileURL
     }
 
     deinit {
@@ -206,14 +213,14 @@ final class MeetingTranscriptManager {
     /// Clear the auto-save file only if it belongs to the given session.
     /// Used at the persistence commit point, which may run long after the
     /// capture ended — by then a newer recording may own the file.
-    static func clearAutoSave(matching sessionID: UUID) {
-        guard let jsonData = try? Data(contentsOf: autoSavePath),
+    static func clearAutoSave(matching sessionID: UUID, at fileURL: URL) {
+        guard let jsonData = try? Data(contentsOf: fileURL),
               let data = try? JSONDecoder().decode(AutoSaveData.self, from: jsonData)
         else { return }
         // Files from older builds have no sessionID; treat them as owned by
         // whoever is committing (there can only have been one writer).
         guard data.sessionID == nil || data.sessionID == sessionID else { return }
-        try? FileManager.default.removeItem(at: autoSavePath)
+        try? FileManager.default.removeItem(at: fileURL)
     }
 
     // MARK: - Real-Time Transcription

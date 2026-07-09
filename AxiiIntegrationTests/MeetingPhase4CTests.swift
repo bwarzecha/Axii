@@ -212,6 +212,8 @@ final class MeetingPhase4CTests: XCTestCase {
         var useLongRunningChunkTasks = false
 
         let sessionID = UUID()
+        let autosaveFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("phase4c-autosave-\(UUID().uuidString).json")
         private(set) var resetCount = 0
         private(set) var startAutoSaveCount = 0
         private(set) var stopAutoSaveCount = 0

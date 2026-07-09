@@ -39,6 +39,7 @@ extension MeetingAudioManager: MeetingAudioManaging {}
 protocol MeetingTranscriptManaging: AnyObject {
     var onSegmentsUpdated: (([MeetingSegment]) -> Void)? { get set }
     var sessionID: UUID { get }
+    var autosaveFileURL: URL { get }
 
     func reset()
     func setSelectedApp(_ app: AudioApp?)
@@ -79,6 +80,7 @@ struct MeetingCapturedAudio {
 /// recoverable — clearing them any earlier is data loss.
 struct MeetingRecoveryArtifacts: Sendable {
     let sessionID: UUID
+    let autosaveFileURL: URL
     let micFileURL: URL?
     let systemFileURL: URL?
 
@@ -92,7 +94,10 @@ struct MeetingRecoveryArtifacts: Sendable {
         if let systemFileURL {
             try? FileManager.default.removeItem(at: systemFileURL)
         }
-        MeetingTranscriptManager.clearAutoSave(matching: sessionID)
+        MeetingTranscriptManager.clearAutoSave(
+            matching: sessionID,
+            at: autosaveFileURL
+        )
     }
 }
 #endif

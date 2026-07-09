@@ -160,6 +160,7 @@ final class MeetingCaptureSession {
             recoveryArtifacts: capture.transcript.map {
                 MeetingRecoveryArtifacts(
                     sessionID: $0.sessionID,
+                    autosaveFileURL: $0.autosaveFileURL,
                     micFileURL: stoppedAudio.micFile,
                     systemFileURL: stoppedAudio.systemFile
                 )
