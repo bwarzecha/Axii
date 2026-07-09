@@ -175,7 +175,7 @@ final class MeetingTranscriptManager {
     /// Scope: recovery covers streamed transcript segments only. With
     /// streaming transcription disabled nothing is autosaved, and temp
     /// audio in the system temp directory is not recovered.
-    func checkForCrashRecovery() -> (segments: [MeetingSegment], duration: TimeInterval)? {
+    func checkForCrashRecovery() -> MeetingCrashRecovery? {
         guard FileManager.default.fileExists(atPath: autoSavePath.path) else {
             return nil
         }
@@ -189,7 +189,7 @@ final class MeetingTranscriptManager {
             )
             if let modified = attributes[.modificationDate] as? Date,
                Date().timeIntervalSince(modified) > 3600 {
-                clearAutoSave()
+                removeAutoSaveFile()
                 return nil
             }
 
@@ -197,16 +197,31 @@ final class MeetingTranscriptManager {
             let data = try JSONDecoder().decode(AutoSaveData.self, from: jsonData)
 
             print("MeetingTranscriptManager: Found recovery data with \(data.segments.count) segments")
-            return (data.segments, data.duration)
+            return MeetingCrashRecovery(
+                segments: data.segments,
+                duration: data.duration,
+                appName: data.selectedAppName,
+                sessionID: data.sessionID,
+                autosaveFileURL: autosaveFileURL
+            )
         } catch {
             print("MeetingTranscriptManager: Failed to read recovery data: \(error)")
-            clearAutoSave()
+            removeAutoSaveFile()
             return nil
         }
     }
 
     /// Clear auto-save file (deliberate discard of the live session).
+    /// Session-scoped: if this session never wrote the file, it may still
+    /// hold a CRASHED session's recovery data — discarding a brand-new
+    /// recording must not destroy that.
     func clearAutoSave() {
+        Self.clearAutoSave(matching: sessionID, at: autoSavePath)
+    }
+
+    /// Unconditional removal — only for expired or unreadable files, which
+    /// cannot be ownership-checked and are useless for recovery anyway.
+    private func removeAutoSaveFile() {
         try? FileManager.default.removeItem(at: autoSavePath)
     }
 

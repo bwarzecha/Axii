@@ -34,6 +34,10 @@ final class ModeFeature: Feature, ModeDismissControlling {
 
     // Pipeline handlers (created based on config)
     var meetingHandler: (any MeetingPipelineHandling)?
+    /// Identity token for meeting stop flows: two overlapping stops can both
+    /// occupy .processing, so a phase-value check alone cannot tell "my
+    /// processing" from a newer session's. Incremented per stopMeeting.
+    var meetingStopGeneration = 0
     let pipelineRunner: PipelineRunner
     let meetingPersistence: any MeetingPersisting
 
@@ -185,7 +189,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
             Task { @MainActor in self?.refreshDeviceList() }
         }
         if config.lifecycle.enableCrashRecovery {
-            meetingHandler?.checkCrashRecovery()
+            recoverCrashedMeetingIfNeeded()
         }
     }
 

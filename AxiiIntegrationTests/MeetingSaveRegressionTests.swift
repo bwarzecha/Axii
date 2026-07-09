@@ -96,6 +96,7 @@ final class MeetingSaveRegressionTests: XCTestCase {
     @MainActor
     private final class StubMeetingHandler: MeetingPipelineHandling {
         private let stopResult: MeetingStopResult?
+        var recovery: MeetingCrashRecovery?
         private(set) var stopCallCount = 0
         private(set) var stopSaveToHistory: Bool?
 
@@ -118,7 +119,8 @@ final class MeetingSaveRegressionTests: XCTestCase {
             micSource: AudioSource.MicrophoneSource
         ) async {}
         func refreshAppList() async {}
-        func checkCrashRecovery() {}
+        @discardableResult
+        func checkCrashRecovery() -> MeetingCrashRecovery? { recovery }
     }
 
     private func makePayload() -> MeetingPersistencePayload {
@@ -258,6 +260,133 @@ final class MeetingSaveRegressionTests: XCTestCase {
                       "A meeting that failed to save must stay recoverable")
         XCTAssertTrue(FileManager.default.fileExists(atPath: autosaveFile.path),
                       "A meeting that failed to save must stay recoverable")
+    }
+
+    // MARK: - Crash Recovery Auto-Persist
+
+    private func makeRecovery(
+        autosaveFile: URL,
+        sessionID: UUID
+    ) throws -> MeetingCrashRecovery {
+        try Data(
+            #"{"segments":[],"duration":5,"startTime":0,"selectedAppName":null,"sessionID":"\#(sessionID.uuidString)"}"#
+                .utf8
+        ).write(to: autosaveFile)
+        let segment = MeetingSegment(
+            text: "recovered",
+            speakerId: "You",
+            isFromMicrophone: true,
+            startTime: 0,
+            endTime: 1
+        )
+        return MeetingCrashRecovery(
+            segments: [segment],
+            duration: 5,
+            appName: "Zoom",
+            sessionID: sessionID,
+            autosaveFileURL: autosaveFile
+        )
+    }
+
+    func testCrashRecovery_PersistsRecoveredMeetingAndReleasesFile() async throws {
+        let autosaveFile = tempDir.appendingPathComponent("recovery-autosave.json")
+        let handler = StubMeetingHandler(stopResult: nil)
+        handler.recovery = try makeRecovery(autosaveFile: autosaveFile, sessionID: UUID())
+        let spy = SpyPersistence()
+        let feature = makeFeature(meetingHandler: handler, meetingPersistence: spy)
+
+        let task = try XCTUnwrap(feature.recoverCrashedMeetingIfNeeded())
+        await task.value
+
+        XCTAssertEqual(spy.callCount, 1, "A recovered transcript must land in history")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: autosaveFile.path),
+                       "The recovery file is released once the transcript is durable")
+    }
+
+    func testCrashRecovery_PersistFailureKeepsFileForNextLaunch() async throws {
+        let autosaveFile = tempDir.appendingPathComponent("recovery-autosave.json")
+        let handler = StubMeetingHandler(stopResult: nil)
+        handler.recovery = try makeRecovery(autosaveFile: autosaveFile, sessionID: UUID())
+        let feature = makeFeature(
+            meetingHandler: handler,
+            meetingPersistence: FailingPersistence()
+        )
+
+        let task = try XCTUnwrap(feature.recoverCrashedMeetingIfNeeded())
+        await task.value
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: autosaveFile.path),
+                      "Recovery must be re-offered next launch when persisting it failed")
+    }
+
+    func testCrashRecovery_HistoryDisabledLeavesFileAlone() async throws {
+        historyService.isEnabled = false
+        let autosaveFile = tempDir.appendingPathComponent("recovery-autosave.json")
+        let handler = StubMeetingHandler(stopResult: nil)
+        handler.recovery = try makeRecovery(autosaveFile: autosaveFile, sessionID: UUID())
+        let spy = SpyPersistence()
+        let feature = makeFeature(meetingHandler: handler, meetingPersistence: spy)
+
+        XCTAssertNil(feature.recoverCrashedMeetingIfNeeded())
+        XCTAssertEqual(spy.callCount, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: autosaveFile.path))
+    }
+
+    // MARK: - Stale Stop Cannot Stomp A Newer Stop
+
+    /// Persistence fake that suspends every call until released, in order.
+    @MainActor
+    private final class GatedPersistence: MeetingPersisting {
+        private(set) var continuations: [CheckedContinuation<Void, Never>] = []
+
+        func persist(
+            payload: MeetingPersistencePayload,
+            audioFormat: AudioStorageFormat
+        ) async throws -> Meeting {
+            await withCheckedContinuation { continuations.append($0) }
+            return Meeting(
+                segments: payload.segments,
+                duration: payload.duration,
+                appName: payload.appName
+            )
+        }
+
+        func release(_ index: Int) {
+            continuations[index].resume()
+        }
+    }
+
+    func testStaleStopDoesNotStompNewerStopsProcessingPhase() async throws {
+        let gated = GatedPersistence()
+        let handler = StubMeetingHandler(stopResult: makePayload())
+        let feature = makeFeature(meetingHandler: handler, meetingPersistence: gated)
+
+        feature.state.phase = .processing
+        let stopA = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
+        var spins = 0
+        while gated.continuations.count < 1, spins < 10_000 {
+            await Task.yield()
+            spins += 1
+        }
+
+        // A newer stop (B) begins while A is still persisting; B's own
+        // handler.stop would set .processing again.
+        feature.state.phase = .processing
+        let stopB = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
+        spins = 0
+        while gated.continuations.count < 2, spins < 10_000 {
+            await Task.yield()
+            spins += 1
+        }
+
+        gated.release(0)
+        await stopA.value
+        XCTAssertEqual(feature.state.phase, .processing,
+                       "A stale stop must not resolve a newer stop's .processing phase")
+
+        gated.release(1)
+        await stopB.value
+        XCTAssertEqual(feature.state.phase, .idle)
     }
 
     func testHistoryDisabled_StillClearsRecoveryArtifacts() async throws {

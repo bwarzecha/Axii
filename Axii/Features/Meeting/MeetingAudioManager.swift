@@ -124,8 +124,14 @@ final class MeetingAudioManager {
     }
 
     /// Stop recording and return file paths with their original sample rates.
+    /// Also returns the paths when not actively recording: after a failed
+    /// switchApp restart leg the capture is dead but the temp files still
+    /// hold the entire recording — returning nil here would persist an
+    /// empty meeting and let the commit delete the recovery data.
     func stop() -> (micFile: URL?, micRate: Double, systemFile: URL?, systemRate: Double) {
-        guard isRecording else { return (nil, 0, nil, 0) }
+        guard isRecording else {
+            return (micFilePath, micOriginalSampleRate, systemFilePath, systemOriginalSampleRate)
+        }
 
         // Cancel tasks
         chunkTask?.cancel()

@@ -208,7 +208,7 @@ final class MeetingPhase4CTests: XCTestCase {
 
     private final class FakeTranscriptManager: MeetingTranscriptManaging {
         var onSegmentsUpdated: (([MeetingSegment]) -> Void)?
-        var recovery: (segments: [MeetingSegment], duration: TimeInterval)?
+        var recovery: MeetingCrashRecovery?
         var useLongRunningChunkTasks = false
 
         let sessionID = UUID()
@@ -248,10 +248,7 @@ final class MeetingPhase4CTests: XCTestCase {
             clearAutoSaveCount += 1
         }
 
-        func checkForCrashRecovery() -> (
-            segments: [MeetingSegment],
-            duration: TimeInterval
-        )? {
+        func checkForCrashRecovery() -> MeetingCrashRecovery? {
             crashRecoveryCheckCount += 1
             return recovery
         }
@@ -556,7 +553,13 @@ final class MeetingPhase4CTests: XCTestCase {
         let segment = makeSegment(text: "recovered")
         let audio = FakeAudioManager()
         let transcript = FakeTranscriptManager()
-        transcript.recovery = ([segment], 42)
+        transcript.recovery = MeetingCrashRecovery(
+            segments: [segment],
+            duration: 42,
+            appName: nil,
+            sessionID: transcript.sessionID,
+            autosaveFileURL: transcript.autosaveFileURL
+        )
         let session = makeCaptureSession(audio: audio, transcript: transcript)
 
         let recovery = session.checkCrashRecovery()
@@ -605,8 +608,14 @@ final class MeetingPhase4CTests: XCTestCase {
                 streamingEnabled: true
             ))
         }
+        var spins = 0
         while audio.startCallCount == 0 {
             await Task.yield()
+            spins += 1
+            if spins > 10_000 {
+                XCTFail("audio.start was never reached")
+                return
+            }
         }
 
         // User cancels while the panel shows "Preparing...".
@@ -662,8 +671,14 @@ final class MeetingPhase4CTests: XCTestCase {
         let stopTask = Task {
             await session.stop(saveToHistory: true)
         }
+        var spins = 0
         while firstAudio.stopCallCount == 0 {
             await Task.yield()
+            spins += 1
+            if spins > 10_000 {
+                XCTFail("audio.stop was never reached")
+                return
+            }
         }
 
         try await session.start(configuration: MeetingCaptureStartConfiguration(

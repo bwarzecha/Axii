@@ -234,7 +234,7 @@ final class ChaosTranscriptManager: MeetingTranscriptManaging {
         }
     }
 
-    func checkForCrashRecovery() -> (segments: [MeetingSegment], duration: TimeInterval)? {
+    func checkForCrashRecovery() -> MeetingCrashRecovery? {
         nil
     }
 

@@ -47,15 +47,23 @@ protocol MeetingTranscriptManaging: AnyObject {
     func stopAutoSave()
     func flushAutoSave()
     func clearAutoSave()
-    func checkForCrashRecovery() -> (
-        segments: [MeetingSegment],
-        duration: TimeInterval
-    )?
+    func checkForCrashRecovery() -> MeetingCrashRecovery?
     @discardableResult
     func transcribeChunk(_ chunk: TranscriptionChunk) -> Task<Void, Never>
 }
 
 extension MeetingTranscriptManager: MeetingTranscriptManaging {}
+
+/// Recovered transcript from a crashed session, with everything needed to
+/// persist it and then release its recovery file.
+struct MeetingCrashRecovery {
+    let segments: [MeetingSegment]
+    let duration: TimeInterval
+    let appName: String?
+    /// nil for files written by pre-sessionID builds.
+    let sessionID: UUID?
+    let autosaveFileURL: URL
+}
 
 struct MeetingCaptureStartConfiguration {
     let selectedApp: AudioApp?

@@ -172,14 +172,16 @@ final class MeetingCaptureSession {
 
     func cancel() {
         let capture = detachCurrentCapture()
-        guard switches.hasPending else {
+        // Snapshot NOW: a switch mid-flight would resurrect audio after a
+        // synchronous stop, so discard is deferred behind it — but only
+        // behind switches that already exist, never behind a newer
+        // session's chain.
+        guard let pending = switches.currentPending else {
             discard(capture)
             return
         }
-        // A switch is mid-flight: its restart leg would resurrect audio after
-        // a synchronous stop here. Let it settle, then discard.
         Task { @MainActor in
-            await self.switches.settle()
+            await pending.value
             self.discard(capture)
         }
     }
@@ -223,10 +225,7 @@ final class MeetingCaptureSession {
 
     // MARK: - Crash Recovery
 
-    func checkCrashRecovery() -> (
-        segments: [MeetingSegment],
-        duration: TimeInterval
-    )? {
+    func checkCrashRecovery() -> MeetingCrashRecovery? {
         transcriptManagerFactory().checkForCrashRecovery()
     }
 

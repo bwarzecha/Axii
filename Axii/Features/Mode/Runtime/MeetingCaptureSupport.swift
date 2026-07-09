@@ -22,6 +22,12 @@ final class MeetingSwitchSerializer {
 
     var hasPending: Bool { pending != nil }
 
+    /// Snapshot of the newest switch at this instant. Callers that defer
+    /// work must await THIS task, not settle() later — by then a newer
+    /// session's switches may have chained onto the slot, delaying the
+    /// deferred work arbitrarily.
+    var currentPending: Task<Void, Never>? { pending }
+
     @discardableResult
     func run(_ operation: @escaping () async -> Void) -> Task<Void, Never> {
         let previous = pending
@@ -45,6 +51,9 @@ final class MeetingSwitchSerializer {
 final class MeetingDurationTicker {
     private var timer: Timer?
     private(set) var duration: TimeInterval = 0
+    // A tick Task enqueued just before invalidation would otherwise land
+    // after reset() and write the OLD recording's elapsed time.
+    private var run = 0
 
     var onTick: ((TimeInterval) -> Void)?
 
@@ -57,13 +66,15 @@ final class MeetingDurationTicker {
     }
 
     func start() {
+        run += 1
+        let currentRun = run
         let startTime = Date()
         timer = Timer.scheduledTimer(
             withTimeInterval: 1.0,
             repeats: true
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.run == currentRun else { return }
                 self.duration = Date().timeIntervalSince(startTime)
                 self.onTick?(self.duration)
             }
@@ -71,6 +82,7 @@ final class MeetingDurationTicker {
     }
 
     func stop() {
+        run += 1
         timer?.invalidate()
         timer = nil
     }

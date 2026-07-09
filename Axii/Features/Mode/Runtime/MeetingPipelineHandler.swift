@@ -49,7 +49,8 @@ protocol MeetingPipelineHandling: AnyObject {
         micSource: AudioSource.MicrophoneSource
     ) async
     func refreshAppList() async
-    func checkCrashRecovery()
+    @discardableResult
+    func checkCrashRecovery() -> MeetingCrashRecovery?
 }
 
 // MARK: - MeetingPipelineHandler
@@ -104,7 +105,12 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
         let gen = generation
         do {
             state.phase = .preparing
-            switch try await startCoordinator.requestStart() {
+            let outcome = try await startCoordinator.requestStart()
+            // The await above can take seconds (ASR model load). If the user
+            // cancelled or restarted meanwhile, this start no longer owns the
+            // session and must not launch a capture behind a closed panel.
+            guard generation == gen else { return }
+            switch outcome {
             case .readyToRecord:
                 try await beginRecording()
             case .waitingForScreenRecording:
@@ -216,11 +222,12 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
 
     // MARK: - Crash Recovery
 
-    func checkCrashRecovery() {
-        if let recovery = captureSession.checkCrashRecovery() {
-            state.segments = recovery.segments
-            state.duration = recovery.duration
-        }
+    @discardableResult
+    func checkCrashRecovery() -> MeetingCrashRecovery? {
+        guard let recovery = captureSession.checkCrashRecovery() else { return nil }
+        state.segments = recovery.segments
+        state.duration = recovery.duration
+        return recovery
     }
 
     // MARK: - Private: Capture Session
