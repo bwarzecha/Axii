@@ -216,8 +216,14 @@ final class MeetingConcurrencyFuzzTests: XCTestCase {
     }
 
     func testFuzzCaptureLifecycleAcrossSeededSchedules() async {
+        // Default 500 seeds (~1s). Deep runs set AXII_FUZZ_SEEDS
+        // (TEST_RUNNER_AXII_FUZZ_SEEDS via xcodebuild) — see
+        // Scripts/reliability-suite.sh.
+        let seedCount = Int(
+            ProcessInfo.processInfo.environment["AXII_FUZZ_SEEDS"] ?? ""
+        ) ?? 500
         var failures: [String] = []
-        for seed in 0..<500 {
+        for seed in 0..<seedCount {
             let iterationViolations = await runWatchedIteration(seed: UInt64(seed))
             if !iterationViolations.isEmpty {
                 failures.append("seed \(seed): \(iterationViolations.joined(separator: " | "))")

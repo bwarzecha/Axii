@@ -78,12 +78,14 @@ final class MeetingSaveRegressionTests: XCTestCase {
     @MainActor
     private final class SpyPersistence: MeetingPersisting {
         private(set) var callCount = 0
+        private(set) var lastPayload: MeetingPersistencePayload?
 
         func persist(
             payload: MeetingPersistencePayload,
             audioFormat: AudioStorageFormat
         ) async throws -> Meeting {
             callCount += 1
+            lastPayload = payload
             return Meeting(
                 segments: payload.segments,
                 duration: payload.duration,
@@ -114,10 +116,13 @@ final class MeetingSaveRegressionTests: XCTestCase {
 
         func cancel() {}
         func selectApp(_ app: AudioApp?) {}
+        private(set) var micSwitches: [(device: AudioDevice?, micSource: AudioSource.MicrophoneSource)] = []
         func switchMicrophone(
             to device: AudioDevice?,
             micSource: AudioSource.MicrophoneSource
-        ) async {}
+        ) async {
+            micSwitches.append((device, micSource))
+        }
         func refreshAppList() async {}
         @discardableResult
         func checkCrashRecovery() -> MeetingCrashRecovery? { recovery }
@@ -284,7 +289,8 @@ final class MeetingSaveRegressionTests: XCTestCase {
             duration: 5,
             appName: "Zoom",
             sessionID: sessionID,
-            autosaveFileURL: autosaveFile
+            autosaveFileURL: autosaveFile,
+            audioFiles: nil
         )
     }
 
@@ -387,6 +393,111 @@ final class MeetingSaveRegressionTests: XCTestCase {
         gated.release(1)
         await stopB.value
         XCTAssertEqual(feature.state.phase, .idle)
+    }
+
+    func testCrashRecovery_RestoresAudioFromSpoolFiles() async throws {
+        let autosaveFile = tempDir.appendingPathComponent("recovery-autosave.json")
+        let micFile = tempDir.appendingPathComponent("spool-mic.raw")
+        let samples: [Float] = [0.25, -0.5, 0.75]
+        try samples.withUnsafeBufferPointer { Data(buffer: $0) }.write(to: micFile)
+
+        let handler = StubMeetingHandler(stopResult: nil)
+        var recovery = try makeRecovery(autosaveFile: autosaveFile, sessionID: UUID())
+        recovery = MeetingCrashRecovery(
+            segments: recovery.segments,
+            duration: recovery.duration,
+            appName: recovery.appName,
+            sessionID: recovery.sessionID,
+            autosaveFileURL: recovery.autosaveFileURL,
+            audioFiles: MeetingAudioFileReferences(
+                micFileURL: micFile,
+                micSampleRate: 48_000,
+                systemFileURL: nil,
+                systemSampleRate: 0
+            )
+        )
+        handler.recovery = recovery
+        let spy = SpyPersistence()
+        let feature = makeFeature(meetingHandler: handler, meetingPersistence: spy)
+
+        let task = try XCTUnwrap(feature.recoverCrashedMeetingIfNeeded())
+        await task.value
+
+        XCTAssertEqual(spy.lastPayload?.micSamples, samples,
+                       "Recovered meeting must include the spooled audio")
+        XCTAssertEqual(spy.lastPayload?.micSampleRate, 48_000)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: micFile.path),
+                       "Spool audio is released once the recovered meeting is durable")
+    }
+
+    // MARK: - Mic Reconciliation During A Meeting
+
+    private func makeDevice(uid: String) -> AudioDevice {
+        AudioDevice(id: 0, uid: uid, name: uid, transportType: .usb)
+    }
+
+    func testMicUnplugDuringMeetingSwitchesCaptureToDefault() async throws {
+        let handler = StubMeetingHandler(stopResult: nil)
+        let feature = makeFeature(meetingHandler: handler)
+        feature.state.phase = .recording
+
+        let task = feature.reconcileMicrophoneSelection(
+            resolved: nil,
+            previous: makeDevice(uid: "usb-mic")
+        )
+        await task?.value
+
+        XCTAssertEqual(handler.micSwitches.count, 1)
+        XCTAssertNil(handler.micSwitches.first?.device)
+        if case .systemDefault = handler.micSwitches.first?.micSource {
+        } else {
+            XCTFail("Unplug must fall back to the system default source")
+        }
+    }
+
+    func testMicReplugDuringMeetingSwitchesBackToPreferredDevice() async throws {
+        let handler = StubMeetingHandler(stopResult: nil)
+        let feature = makeFeature(meetingHandler: handler)
+        feature.state.phase = .recording
+        let preferred = makeDevice(uid: "usb-mic")
+
+        let task = feature.reconcileMicrophoneSelection(
+            resolved: preferred,
+            previous: nil
+        )
+        await task?.value
+
+        XCTAssertEqual(handler.micSwitches.count, 1)
+        XCTAssertEqual(handler.micSwitches.first?.device?.uid, "usb-mic")
+    }
+
+    func testDeviceChangeOutsideRecordingDoesNotTouchCapture() async throws {
+        let handler = StubMeetingHandler(stopResult: nil)
+        let feature = makeFeature(meetingHandler: handler)
+        feature.state.phase = .idle
+
+        let task = feature.reconcileMicrophoneSelection(
+            resolved: makeDevice(uid: "usb-mic"),
+            previous: nil
+        )
+
+        XCTAssertNil(task, "No reconciliation outside an active recording")
+        XCTAssertTrue(handler.micSwitches.isEmpty)
+    }
+
+    func testUnchangedDeviceDoesNotRestartCapture() async throws {
+        let handler = StubMeetingHandler(stopResult: nil)
+        let feature = makeFeature(meetingHandler: handler)
+        feature.state.phase = .recording
+        let device = makeDevice(uid: "usb-mic")
+
+        let task = feature.reconcileMicrophoneSelection(
+            resolved: device,
+            previous: device
+        )
+
+        XCTAssertNil(task, "Same device must not trigger a capture restart")
+        XCTAssertTrue(handler.micSwitches.isEmpty)
     }
 
     func testHistoryDisabled_StillClearsRecoveryArtifacts() async throws {

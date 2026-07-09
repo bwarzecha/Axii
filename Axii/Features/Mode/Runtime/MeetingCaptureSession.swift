@@ -273,6 +273,7 @@ final class MeetingCaptureSession {
         audio?.onTranscriptionChunk = nil
         audio?.onError = nil
         transcript?.onSegmentsUpdated = nil
+        transcript?.audioFileReferenceProvider = nil
     }
 
     // MARK: - Private: Callback Wiring
@@ -290,6 +291,9 @@ final class MeetingCaptureSession {
         }
         transcript.onSegmentsUpdated = { [weak self] segments in
             self?.onSegmentsUpdated?(segments)
+        }
+        transcript.audioFileReferenceProvider = { [weak audio] in
+            audio?.audioFileReferences
         }
 
         guard streamingEnabled else {

@@ -237,8 +237,58 @@ final class MeetingAudioManager {
         isRecording = true
     }
 
+    /// In-progress recordings live in Application Support (not the system
+    /// temp directory) so a crashed session's audio survives for recovery.
+    /// Files are deleted at the persistence commit point, on discard, or by
+    /// the expiry sweep at launch.
+    static var recordingSpoolDirectory: URL {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first!
+        let dir = appSupport.appendingPathComponent("Axii/InProgressRecordings")
+        try? FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true
+        )
+        return dir
+    }
+
+    /// Remove spool files whose last write is older than the recovery
+    /// window. Run at launch, before any capture starts, so it can never
+    /// touch a live recording.
+    static func cleanExpiredSpoolFiles(olderThan age: TimeInterval = 3_600) {
+        let fileManager = FileManager.default
+        guard let files = try? fileManager.contentsOfDirectory(
+            at: recordingSpoolDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return }
+        for file in files {
+            let modified = (try? file.resourceValues(
+                forKeys: [.contentModificationDateKey]
+            ))?.contentModificationDate
+            if let modified, Date().timeIntervalSince(modified) > age {
+                try? fileManager.removeItem(at: file)
+            }
+        }
+    }
+
+    var audioFileReferences: MeetingAudioFileReferences? {
+        guard micFilePath != nil || systemFilePath != nil else { return nil }
+        return MeetingAudioFileReferences(
+            micFileURL: micFilePath,
+            micSampleRate: micOriginalSampleRate,
+            systemFileURL: systemFilePath,
+            systemSampleRate: systemOriginalSampleRate
+        )
+    }
+
     /// Read all samples from a file (for final transcription).
     func readSamplesFromFile(_ url: URL?) -> [Float] {
+        Self.readRawSamples(from: url)
+    }
+
+    /// Raw float32 spool-file reader — also used by crash recovery, which
+    /// has no live manager instance.
+    static func readRawSamples(from url: URL?) -> [Float] {
         guard let url = url else { return [] }
 
         do {
@@ -287,14 +337,14 @@ final class MeetingAudioManager {
     // MARK: - Private Methods
 
     private func setupTempAudioFiles() {
-        let tempDir = FileManager.default.temporaryDirectory
+        let spoolDir = Self.recordingSpoolDirectory
         // UUID, not a timestamp: a stop-and-restart within the same second
         // must never produce colliding paths, or the finishing session reads
         // and deletes the new session's live files.
         let sessionToken = UUID().uuidString
 
-        micFilePath = tempDir.appendingPathComponent("meeting_mic_\(sessionToken).raw")
-        systemFilePath = tempDir.appendingPathComponent("meeting_system_\(sessionToken).raw")
+        micFilePath = spoolDir.appendingPathComponent("meeting_mic_\(sessionToken).raw")
+        systemFilePath = spoolDir.appendingPathComponent("meeting_system_\(sessionToken).raw")
         micSampleCount = 0
         systemSampleCount = 0
 

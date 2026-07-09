@@ -267,23 +267,30 @@ final class ModeFeature: Feature, ModeDismissControlling {
 
     private func refreshDeviceList() {
         state.availableMicrophones = DeviceMonitor.availableMicrophones()
-        let resolved = resolveSelectedMicrophone()
-        let previous = state.selectedMicrophone
-        state.selectedMicrophone = resolved
+        reconcileMicrophoneSelection(
+            resolved: resolveSelectedMicrophone(),
+            previous: state.selectedMicrophone
+        )
+    }
 
-        // A meeting captures with the device it was started with; if the
-        // resolved selection changed under it (unplug → nil, replug → the
-        // preferred mic again), the capture session must be told or its
-        // stored selection drifts from what the user sees. Dictation needs
-        // no reconciliation: it resolves the device fresh on each start.
-        if let handler = meetingHandler,
-           state.phase == .recording,
-           resolved?.uid != previous?.uid {
-            let source: AudioSource.MicrophoneSource =
-                resolved.map { .specific($0) } ?? .systemDefault
-            Task {
-                await handler.switchMicrophone(to: resolved, micSource: source)
-            }
+    /// A meeting captures with the device it was started with; if the
+    /// resolved selection changed under it (unplug → nil, replug → the
+    /// preferred mic again), the capture session must be told or its
+    /// stored selection drifts from what the user sees. Dictation needs
+    /// no reconciliation: it resolves the device fresh on each start.
+    @discardableResult
+    func reconcileMicrophoneSelection(
+        resolved: AudioDevice?,
+        previous: AudioDevice?
+    ) -> Task<Void, Never>? {
+        state.selectedMicrophone = resolved
+        guard let handler = meetingHandler,
+              state.phase == .recording,
+              resolved?.uid != previous?.uid else { return nil }
+        let source: AudioSource.MicrophoneSource =
+            resolved.map { .specific($0) } ?? .systemDefault
+        return Task {
+            await handler.switchMicrophone(to: resolved, micSource: source)
         }
     }
 

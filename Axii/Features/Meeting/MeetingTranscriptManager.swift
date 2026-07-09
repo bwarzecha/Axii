@@ -16,6 +16,7 @@ private struct AutoSaveData: Codable {
     let startTime: Date
     let selectedAppName: String?
     var sessionID: UUID?
+    var audioFiles: MeetingAudioFileReferences?
 }
 
 /// Manages meeting transcription with auto-save for reliability.
@@ -56,6 +57,7 @@ final class MeetingTranscriptManager {
     // MARK: - Callbacks
 
     var onSegmentsUpdated: (([MeetingSegment]) -> Void)?
+    var audioFileReferenceProvider: (() -> MeetingAudioFileReferences?)?
 
     // MARK: - Auto-save Path
 
@@ -153,7 +155,8 @@ final class MeetingTranscriptManager {
             duration: duration,
             startTime: recordingStartTime ?? Date(),
             selectedAppName: selectedAppName,
-            sessionID: sessionID
+            sessionID: sessionID,
+            audioFiles: audioFileReferenceProvider?()
         )
 
         do {
@@ -202,7 +205,8 @@ final class MeetingTranscriptManager {
                 duration: data.duration,
                 appName: data.selectedAppName,
                 sessionID: data.sessionID,
-                autosaveFileURL: autosaveFileURL
+                autosaveFileURL: autosaveFileURL,
+                audioFiles: data.audioFiles
             )
         } catch {
             print("MeetingTranscriptManager: Failed to read recovery data: \(error)")

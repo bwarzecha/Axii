@@ -24,17 +24,29 @@ extension ModeFeature {
     @discardableResult
     func recoverCrashedMeetingIfNeeded() -> Task<Void, Never>? {
         guard let handler = meetingHandler else { return nil }
+        defer {
+            // Sweep spool audio whose sessions expired; runs before any
+            // capture can start, so it never touches a live recording.
+            MeetingAudioManager.cleanExpiredSpoolFiles()
+        }
         guard let recovery = handler.checkCrashRecovery() else { return nil }
         guard historyService.isEnabled, !recovery.segments.isEmpty else { return nil }
 
         return Task { @MainActor in
+            // Restore the audio too when the spool files survived the crash.
+            let micSamples = MeetingAudioManager.readRawSamples(
+                from: recovery.audioFiles?.micFileURL
+            )
+            let systemSamples = MeetingAudioManager.readRawSamples(
+                from: recovery.audioFiles?.systemFileURL
+            )
             do {
                 _ = try await meetingPersistence.persist(
                     payload: MeetingPersistencePayload(
-                        micSamples: [],
-                        micSampleRate: 0,
-                        systemSamples: [],
-                        systemSampleRate: 0,
+                        micSamples: micSamples,
+                        micSampleRate: recovery.audioFiles?.micSampleRate ?? 0,
+                        systemSamples: systemSamples,
+                        systemSampleRate: recovery.audioFiles?.systemSampleRate ?? 0,
                         segments: recovery.segments,
                         duration: recovery.duration,
                         appName: recovery.appName
@@ -51,9 +63,17 @@ extension ModeFeature {
                     // there can only have been one writer — safe to remove.
                     try? FileManager.default.removeItem(at: recovery.autosaveFileURL)
                 }
+                if let audioFiles = recovery.audioFiles {
+                    if let mic = audioFiles.micFileURL {
+                        try? FileManager.default.removeItem(at: mic)
+                    }
+                    if let system = audioFiles.systemFileURL {
+                        try? FileManager.default.removeItem(at: system)
+                    }
+                }
                 logger.info("Recovered crashed meeting to history (\(recovery.segments.count) segments)")
             } catch {
-                // Keep the file: recovery will be offered again next launch.
+                // Keep the files: recovery will be offered again next launch.
                 logger.error("Failed to persist recovered meeting: \(error.localizedDescription)")
             }
         }

@@ -108,6 +108,15 @@ final class ChaosAudioManager: MeetingAudioManaging {
     var onTranscriptionChunk: ((TranscriptionChunk) -> Void)?
     var onError: ((String) -> Void)?
 
+    var audioFileReferences: MeetingAudioFileReferences? {
+        MeetingAudioFileReferences(
+            micFileURL: micURL,
+            micSampleRate: 16_000,
+            systemFileURL: systemURL,
+            systemSampleRate: 16_000
+        )
+    }
+
     init(id: Int, gates: GateHub, violations: ViolationLog, shouldFailStart: Bool) {
         self.id = id
         self.gates = gates
@@ -199,6 +208,7 @@ final class ChaosTranscriptManager: MeetingTranscriptManaging {
     private(set) var everStartedAutosave = false
 
     var onSegmentsUpdated: (([MeetingSegment]) -> Void)?
+    var audioFileReferenceProvider: (() -> MeetingAudioFileReferences?)?
 
     init(id: Int, gates: GateHub, violations: ViolationLog) {
         self.id = id

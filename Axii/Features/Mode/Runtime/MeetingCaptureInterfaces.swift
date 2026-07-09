@@ -9,11 +9,21 @@
 #if os(macOS)
 import Foundation
 
+/// Where the in-progress recording lives on disk, recorded into the autosave
+/// file so a crash can recover the AUDIO as well as the transcript.
+struct MeetingAudioFileReferences: Codable, Sendable {
+    let micFileURL: URL?
+    let micSampleRate: Double
+    let systemFileURL: URL?
+    let systemSampleRate: Double
+}
+
 @MainActor
 protocol MeetingAudioManaging: AnyObject {
     var onAudioLevel: ((Float) -> Void)? { get set }
     var onTranscriptionChunk: ((TranscriptionChunk) -> Void)? { get set }
     var onError: ((String) -> Void)? { get set }
+    var audioFileReferences: MeetingAudioFileReferences? { get }
 
     func start(
         micSource: AudioSource.MicrophoneSource,
@@ -38,6 +48,9 @@ extension MeetingAudioManager: MeetingAudioManaging {}
 @MainActor
 protocol MeetingTranscriptManaging: AnyObject {
     var onSegmentsUpdated: (([MeetingSegment]) -> Void)? { get set }
+    /// Supplies the live recording's on-disk audio locations at autosave
+    /// time, so recovery can restore audio, not just segments.
+    var audioFileReferenceProvider: (() -> MeetingAudioFileReferences?)? { get set }
     var sessionID: UUID { get }
     var autosaveFileURL: URL { get }
 
@@ -63,6 +76,8 @@ struct MeetingCrashRecovery {
     /// nil for files written by pre-sessionID builds.
     let sessionID: UUID?
     let autosaveFileURL: URL
+    /// Audio spool locations, when the autosave recorded them.
+    let audioFiles: MeetingAudioFileReferences?
 }
 
 struct MeetingCaptureStartConfiguration {

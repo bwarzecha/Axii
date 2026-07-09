@@ -52,10 +52,14 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   steady-state autosave cadence is 60 s.
 - The autosave file carries a `sessionID`; the commit path clears it only if
   it still belongs to the committing session (`clearAutoSave(matching:)`).
-- **Scope (honest limits):** recovery covers streamed transcript segments
-  only. With streaming transcription disabled nothing is autosaved. Temp
-  audio lives in the system temp directory and is not re-read by recovery;
-  it does not survive reboots.
+- **Recovered meetings are persisted to history at launch** (when history
+  is enabled), including their audio: the autosave records the spool-file
+  locations, and in-progress recordings live in Application Support
+  (`Axii/InProgressRecordings`), not the purgeable system temp directory.
+  Expired spool files are swept at launch, before any capture can start.
+- **Scope (honest limits):** with streaming transcription disabled nothing
+  is autosaved, so neither transcript nor audio is recoverable for such
+  sessions.
 
 ## Test harness layers
 

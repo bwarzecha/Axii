@@ -120,6 +120,14 @@ final class MeetingPhase4CTests: XCTestCase {
         var onError: ((String) -> Void)?
 
         var startError: Error?
+        var audioFileReferences: MeetingAudioFileReferences? {
+            MeetingAudioFileReferences(
+                micFileURL: stopResult.micFile,
+                micSampleRate: stopResult.micRate,
+                systemFileURL: stopResult.systemFile,
+                systemSampleRate: stopResult.systemRate
+            )
+        }
         var stopResult: (
             micFile: URL?,
             micRate: Double,
@@ -208,6 +216,7 @@ final class MeetingPhase4CTests: XCTestCase {
 
     private final class FakeTranscriptManager: MeetingTranscriptManaging {
         var onSegmentsUpdated: (([MeetingSegment]) -> Void)?
+        var audioFileReferenceProvider: (() -> MeetingAudioFileReferences?)?
         var recovery: MeetingCrashRecovery?
         var useLongRunningChunkTasks = false
 
@@ -558,7 +567,8 @@ final class MeetingPhase4CTests: XCTestCase {
             duration: 42,
             appName: nil,
             sessionID: transcript.sessionID,
-            autosaveFileURL: transcript.autosaveFileURL
+            autosaveFileURL: transcript.autosaveFileURL,
+            audioFiles: nil
         )
         let session = makeCaptureSession(audio: audio, transcript: transcript)
 
