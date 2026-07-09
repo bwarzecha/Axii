@@ -1,0 +1,756 @@
+//
+//  MeetingPhase4CTests.swift
+//  AxiiIntegrationTests
+//
+//  Service-level and handler-level coverage for the Phase 4C meeting
+//  start/capture split.
+//
+
+import CoreAudio
+import XCTest
+@testable import Axii
+
+@MainActor
+final class MeetingPhase4CTests: XCTestCase {
+
+    private enum TestError: Error {
+        case prepareFailed
+        case startFailed
+    }
+
+    // MARK: - Fakes
+
+    private actor SpyTranscriber: TranscriptionProviding {
+        var isReadyValue: Bool
+        var prepareError: Error?
+        private(set) var prepareCount = 0
+        private let text: String
+        private var suspendPrepare = false
+        private var prepareStarted = false
+        private var prepareStartWaiters: [CheckedContinuation<Void, Never>] = []
+        private var finishPrepareContinuation: CheckedContinuation<Void, Never>?
+
+        var isReady: Bool { isReadyValue }
+
+        init(isReady: Bool = true, text: String = "ok") {
+            self.isReadyValue = isReady
+            self.text = text
+        }
+
+        func prepare() async throws {
+            prepareCount += 1
+            prepareStarted = true
+            let waiters = prepareStartWaiters
+            prepareStartWaiters = []
+            for waiter in waiters {
+                waiter.resume()
+            }
+            if suspendPrepare {
+                await withCheckedContinuation { continuation in
+                    finishPrepareContinuation = continuation
+                }
+            }
+            if let prepareError {
+                throw prepareError
+            }
+            isReadyValue = true
+        }
+
+        func transcribe(samples: [Float], sampleRate: Double) async throws -> String {
+            text
+        }
+
+        func snapshotPrepareCount() -> Int {
+            prepareCount
+        }
+
+        func setPrepareErrorForTest(_ error: Error) {
+            prepareError = error
+        }
+
+        func suspendPrepareForTest() {
+            suspendPrepare = true
+        }
+
+        func waitForPrepareStart() async {
+            if prepareStarted {
+                return
+            }
+            await withCheckedContinuation { continuation in
+                prepareStartWaiters.append(continuation)
+            }
+        }
+
+        func finishSuspendedPrepare() {
+            suspendPrepare = false
+            finishPrepareContinuation?.resume()
+            finishPrepareContinuation = nil
+        }
+    }
+
+    private final class FakeMicPermission: MeetingMicrophonePermissionChecking {
+        var state: MicrophonePermissionService.State
+        private(set) var openSettingsCount = 0
+
+        init(state: MicrophonePermissionService.State) {
+            self.state = state
+        }
+
+        func openSystemSettings() {
+            openSettingsCount += 1
+        }
+    }
+
+    private final class FakeScreenPermission: MeetingScreenRecordingPermissionChecking {
+        var isGranted: Bool
+        private(set) var requestCount = 0
+
+        init(isGranted: Bool) {
+            self.isGranted = isGranted
+        }
+
+        func request() {
+            requestCount += 1
+        }
+    }
+
+    private final class FakeAudioManager: MeetingAudioManaging {
+        var onAudioLevel: ((Float) -> Void)?
+        var onTranscriptionChunk: ((TranscriptionChunk) -> Void)?
+        var onError: ((String) -> Void)?
+
+        var startError: Error?
+        var stopResult: (
+            micFile: URL?,
+            micRate: Double,
+            systemFile: URL?,
+            systemRate: Double
+        ) = (nil, 0, nil, 0)
+        var samplesByURL: [URL: [Float]] = [:]
+
+        private(set) var startCallCount = 0
+        private(set) var stopCallCount = 0
+        private(set) var cleanupCallCount = 0
+        private(set) var readURLs: [URL?] = []
+        private(set) var startedMicSource: AudioSource.MicrophoneSource?
+        private(set) var startedAppSelection: AppSelection?
+        private(set) var switchCalls: [(
+            app: AudioApp?,
+            micSource: AudioSource.MicrophoneSource
+        )] = []
+
+        func start(
+            micSource: AudioSource.MicrophoneSource,
+            appSelection: AppSelection
+        ) async throws {
+            startCallCount += 1
+            startedMicSource = micSource
+            startedAppSelection = appSelection
+            if let startError {
+                throw startError
+            }
+        }
+
+        func stop() -> (
+            micFile: URL?,
+            micRate: Double,
+            systemFile: URL?,
+            systemRate: Double
+        ) {
+            stopCallCount += 1
+            return stopResult
+        }
+
+        func switchApp(
+            to app: AudioApp?,
+            micSource: AudioSource.MicrophoneSource
+        ) async throws {
+            switchCalls.append((app, micSource))
+        }
+
+        func readSamplesFromFile(_ url: URL?) -> [Float] {
+            readURLs.append(url)
+            guard let url else { return [] }
+            return samplesByURL[url] ?? []
+        }
+
+        func cleanupTempFiles() {
+            cleanupCallCount += 1
+        }
+
+        func emitAudioLevel(_ level: Float) {
+            onAudioLevel?(level)
+        }
+
+        func emitChunk(_ chunk: TranscriptionChunk) {
+            onTranscriptionChunk?(chunk)
+        }
+
+        func emitError(_ message: String) {
+            onError?(message)
+        }
+    }
+
+    private final class FakeTranscriptManager: MeetingTranscriptManaging {
+        var onSegmentsUpdated: (([MeetingSegment]) -> Void)?
+        var recovery: (segments: [MeetingSegment], duration: TimeInterval)?
+        var useLongRunningChunkTasks = false
+
+        private(set) var resetCount = 0
+        private(set) var startAutoSaveCount = 0
+        private(set) var stopAutoSaveCount = 0
+        private(set) var clearAutoSaveCount = 0
+        private(set) var crashRecoveryCheckCount = 0
+        private(set) var transcribeChunkCount = 0
+        private(set) var selectedApps: [AudioApp?] = []
+        private(set) var chunkTasks: [Task<Void, Never>] = []
+
+        func reset() {
+            resetCount += 1
+        }
+
+        func setSelectedApp(_ app: AudioApp?) {
+            selectedApps.append(app)
+        }
+
+        func startAutoSave() {
+            startAutoSaveCount += 1
+        }
+
+        func stopAutoSave() {
+            stopAutoSaveCount += 1
+        }
+
+        func clearAutoSave() {
+            clearAutoSaveCount += 1
+        }
+
+        func checkForCrashRecovery() -> (
+            segments: [MeetingSegment],
+            duration: TimeInterval
+        )? {
+            crashRecoveryCheckCount += 1
+            return recovery
+        }
+
+        @discardableResult
+        func transcribeChunk(_ chunk: TranscriptionChunk) -> Task<Void, Never> {
+            transcribeChunkCount += 1
+            let longRunning = useLongRunningChunkTasks
+            let task = Task {
+                if longRunning {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 1_000_000)
+                    }
+                }
+            }
+            chunkTasks.append(task)
+            return task
+        }
+
+        func emitSegments(_ segments: [MeetingSegment]) {
+            onSegmentsUpdated?(segments)
+        }
+    }
+
+    // MARK: - Start Coordinator
+
+    func testStartCoordinator_MicrophoneBlockedOpensSettingsAndBlocks() async throws {
+        let transcriber = SpyTranscriber(isReady: false)
+        let mic = FakeMicPermission(state: .denied)
+        let screen = FakeScreenPermission(isGranted: true)
+        let coordinator = MeetingStartCoordinator(
+            transcriptionService: transcriber,
+            screenPermission: screen,
+            micPermission: mic
+        )
+
+        let outcome = try await coordinator.requestStart()
+
+        XCTAssertEqual(outcome, .blocked("Microphone permission required"))
+        XCTAssertEqual(mic.openSettingsCount, 1)
+        XCTAssertEqual(screen.requestCount, 0)
+        let prepareCount = await transcriber.snapshotPrepareCount()
+        XCTAssertEqual(prepareCount, 0)
+    }
+
+    func testStartCoordinator_ScreenPermissionMissingRequestsAndWaits() async throws {
+        let transcriber = SpyTranscriber(isReady: false)
+        let mic = FakeMicPermission(state: .authorized)
+        let screen = FakeScreenPermission(isGranted: false)
+        let coordinator = MeetingStartCoordinator(
+            transcriptionService: transcriber,
+            screenPermission: screen,
+            micPermission: mic
+        )
+
+        let outcome = try await coordinator.requestStart()
+
+        XCTAssertEqual(outcome, .waitingForScreenRecording)
+        XCTAssertEqual(screen.requestCount, 1)
+        let prepareCount = await transcriber.snapshotPrepareCount()
+        XCTAssertEqual(prepareCount, 0)
+    }
+
+    func testStartCoordinator_PreparesTranscriptionWhenPermissionsAreReady() async throws {
+        let transcriber = SpyTranscriber(isReady: false)
+        let coordinator = MeetingStartCoordinator(
+            transcriptionService: transcriber,
+            screenPermission: FakeScreenPermission(isGranted: true),
+            micPermission: FakeMicPermission(state: .authorized)
+        )
+
+        let outcome = try await coordinator.requestStart()
+
+        XCTAssertEqual(outcome, .readyToRecord)
+        let prepareCount = await transcriber.snapshotPrepareCount()
+        XCTAssertEqual(prepareCount, 1)
+    }
+
+    func testStartCoordinator_DoesNotPrepareWhenTranscriptionAlreadyReady() async throws {
+        let transcriber = SpyTranscriber(isReady: true)
+        let coordinator = MeetingStartCoordinator(
+            transcriptionService: transcriber,
+            screenPermission: FakeScreenPermission(isGranted: true),
+            micPermission: FakeMicPermission(state: .authorized)
+        )
+
+        let outcome = try await coordinator.requestStart()
+
+        XCTAssertEqual(outcome, .readyToRecord)
+        let prepareCount = await transcriber.snapshotPrepareCount()
+        XCTAssertEqual(prepareCount, 0)
+    }
+
+    func testStartCoordinator_PropagatesPrepareFailure() async {
+        let transcriber = SpyTranscriber(isReady: false)
+        await transcriber.setPrepareErrorForTest(TestError.prepareFailed)
+        let coordinator = MeetingStartCoordinator(
+            transcriptionService: transcriber,
+            screenPermission: FakeScreenPermission(isGranted: true),
+            micPermission: FakeMicPermission(state: .authorized)
+        )
+
+        do {
+            _ = try await coordinator.requestStart()
+            XCTFail("Expected prepare failure")
+        } catch {
+            XCTAssertTrue(error is TestError)
+        }
+    }
+
+    // MARK: - Capture Session
+
+    func testCaptureStart_UsesSelectedSourcesAndWiresCallbacks() async throws {
+        let app = makeApp(name: "Zoom", pid: 10)
+        let mic = makeMicrophone(uid: "mic-1")
+        let audio = FakeAudioManager()
+        let transcript = FakeTranscriptManager()
+        let session = makeCaptureSession(audio: audio, transcript: transcript)
+
+        var audioLevels: [Float] = []
+        var segmentUpdates: [[MeetingSegment]] = []
+        var errors: [String] = []
+        session.onAudioLevel = { audioLevels.append($0) }
+        session.onSegmentsUpdated = { segmentUpdates.append($0) }
+        session.onError = { errors.append($0) }
+
+        try await session.start(configuration: MeetingCaptureStartConfiguration(
+            selectedApp: app,
+            selectedMicrophone: mic,
+            streamingEnabled: true
+        ))
+
+        XCTAssertEqual(audio.startCallCount, 1)
+        XCTAssertEqual(micUID(audio.startedMicSource), "mic-1")
+        XCTAssertEqual(selectionSnapshot(audio.startedAppSelection), .only(["Zoom"]))
+        XCTAssertEqual(transcript.selectedApps.compactMap { $0?.name }, ["Zoom"])
+        XCTAssertEqual(transcript.resetCount, 1)
+        XCTAssertEqual(transcript.startAutoSaveCount, 1)
+
+        let segment = makeSegment(text: "live")
+        audio.emitAudioLevel(0.35)
+        transcript.emitSegments([segment])
+        audio.emitError("capture failed")
+
+        XCTAssertEqual(audioLevels, [0.35])
+        XCTAssertEqual(segmentUpdates, [[segment]])
+        XCTAssertEqual(errors, ["capture failed"])
+
+        session.cancel()
+    }
+
+    func testCaptureStart_DefaultsToSystemMicAndAllApps() async throws {
+        let audio = FakeAudioManager()
+        let transcript = FakeTranscriptManager()
+        let session = makeCaptureSession(audio: audio, transcript: transcript)
+
+        try await session.start(configuration: MeetingCaptureStartConfiguration(
+            selectedApp: nil,
+            selectedMicrophone: nil,
+            streamingEnabled: true
+        ))
+
+        XCTAssertTrue(isSystemDefaultMic(audio.startedMicSource))
+        XCTAssertEqual(selectionSnapshot(audio.startedAppSelection), .all)
+
+        session.cancel()
+    }
+
+    func testCaptureStart_StreamingDisabledDoesNotRouteChunks() async throws {
+        let audio = FakeAudioManager()
+        let transcript = FakeTranscriptManager()
+        let session = makeCaptureSession(audio: audio, transcript: transcript)
+
+        try await session.start(configuration: MeetingCaptureStartConfiguration(
+            selectedApp: nil,
+            selectedMicrophone: nil,
+            streamingEnabled: false
+        ))
+
+        audio.emitChunk(makeChunk())
+
+        XCTAssertEqual(transcript.transcribeChunkCount, 0)
+
+        session.cancel()
+    }
+
+    func testCaptureStopSave_CancelsChunksReadsSamplesClearsAutosaveAndCleans() async throws {
+        let app = makeApp(name: "Zoom", pid: 10)
+        let micURL = URL(fileURLWithPath: "/tmp/phase4c-mic.raw")
+        let systemURL = URL(fileURLWithPath: "/tmp/phase4c-system.raw")
+        let audio = FakeAudioManager()
+        audio.stopResult = (micURL, 44_100, systemURL, 48_000)
+        audio.samplesByURL[micURL] = [0.1, 0.2]
+        audio.samplesByURL[systemURL] = [0.3, 0.4, 0.5]
+
+        let transcript = FakeTranscriptManager()
+        transcript.useLongRunningChunkTasks = true
+        let session = makeCaptureSession(audio: audio, transcript: transcript)
+
+        try await session.start(configuration: MeetingCaptureStartConfiguration(
+            selectedApp: app,
+            selectedMicrophone: nil,
+            streamingEnabled: true
+        ))
+        audio.emitChunk(makeChunk())
+
+        let stopResult = await session.stop(saveToHistory: true)
+        let captured = try XCTUnwrap(stopResult)
+
+        XCTAssertEqual(transcript.transcribeChunkCount, 1)
+        XCTAssertEqual(transcript.stopAutoSaveCount, 1)
+        XCTAssertEqual(transcript.clearAutoSaveCount, 1)
+        XCTAssertEqual(audio.stopCallCount, 1)
+        XCTAssertEqual(audio.cleanupCallCount, 1)
+        XCTAssertEqual(audio.readURLs, [micURL, systemURL])
+        XCTAssertEqual(captured.micSamples, [0.1, 0.2])
+        XCTAssertEqual(captured.micSampleRate, 44_100)
+        XCTAssertEqual(captured.systemSamples, [0.3, 0.4, 0.5])
+        XCTAssertEqual(captured.systemSampleRate, 48_000)
+        XCTAssertEqual(captured.appName, "Zoom")
+    }
+
+    func testCaptureStopWithoutSaveCleansButSkipsReadsAndAutosaveClear() async throws {
+        let audio = FakeAudioManager()
+        let transcript = FakeTranscriptManager()
+        let session = makeCaptureSession(audio: audio, transcript: transcript)
+
+        try await session.start(configuration: MeetingCaptureStartConfiguration(
+            selectedApp: nil,
+            selectedMicrophone: nil,
+            streamingEnabled: true
+        ))
+
+        let captured = await session.stop(saveToHistory: false)
+
+        XCTAssertNil(captured)
+        XCTAssertEqual(transcript.stopAutoSaveCount, 1)
+        XCTAssertEqual(transcript.clearAutoSaveCount, 0)
+        XCTAssertEqual(audio.stopCallCount, 1)
+        XCTAssertEqual(audio.cleanupCallCount, 1)
+        XCTAssertTrue(audio.readURLs.isEmpty)
+    }
+
+    func testCaptureSwitching_UpdatesTranscriptAndForwardsCaptureSwitches() async throws {
+        let zoom = makeApp(name: "Zoom", pid: 10)
+        let teams = makeApp(name: "Teams", pid: 11)
+        let mic = makeMicrophone(uid: "mic-2")
+        let audio = FakeAudioManager()
+        let transcript = FakeTranscriptManager()
+        let session = makeCaptureSession(audio: audio, transcript: transcript)
+
+        try await session.start(configuration: MeetingCaptureStartConfiguration(
+            selectedApp: zoom,
+            selectedMicrophone: nil,
+            streamingEnabled: true
+        ))
+
+        session.selectApp(teams)
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        await session.switchMicrophone(to: mic, selectedApp: teams)
+
+        XCTAssertEqual(transcript.selectedApps.compactMap { $0?.name }, ["Zoom", "Teams"])
+        XCTAssertEqual(audio.switchCalls.count, 2)
+        XCTAssertEqual(audio.switchCalls.first?.app?.name, "Teams")
+        XCTAssertTrue(isSystemDefaultMic(audio.switchCalls.first?.micSource))
+        XCTAssertEqual(audio.switchCalls.last?.app?.name, "Teams")
+        XCTAssertEqual(micUID(audio.switchCalls.last?.micSource), "mic-2")
+
+        session.cancel()
+    }
+
+    func testCaptureCrashRecoveryClearsAutosaveAfterSuccessfulRecovery() async {
+        let segment = makeSegment(text: "recovered")
+        let audio = FakeAudioManager()
+        let transcript = FakeTranscriptManager()
+        transcript.recovery = ([segment], 42)
+        let session = makeCaptureSession(audio: audio, transcript: transcript)
+
+        let recovery = session.checkCrashRecovery()
+
+        XCTAssertEqual(recovery?.segments, [segment])
+        XCTAssertEqual(recovery?.duration, 42)
+        XCTAssertEqual(transcript.crashRecoveryCheckCount, 1)
+        XCTAssertEqual(transcript.clearAutoSaveCount, 1)
+    }
+
+    func testCaptureStartFailureCleansTempFilesAndDoesNotLeaveSessionActive() async throws {
+        let audio = FakeAudioManager()
+        audio.startError = TestError.startFailed
+        let transcript = FakeTranscriptManager()
+        let session = makeCaptureSession(audio: audio, transcript: transcript)
+
+        do {
+            try await session.start(configuration: MeetingCaptureStartConfiguration(
+                selectedApp: nil,
+                selectedMicrophone: nil,
+                streamingEnabled: true
+            ))
+            XCTFail("Expected capture start failure")
+        } catch {
+            XCTAssertTrue(error is TestError)
+        }
+
+        XCTAssertEqual(audio.cleanupCallCount, 1)
+        XCTAssertFalse(session.isRecording)
+        let captured = await session.stop(saveToHistory: true)
+        XCTAssertNil(captured)
+    }
+
+    // MARK: - Handler Integration
+
+    func testPipelineHandlerStartStopCoordinatesExtractedServicesAndFinalization() async throws {
+        let transcriber = SpyTranscriber(isReady: true, text: "final text")
+        let app = makeApp(name: "Zoom", pid: 10)
+        let micURL = URL(fileURLWithPath: "/tmp/phase4c-handler-mic.raw")
+        let audio = FakeAudioManager()
+        audio.stopResult = (micURL, 16_000, nil, 0)
+        audio.samplesByURL[micURL] = tone(seconds: 1)
+
+        let transcript = FakeTranscriptManager()
+        let captureSession = makeCaptureSession(
+            transcriber: transcriber,
+            audio: audio,
+            transcript: transcript
+        )
+        let startCoordinator = MeetingStartCoordinator(
+            transcriptionService: transcriber,
+            screenPermission: FakeScreenPermission(isGranted: true),
+            micPermission: FakeMicPermission(state: .authorized)
+        )
+        let state = ModeRuntimeState()
+        state.selectedApp = app
+        let settings = SettingsService(
+            defaults: try XCTUnwrap(UserDefaults(suiteName: "Phase4C-\(UUID().uuidString)"))
+        )
+        let handler = MeetingPipelineHandler(
+            state: state,
+            transcriptionService: transcriber,
+            diarizationService: nil,
+            screenPermission: ScreenRecordingPermissionService(),
+            micPermission: MicrophonePermissionService(),
+            settings: settings,
+            startCoordinator: startCoordinator,
+            captureSession: captureSession
+        )
+
+        await handler.start()
+
+        XCTAssertEqual(state.phase, .recording)
+        XCTAssertEqual(audio.startCallCount, 1)
+
+        let stopResult = await handler.stop(saveToHistory: true)
+        let payload = try XCTUnwrap(stopResult)
+
+        XCTAssertEqual(state.phase, .processing)
+        XCTAssertEqual(payload.appName, "Zoom")
+        XCTAssertEqual(payload.micSamples, tone(seconds: 1))
+        XCTAssertEqual(payload.micSampleRate, 16_000)
+        XCTAssertEqual(payload.segments.map(\.text), ["final text"])
+        XCTAssertEqual(state.segments, payload.segments)
+    }
+
+    func testPipelineHandlerStartShowsPreparingWhileTranscriptionPrepares() async throws {
+        let transcriber = SpyTranscriber(isReady: false)
+        await transcriber.suspendPrepareForTest()
+        let audio = FakeAudioManager()
+        let captureSession = makeCaptureSession(
+            transcriber: transcriber,
+            audio: audio,
+            transcript: FakeTranscriptManager()
+        )
+        let state = ModeRuntimeState()
+        let settings = SettingsService(
+            defaults: try XCTUnwrap(UserDefaults(suiteName: "Phase4C-\(UUID().uuidString)"))
+        )
+        let handler = MeetingPipelineHandler(
+            state: state,
+            transcriptionService: transcriber,
+            diarizationService: nil,
+            screenPermission: ScreenRecordingPermissionService(),
+            micPermission: MicrophonePermissionService(),
+            settings: settings,
+            startCoordinator: MeetingStartCoordinator(
+                transcriptionService: transcriber,
+                screenPermission: FakeScreenPermission(isGranted: true),
+                micPermission: FakeMicPermission(state: .authorized)
+            ),
+            captureSession: captureSession
+        )
+
+        let startTask = Task {
+            await handler.start()
+        }
+        await transcriber.waitForPrepareStart()
+
+        XCTAssertEqual(state.phase, .preparing)
+        XCTAssertEqual(audio.startCallCount, 0)
+
+        await transcriber.finishSuspendedPrepare()
+        await startTask.value
+
+        XCTAssertEqual(state.phase, .recording)
+        XCTAssertEqual(audio.startCallCount, 1)
+        handler.cancel()
+    }
+
+    func testPipelineHandlerStopWithoutCaptureDoesNotEnterProcessing() async throws {
+        let transcriber = SpyTranscriber(isReady: true)
+        let captureSession = makeCaptureSession(
+            transcriber: transcriber,
+            audio: FakeAudioManager(),
+            transcript: FakeTranscriptManager()
+        )
+        let state = ModeRuntimeState()
+        let settings = SettingsService(
+            defaults: try XCTUnwrap(UserDefaults(suiteName: "Phase4C-\(UUID().uuidString)"))
+        )
+        let handler = MeetingPipelineHandler(
+            state: state,
+            transcriptionService: transcriber,
+            diarizationService: nil,
+            screenPermission: ScreenRecordingPermissionService(),
+            micPermission: MicrophonePermissionService(),
+            settings: settings,
+            captureSession: captureSession
+        )
+
+        let payload = await handler.stop(saveToHistory: true)
+
+        XCTAssertNil(payload)
+        XCTAssertEqual(state.phase, .idle)
+    }
+
+    // MARK: - Helpers
+
+    private enum SelectionSnapshot: Equatable {
+        case all
+        case only([String])
+        case excluding([String])
+    }
+
+    private func makeCaptureSession(
+        transcriber: any TranscriptionProviding = SpyTranscriber(),
+        audio: FakeAudioManager,
+        transcript: FakeTranscriptManager
+    ) -> MeetingCaptureSession {
+        MeetingCaptureSession(
+            transcriptionService: transcriber,
+            audioManagerFactory: { audio },
+            transcriptManagerFactory: { transcript }
+        )
+    }
+
+    private func makeApp(name: String, pid: pid_t) -> AudioApp {
+        AudioApp(
+            pid: pid,
+            bundleIdentifier: "com.example.\(name.lowercased())",
+            name: name
+        )
+    }
+
+    private func makeMicrophone(uid: String) -> AudioDevice {
+        AudioDevice(
+            id: AudioDeviceID(1),
+            uid: uid,
+            name: "Mic \(uid)",
+            transportType: .builtIn
+        )
+    }
+
+    private func makeSegment(text: String) -> MeetingSegment {
+        MeetingSegment(
+            text: text,
+            speakerId: "You",
+            isFromMicrophone: true,
+            startTime: 0,
+            endTime: 1
+        )
+    }
+
+    private func makeChunk() -> TranscriptionChunk {
+        TranscriptionChunk(
+            samples: [0.1, 0.2],
+            source: .microphone,
+            timestamp: Date()
+        )
+    }
+
+    private func tone(seconds: Double, sampleRate: Double = 16_000) -> [Float] {
+        let count = Int(seconds * sampleRate)
+        return (0..<count).map { i in
+            Float(sin(Double(i) * 2.0 * .pi * 440.0 / sampleRate) * 0.5)
+        }
+    }
+
+    private func micUID(_ source: AudioSource.MicrophoneSource?) -> String? {
+        guard let source else { return nil }
+        switch source {
+        case .systemDefault:
+            return nil
+        case .specific(let device):
+            return device.uid
+        }
+    }
+
+    private func isSystemDefaultMic(_ source: AudioSource.MicrophoneSource?) -> Bool {
+        guard let source else { return false }
+        if case .systemDefault = source {
+            return true
+        }
+        return false
+    }
+
+    private func selectionSnapshot(_ selection: AppSelection?) -> SelectionSnapshot? {
+        guard let selection else { return nil }
+        switch selection {
+        case .all:
+            return .all
+        case .only(let apps):
+            return .only(apps.map(\.name))
+        case .excluding(let apps):
+            return .excluding(apps.map(\.name))
+        }
+    }
+}

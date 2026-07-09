@@ -2,8 +2,8 @@
 //  MeetingPipelineHandler.swift
 //  Axii
 //
-//  Encapsulates meeting-specific pipeline logic: dual audio capture,
-//  streaming transcription, permission checks, crash recovery, and processing.
+//  Coordinates meeting-specific runtime flow: start gates, capture session,
+//  finalization, and state updates.
 //
 
 #if os(macOS)
@@ -59,25 +59,11 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
 
     // MARK: - Dependencies
 
-    private let transcriptionService: any TranscriptionProviding
-    private let diarizationService: DiarizationService?
-    private let screenPermission: ScreenRecordingPermissionService
-    private let micPermission: MicrophonePermissionService
     private let settings: SettingsService
     private let state: ModeRuntimeState
     private let finalizationService: MeetingFinalizationService
-
-    // MARK: - Managers
-
-    private var audioManager: MeetingAudioManager?
-    private var transcriptManager: MeetingTranscriptManager?
-
-    // MARK: - Timers & Tasks
-
-    private var durationTimer: Timer?
-    private var chunkTranscriptionTasks: [Task<Void, Never>] = []
-    private var recordingStartTime: Date?
-    private var permissionPollTimer: Timer?
+    private let startCoordinator: MeetingStartCoordinator
+    private let captureSession: MeetingCaptureSession
 
     // MARK: - Initialization
 
@@ -88,129 +74,109 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
         screenPermission: ScreenRecordingPermissionService,
         micPermission: MicrophonePermissionService,
         settings: SettingsService,
-        finalizationService: MeetingFinalizationService? = nil
+        finalizationService: MeetingFinalizationService? = nil,
+        startCoordinator: MeetingStartCoordinator? = nil,
+        captureSession: MeetingCaptureSession? = nil
     ) {
         self.state = state
-        self.transcriptionService = transcriptionService
-        self.diarizationService = diarizationService
-        self.screenPermission = screenPermission
-        self.micPermission = micPermission
         self.settings = settings
         self.finalizationService = finalizationService
             ?? MeetingFinalizationService(transcriptionService: transcriptionService)
+        self.startCoordinator = startCoordinator ?? MeetingStartCoordinator(
+            transcriptionService: transcriptionService,
+            screenPermission: screenPermission,
+            micPermission: micPermission
+        )
+        self.captureSession = captureSession ?? MeetingCaptureSession(
+            transcriptionService: transcriptionService
+        )
         self.finalizationService.onProgressUpdated = { [weak state] progress, status in
             state?.processingProgress = progress
             state?.processingStatus = status
         }
+        wireCaptureSessionCallbacks()
     }
 
     // MARK: - Start
 
     func start() async {
-        // 1. Check microphone permission
-        if micPermission.state.isBlocked {
-            state.phase = .error("Microphone permission required")
-            micPermission.openSystemSettings()
-            return
+        do {
+            switch try await startCoordinator.requestStart(
+                onPreparing: { [weak state] in
+                    state?.phase = .preparing
+                }
+            ) {
+            case .readyToRecord:
+                try await beginRecording()
+            case .waitingForScreenRecording:
+                state.phase = .preparing
+                startCoordinator.startScreenPermissionPolling(
+                    while: { [weak state] in state?.phase == .preparing },
+                    onGranted: { [weak self] in
+                        await self?.prepareAndRecordAfterScreenPermissionGrant()
+                    }
+                )
+            case .blocked(let message):
+                state.phase = .error(message)
+            }
+        } catch {
+            state.phase = .error("Failed: \(error.localizedDescription)")
         }
+    }
 
-        // 2. Check screen recording permission
-        guard screenPermission.isGranted else {
+    private func prepareAndRecordAfterScreenPermissionGrant() async {
+        do {
             state.phase = .preparing
-            screenPermission.request()
-            startPermissionPolling()
-            return
+            try await startCoordinator.prepareAfterScreenPermissionGrant()
+            try await beginRecording()
+        } catch {
+            state.phase = .error("Failed: \(error.localizedDescription)")
         }
-
-        await prepareAndRecord()
     }
 
     // MARK: - Stop
 
     func stop(saveToHistory: Bool) async -> MeetingStopResult? {
-        // Invalidate timers
-        durationTimer?.invalidate()
-        durationTimer = nil
-
-        transcriptManager?.stopAutoSave()
-
-        // Cancel pending chunk tasks
-        let pendingTasks = chunkTranscriptionTasks
-        for task in pendingTasks { task.cancel() }
-        chunkTranscriptionTasks = []
-
-        guard let audio = audioManager else { return nil }
-        let (micFile, micRate, systemFile, systemRate) = audio.stop()
-        let duration = state.duration
-
-        if saveToHistory {
+        if saveToHistory && captureSession.isRecording {
             state.phase = .processing
+        }
 
-            // Wait for cancelled chunk tasks to finish
-            for task in pendingTasks { await task.value }
-
-            // Read original-quality audio from temp files
-            let micSamples = audio.readSamplesFromFile(micFile)
-            let systemSamples = audio.readSamplesFromFile(systemFile)
-
-            // Delegate final transcription and segment assembly.
-            let payload = await finalizationService.finalize(
-                input: MeetingFinalizationInput(
-                    micSamples: micSamples,
-                    micSampleRate: micRate,
-                    systemSamples: systemSamples,
-                    systemSampleRate: systemRate,
-                    duration: duration,
-                    appName: state.selectedApp?.name
-                )
-            )
-
-            // Reflect the finalized transcript in live state so the UI can
-            // show the final transcript before persistence completes.
-            state.segments = payload.segments
-
-            transcriptManager?.clearAutoSave()
-            audio.cleanupTempFiles()
-
-            return payload
-        } else {
-            audio.cleanupTempFiles()
+        guard let capturedAudio = await captureSession.stop(
+            saveToHistory: saveToHistory
+        ) else {
             return nil
         }
+
+        let payload = await finalizationService.finalize(
+            input: MeetingFinalizationInput(
+                micSamples: capturedAudio.micSamples,
+                micSampleRate: capturedAudio.micSampleRate,
+                systemSamples: capturedAudio.systemSamples,
+                systemSampleRate: capturedAudio.systemSampleRate,
+                duration: capturedAudio.duration,
+                appName: capturedAudio.appName
+            )
+        )
+
+        // Reflect the finalized transcript in live state so the UI can
+        // show the final transcript before persistence completes.
+        state.segments = payload.segments
+
+        return payload
     }
 
     // MARK: - Cancel
 
     func cancel() {
-        durationTimer?.invalidate()
-        durationTimer = nil
-        permissionPollTimer?.invalidate()
-        permissionPollTimer = nil
-
-        transcriptManager?.stopAutoSave()
-
-        for task in chunkTranscriptionTasks { task.cancel() }
-        chunkTranscriptionTasks = []
-
-        _ = audioManager?.stop()
-        audioManager?.cleanupTempFiles()
+        startCoordinator.cancelPermissionPolling()
+        captureSession.cancel()
     }
 
     // MARK: - App Selection
 
     func selectApp(_ app: AudioApp?) {
         state.selectedApp = app
-        transcriptManager?.setSelectedApp(app)
-
-        if state.phase.isRecording {
-            Task {
-                let micSource = resolveMicSource()
-                try? await audioManager?.switchApp(
-                    to: app,
-                    micSource: micSource
-                )
-            }
-        }
+        captureSession.selectApp(app)
     }
 
     // MARK: - Microphone Switching
@@ -220,13 +186,11 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
         micSource: AudioSource.MicrophoneSource
     ) async {
         state.selectedMicrophone = device
-
-        if state.phase.isRecording {
-            try? await audioManager?.switchApp(
-                to: state.selectedApp,
-                micSource: micSource
-            )
-        }
+        await captureSession.switchMicrophone(
+            to: device,
+            selectedApp: state.selectedApp,
+            micSource: micSource
+        )
     }
 
     // MARK: - App List
@@ -239,147 +203,38 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
     // MARK: - Crash Recovery
 
     func checkCrashRecovery() {
-        let transcript = MeetingTranscriptManager(
-            transcriptionService: transcriptionService
-        )
-        if let recovery = transcript.checkForCrashRecovery() {
+        if let recovery = captureSession.checkCrashRecovery() {
             state.segments = recovery.segments
             state.duration = recovery.duration
-            transcript.clearAutoSave()
         }
     }
 
-    // MARK: - Private: Prepare & Record
-
-    private func prepareAndRecord() async {
-        state.phase = .preparing
-
-        do {
-            // Prepare transcription model if needed
-            let isReady = await transcriptionService.isReady
-            if !isReady {
-                try await transcriptionService.prepare()
-            }
-
-            try await beginRecording()
-        } catch {
-            state.phase = .error("Failed: \(error.localizedDescription)")
-        }
-    }
+    // MARK: - Private: Capture Session
 
     private func beginRecording() async throws {
-        chunkTranscriptionTasks = []
-
-        // Create managers
-        let audio = MeetingAudioManager()
-        let transcript = MeetingTranscriptManager(
-            transcriptionService: transcriptionService
+        try await captureSession.start(
+            configuration: MeetingCaptureStartConfiguration(
+                selectedApp: state.selectedApp,
+                selectedMicrophone: state.selectedMicrophone,
+                streamingEnabled: settings.isMeetingStreamingEnabled
+            )
         )
-        audioManager = audio
-        transcriptManager = transcript
-
-        // Wire audio callbacks
-        audio.onAudioLevel = { [weak self] level in
-            self?.state.audioLevel = level
-        }
-
-        if settings.isMeetingStreamingEnabled {
-            audio.onTranscriptionChunk = { [weak self] chunk in
-                guard let self, let manager = self.transcriptManager else {
-                    return
-                }
-                let task = manager.transcribeChunk(chunk)
-                self.chunkTranscriptionTasks.append(task)
-                if self.chunkTranscriptionTasks.count > 20 {
-                    self.chunkTranscriptionTasks.removeAll {
-                        $0.isCancelled
-                    }
-                }
-            }
-        }
-
-        audio.onError = { [weak self] message in
-            self?.state.phase = .error(message)
-        }
-
-        // Wire transcript callbacks. Final-transcription progress is
-        // driven by MeetingFinalizationService (wired in init); the
-        // transcript manager only owns live segment updates now.
-        transcript.onSegmentsUpdated = { [weak self] segments in
-            self?.state.segments = segments
-        }
-
-        transcript.setSelectedApp(state.selectedApp)
-        transcript.reset()
-
-        // Determine sources
-        let micSource = resolveMicSource()
-        let appSelection = resolveAppSelection()
-
-        try await audio.start(
-            micSource: micSource,
-            appSelection: appSelection
-        )
-
         state.phase = .recording
-
-        // Start auto-save
-        transcript.startAutoSave()
-
-        // Start duration timer
-        let startTime = Date()
-        recordingStartTime = startTime
-        durationTimer = Timer.scheduledTimer(
-            withTimeInterval: 1.0,
-            repeats: true
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.state.duration = Date().timeIntervalSince(startTime)
-            }
-        }
     }
 
-    // MARK: - Private: Permission Polling
-
-    private func startPermissionPolling() {
-        permissionPollTimer?.invalidate()
-        permissionPollTimer = Timer.scheduledTimer(
-            withTimeInterval: 1.0,
-            repeats: true
-        ) { [weak self] timer in
-            Task { @MainActor in
-                guard let self else {
-                    timer.invalidate()
-                    return
-                }
-                guard self.state.phase == .preparing else {
-                    timer.invalidate()
-                    self.permissionPollTimer = nil
-                    return
-                }
-                if self.screenPermission.isGranted {
-                    timer.invalidate()
-                    self.permissionPollTimer = nil
-                    await self.prepareAndRecord()
-                }
-            }
+    private func wireCaptureSessionCallbacks() {
+        captureSession.onAudioLevel = { [weak state] level in
+            state?.audioLevel = level
         }
-    }
-
-    // MARK: - Private: Source Resolution
-
-    private func resolveMicSource() -> AudioSource.MicrophoneSource {
-        if let device = state.selectedMicrophone {
-            return .specific(device)
+        captureSession.onSegmentsUpdated = { [weak state] segments in
+            state?.segments = segments
         }
-        return .systemDefault
-    }
-
-    private func resolveAppSelection() -> AppSelection {
-        if let app = state.selectedApp {
-            return .only([app])
+        captureSession.onError = { [weak state] message in
+            state?.phase = .error(message)
         }
-        return .all
+        captureSession.onDurationUpdated = { [weak state] duration in
+            state?.duration = duration
+        }
     }
 
     // MARK: - Private: App Sorting

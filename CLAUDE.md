@@ -9,29 +9,39 @@ Axii is a macOS menu bar app for quick voice-to-text dictation. It uses a floati
 Axii/
 ├── AxiiApp.swift             # App entry point, MenuBarView
 ├── Core/
-│   ├── AppState.swift        # Pure observable state (@Observable)
-│   └── AppController.swift   # Central orchestrator
-├── Services/
-│   └── HotkeyService.swift   # Centralized hotkey management
-└── UI/
-    ├── FloatingPanel.swift   # NSPanel window controller
-    └── RecordingPanelView.swift  # SwiftUI panel content
+│   ├── AppController.swift   # Central orchestrator, registers ModeFeatures
+│   └── FeatureManager.swift  # Feature registry and hotkey routing
+├── Features/
+│   └── Mode/
+│       ├── Config/           # Mode definitions (built-in + custom)
+│       ├── Runtime/          # Active execution path (see below)
+│       └── UI/               # Mode panel views
+├── Models/                   # Data types (History, Meeting, ...)
+├── Services/                 # Audio, Transcription, LLM, Pipeline,
+│                             # History, Output, Permissions, Settings, ...
+└── UI/                       # FloatingPanel, History, Settings views
 ```
 
-### Key Components
+`Features/Dictation` and `Features/Meeting` also contain LEGACY feature
+classes that are not part of the active execution path (marked in their
+headers); the meeting audio/transcript managers there are still used.
 
-- **AppState** - Pure state with @Observable, no business logic
-- **AppController** - Coordinates services and state, handles actions
-- **HotkeyService** - Registers/unregisters global hotkeys by ID
-- **FloatingPanelController** - Manages NSPanel lifecycle
+### Key Runtime Components (Features/Mode/Runtime)
+
+- **ModeFeature** - One instance per mode; owns panel lifecycle and hotkeys
+- **ModeRuntimeState** - Pure observable state (@Observable)
+- **SingleShot/MultiTurnModeTurnProcessor** - Post-capture turn execution
+- **MeetingPipelineHandler** - Thin meeting coordinator delegating to:
+  - **MeetingStartCoordinator** - permission checks and start flow
+  - **MeetingCaptureSession** - active capture, chunk routing, autosave
+  - **MeetingFinalizationService** - final transcription and segment assembly
+  - **MeetingPersistenceService** - writes final meetings and audio
 
 ### Data Flow
 ```
-User Action → AppController → Updates AppState → SwiftUI auto-updates
-                ↓
-         HotkeyService (register/unregister)
-                ↓
-         FloatingPanel (show/hide)
+Hotkey → AppController/FeatureManager → ModeFeature → capture (AudioSession)
+       → stop → TurnProcessor → TranscriptionService → pipeline → output
+       → ModeRuntimeState updates → SwiftUI auto-updates
 ```
 
 ## Build & Run
@@ -74,14 +84,20 @@ Types: `feat`, `fix`, `refactor`, `docs`, `test`
 - No magic strings - use constants/enums
 
 ## Hotkey Configuration
-Current: **Control+Shift+Space** (defined in `AppController.HotkeyConfig`)
+Hotkeys are per-mode, defined in each mode's `ModeConfig` (defaults in
+`Features/Mode/Config/DefaultModes.swift`, user-editable in Settings).
+Registration is handled by `HotkeyService`/`AdvancedHotkeyService` via
+`FeatureManager` — modes do not register hotkeys directly.
 
-### Adding New Hotkeys
-1. Add case to `HotkeyID` enum in `HotkeyService.swift`
-2. Register in `AppController.setupHotkeys()`
-3. Unregister when no longer needed
+## Core Services
+- `Services/Audio/` - Microphone and system-audio capture (AudioSession)
+- `TranscriptionService` - Speech-to-text (FluidAudio / Parakeet, actor)
+- `DiarizationService` - Speaker separation for meetings
+- `Services/Pipeline/` - Post-transcription processing steps
+- `Services/Output/` - Paste/clipboard/notification outputs
+- `Services/History/` - Persisted dictations, conversations, meetings
 
-## Future Services (planned)
-- `AudioService` - Microphone capture
-- `TranscriptionService` - Speech-to-text
-- `TextOutputService` - Clipboard/insertion
+## Testing
+- `AxiiTests` - Unit tests; `AxiiIntegrationTests` - integration tests
+- Run: `xcodebuild test -project Axii.xcodeproj -scheme Axii -destination 'platform=macOS'`
+- Refactor phase briefs and the execution plan live in `docs/`

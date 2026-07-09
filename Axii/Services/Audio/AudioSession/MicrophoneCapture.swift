@@ -17,6 +17,11 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
     private var captureSession: AVCaptureSession?
     private var audioOutput: AVCaptureAudioDataOutput?
     private let captureQueue = DispatchQueue(label: "audio.capture", qos: .userInteractive)
+    /// Serial queue for startRunning/stopRunning. Must be separate from
+    /// captureQueue: stopRunning blocks until teardown completes and can wait
+    /// on pending sample-buffer delivery, so running it on the delegate queue
+    /// (or synchronously from the main thread) can deadlock the app.
+    private let sessionQueue = DispatchQueue(label: "audio.capture.session", qos: .userInteractive)
 
     private var currentDevice: AudioDevice?
     private var sampleRate: Double = 48000
@@ -90,8 +95,8 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
         isCapturing = true
         lastSignalState = .silence
 
-        // Start on capture queue to avoid blocking
-        captureQueue.async {
+        // Start on session queue to avoid blocking
+        sessionQueue.async {
             session.startRunning()
         }
 
@@ -105,14 +110,18 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
 
         removeInterruptionObservers()
 
-        captureQueue.sync {
-            session.stopRunning()
-        }
-
         captureSession = nil
         audioOutput = nil
         isCapturing = false
         currentDevice = nil
+
+        // Tear down asynchronously; the caller (main actor) must not wait.
+        // The session is retained by the closure until teardown completes.
+        // Trailing chunks are dropped either way: currentDevice is already nil
+        // and callers cancel their chunk consumers before calling stop().
+        sessionQueue.async {
+            session.stopRunning()
+        }
     }
 
     // MARK: - Device Lookup
