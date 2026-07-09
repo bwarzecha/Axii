@@ -326,15 +326,17 @@ final class MeetingFinalizeServiceTests: XCTestCase {
 
         var lastProgress: Double = -1
         var lastStatus: String = ""
-        service.onProgressUpdated = { progress, status in
-            lastProgress = progress
-            lastStatus = status
-        }
 
-        _ = await service.finalize(input: makeInput(
-            micSamples: tone(seconds: 5, sampleRate: 16000),
-            micSampleRate: 16000
-        ))
+        _ = await service.finalize(
+            input: makeInput(
+                micSamples: tone(seconds: 5, sampleRate: 16000),
+                micSampleRate: 16000
+            ),
+            onProgress: { progress, status in
+                lastProgress = progress
+                lastStatus = status
+            }
+        )
 
         XCTAssertEqual(lastProgress, 1.0, "Final progress must be 1.0")
         XCTAssertEqual(lastStatus, "Done", "Final status must be 'Done'")

@@ -36,17 +36,35 @@ extension ModeFeature {
         guard let handler = meetingHandler else { return nil }
         let task = Task { @MainActor in
             let result = await handler.stop(saveToHistory: saveToHistory)
-            if let result, saveToHistory, historyService.isEnabled {
-                do {
-                    _ = try await meetingPersistence.persist(
-                        payload: result,
-                        audioFormat: settings.audioStorageFormat
-                    )
-                } catch {
-                    logger.error("Failed to save meeting: \(error.localizedDescription)")
+            if let result, saveToHistory {
+                if historyService.isEnabled {
+                    do {
+                        _ = try await meetingPersistence.persist(
+                            payload: result,
+                            audioFormat: settings.audioStorageFormat
+                        )
+                    } catch {
+                        logger.error("Failed to save meeting: \(error.localizedDescription)")
+                        // Surface the failure, and deliberately do NOT clear
+                        // the recovery artifacts: the meeting is not durably
+                        // saved yet, so it must remain recoverable.
+                        if state.phase == .processing {
+                            state.phase = .error("Failed to save meeting")
+                        }
+                        return
+                    }
                 }
+                // Commit point: the meeting is durably saved (or persistence
+                // is disabled and there is nothing to save into). Recovery
+                // data has served its purpose.
+                result.recoveryArtifacts?.clear()
             }
-            state.phase = .idle
+            // Only this stop's own .processing phase may be resolved to idle;
+            // if a newer session owns the UI (.recording/.preparing/.error),
+            // leave it alone.
+            if state.phase == .processing {
+                state.phase = .idle
+            }
         }
         return task
     }

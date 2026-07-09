@@ -175,9 +175,9 @@ final class MeetingSaveRegressionTests: XCTestCase {
         XCTAssertTrue(meetings.isEmpty, "No meetings should be persisted when history is disabled")
     }
 
-    // MARK: - Persistence Failure Returns To Idle
+    // MARK: - Persistence Failure Is Surfaced
 
-    func testPersistenceFailure_PhaseReturnsToIdle() async throws {
+    func testPersistenceFailure_SurfacesErrorInsteadOfPretendingSuccess() async throws {
         let handler = StubMeetingHandler(stopResult: makePayload())
         let persistence = FailingPersistence()
         let feature = makeFeature(
@@ -193,7 +193,7 @@ final class MeetingSaveRegressionTests: XCTestCase {
         XCTAssertEqual(handler.stopCallCount, 1)
         XCTAssertEqual(handler.stopSaveToHistory, true)
         XCTAssertEqual(persistence.callCount, 1)
-        XCTAssertEqual(feature.state.phase, .idle,
-                       "Phase must return to idle even after persistence failure")
+        XCTAssertEqual(feature.state.phase, .error("Failed to save meeting"),
+                       "A failed save must be visible to the user, not silently dropped")
     }
 }

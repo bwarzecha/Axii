@@ -358,10 +358,6 @@ final class MeetingFeature: Feature {
                 let finalization = MeetingFinalizationService(
                     transcriptionService: transcriptionService
                 )
-                finalization.onProgressUpdated = { [weak self] progress, status in
-                    self?.state.processingProgress = progress
-                    self?.state.processingStatus = status
-                }
                 let finalized = await finalization.finalize(
                     input: MeetingFinalizationInput(
                         micSamples: micSamples,
@@ -370,7 +366,11 @@ final class MeetingFeature: Feature {
                         systemSampleRate: systemRate,
                         duration: duration,
                         appName: state.selectedApp?.name
-                    )
+                    ),
+                    onProgress: { [weak self] progress, status in
+                        self?.state.processingProgress = progress
+                        self?.state.processingStatus = status
+                    }
                 )
                 state.segments = finalized.segments
 

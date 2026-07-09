@@ -56,12 +56,6 @@ final class MeetingFinalizationService {
 
     private let transcriptionService: any TranscriptionProviding
 
-    // MARK: Callbacks
-
-    /// Progress updates: (fractionComplete in [0, 1], userVisibleStatusText)
-    /// Stage texts preserved exactly from prior behavior so UI does not regress.
-    var onProgressUpdated: ((Double, String) -> Void)?
-
     // MARK: Init
 
     init(transcriptionService: any TranscriptionProviding) {
@@ -72,8 +66,16 @@ final class MeetingFinalizationService {
 
     /// Produce the final persistable payload for a meeting.
     /// Always completes; per-chunk transcription failures are tolerated.
+    ///
+    /// Progress is reported through the closure PARAMETER, not shared
+    /// service state: overlapping finalize calls (an old detached stop
+    /// racing a new one) each keep their own reporting channel, and the
+    /// caller decides whether a given call may still write to the UI.
+    /// (fractionComplete in [0, 1], userVisibleStatusText — stage texts
+    /// preserved exactly from prior behavior so UI does not regress.)
     func finalize(
-        input: MeetingFinalizationInput
+        input: MeetingFinalizationInput,
+        onProgress: @escaping (Double, String) -> Void = { _, _ in }
     ) async -> MeetingPersistencePayload {
         // Resample to 16 kHz for transcription.
         let micResampled = resample(input.micSamples, from: input.micSampleRate)
@@ -93,43 +95,43 @@ final class MeetingFinalizationService {
         var segments: [MeetingSegment] = []
 
         // Mic track.
-        onProgressUpdated?(0, "Transcribing your audio...")
+        onProgress(0, "Transcribing your audio...")
         await transcribeFullTrack(
             samples: micResampled,
             speakerId: "You",
             isFromMicrophone: true,
             into: &segments
-        ) { [weak self] in
+        ) {
             completedChunks += 1
             let progress = totalChunks > 0
                 ? Double(completedChunks) / Double(totalChunks)
                 : 0
-            self?.onProgressUpdated?(progress, "Transcribing your audio...")
+            onProgress(progress, "Transcribing your audio...")
         }
 
         // System track.
         let systemStartProgress = totalChunks > 0
             ? Double(micChunks) / Double(totalChunks)
             : 0
-        onProgressUpdated?(systemStartProgress, "Transcribing remote audio...")
+        onProgress(systemStartProgress, "Transcribing remote audio...")
         await transcribeFullTrack(
             samples: systemResampled,
             speakerId: "Remote",
             isFromMicrophone: false,
             into: &segments
-        ) { [weak self] in
+        ) {
             completedChunks += 1
             let progress = totalChunks > 0
                 ? Double(completedChunks) / Double(totalChunks)
                 : 0
-            self?.onProgressUpdated?(progress, "Transcribing remote audio...")
+            onProgress(progress, "Transcribing remote audio...")
         }
 
         // Sort + merge consecutive same-speaker segments.
-        onProgressUpdated?(0.95, "Merging transcript...")
+        onProgress(0.95, "Merging transcript...")
         segments = mergeConsecutiveSpeakerSegments(segments)
 
-        onProgressUpdated?(1.0, "Done")
+        onProgress(1.0, "Done")
 
         return MeetingPersistencePayload(
             micSamples: input.micSamples,

@@ -139,6 +139,11 @@ final class MeetingPhase4CTests: XCTestCase {
             micSource: AudioSource.MicrophoneSource
         )] = []
 
+        // When set, start() suspends until releaseSuspendedStart() is called,
+        // so tests can interleave cancel/stop while a start is in flight.
+        var suspendStart = false
+        private var startContinuation: CheckedContinuation<Void, Never>?
+
         func start(
             micSource: AudioSource.MicrophoneSource,
             appSelection: AppSelection
@@ -146,9 +151,19 @@ final class MeetingPhase4CTests: XCTestCase {
             startCallCount += 1
             startedMicSource = micSource
             startedAppSelection = appSelection
+            if suspendStart {
+                await withCheckedContinuation { continuation in
+                    startContinuation = continuation
+                }
+            }
             if let startError {
                 throw startError
             }
+        }
+
+        func releaseSuspendedStart() {
+            startContinuation?.resume()
+            startContinuation = nil
         }
 
         func stop() -> (
@@ -196,9 +211,11 @@ final class MeetingPhase4CTests: XCTestCase {
         var recovery: (segments: [MeetingSegment], duration: TimeInterval)?
         var useLongRunningChunkTasks = false
 
+        let sessionID = UUID()
         private(set) var resetCount = 0
         private(set) var startAutoSaveCount = 0
         private(set) var stopAutoSaveCount = 0
+        private(set) var flushAutoSaveCount = 0
         private(set) var clearAutoSaveCount = 0
         private(set) var crashRecoveryCheckCount = 0
         private(set) var transcribeChunkCount = 0
@@ -221,6 +238,10 @@ final class MeetingPhase4CTests: XCTestCase {
             stopAutoSaveCount += 1
         }
 
+        func flushAutoSave() {
+            flushAutoSaveCount += 1
+        }
+
         func clearAutoSave() {
             clearAutoSaveCount += 1
         }
@@ -233,12 +254,23 @@ final class MeetingPhase4CTests: XCTestCase {
             return recovery
         }
 
+        // When set, chunk tasks ignore cancellation and complete only on
+        // releaseHeldChunkTasks() — lets tests keep stop() suspended at its
+        // await while interleaving other operations.
+        var holdChunkTasksUntilReleased = false
+        private var chunkHoldContinuations: [CheckedContinuation<Void, Never>] = []
+
         @discardableResult
         func transcribeChunk(_ chunk: TranscriptionChunk) -> Task<Void, Never> {
             transcribeChunkCount += 1
             let longRunning = useLongRunningChunkTasks
+            let held = holdChunkTasksUntilReleased
             let task = Task {
-                if longRunning {
+                if held {
+                    await withCheckedContinuation { continuation in
+                        self.chunkHoldContinuations.append(continuation)
+                    }
+                } else if longRunning {
                     while !Task.isCancelled {
                         try? await Task.sleep(nanoseconds: 1_000_000)
                     }
@@ -246,6 +278,13 @@ final class MeetingPhase4CTests: XCTestCase {
             }
             chunkTasks.append(task)
             return task
+        }
+
+        func releaseHeldChunkTasks() {
+            for continuation in chunkHoldContinuations {
+                continuation.resume()
+            }
+            chunkHoldContinuations = []
         }
 
         func emitSegments(_ segments: [MeetingSegment]) {
@@ -415,7 +454,7 @@ final class MeetingPhase4CTests: XCTestCase {
         session.cancel()
     }
 
-    func testCaptureStopSave_CancelsChunksReadsSamplesClearsAutosaveAndCleans() async throws {
+    func testCaptureStopSave_CancelsChunksReadsSamplesAndKeepsRecoveryArtifacts() async throws {
         let app = makeApp(name: "Zoom", pid: 10)
         let micURL = URL(fileURLWithPath: "/tmp/phase4c-mic.raw")
         let systemURL = URL(fileURLWithPath: "/tmp/phase4c-system.raw")
@@ -440,18 +479,27 @@ final class MeetingPhase4CTests: XCTestCase {
 
         XCTAssertEqual(transcript.transcribeChunkCount, 1)
         XCTAssertEqual(transcript.stopAutoSaveCount, 1)
-        XCTAssertEqual(transcript.clearAutoSaveCount, 1)
+        XCTAssertEqual(transcript.flushAutoSaveCount, 1)
         XCTAssertEqual(audio.stopCallCount, 1)
-        XCTAssertEqual(audio.cleanupCallCount, 1)
         XCTAssertEqual(audio.readURLs, [micURL, systemURL])
         XCTAssertEqual(captured.micSamples, [0.1, 0.2])
         XCTAssertEqual(captured.micSampleRate, 44_100)
         XCTAssertEqual(captured.systemSamples, [0.3, 0.4, 0.5])
         XCTAssertEqual(captured.systemSampleRate, 48_000)
         XCTAssertEqual(captured.appName, "Zoom")
+
+        // Recovery artifacts must survive until the persistence commit
+        // point: finalization and persistence still lie ahead of this
+        // return, and a crash there must stay recoverable.
+        XCTAssertEqual(transcript.clearAutoSaveCount, 0)
+        XCTAssertEqual(audio.cleanupCallCount, 0)
+        let artifacts = try XCTUnwrap(captured.recoveryArtifacts)
+        XCTAssertEqual(artifacts.sessionID, transcript.sessionID)
+        XCTAssertEqual(artifacts.micFileURL, micURL)
+        XCTAssertEqual(artifacts.systemFileURL, systemURL)
     }
 
-    func testCaptureStopWithoutSaveCleansButSkipsReadsAndAutosaveClear() async throws {
+    func testCaptureStopWithoutSaveDiscardsRecoveryArtifactsImmediately() async throws {
         let audio = FakeAudioManager()
         let transcript = FakeTranscriptManager()
         let session = makeCaptureSession(audio: audio, transcript: transcript)
@@ -466,7 +514,9 @@ final class MeetingPhase4CTests: XCTestCase {
 
         XCTAssertNil(captured)
         XCTAssertEqual(transcript.stopAutoSaveCount, 1)
-        XCTAssertEqual(transcript.clearAutoSaveCount, 0)
+        // A deliberate discard clears recovery data now — otherwise the
+        // discarded meeting resurfaces as phantom "crash recovery".
+        XCTAssertEqual(transcript.clearAutoSaveCount, 1)
         XCTAssertEqual(audio.stopCallCount, 1)
         XCTAssertEqual(audio.cleanupCallCount, 1)
         XCTAssertTrue(audio.readURLs.isEmpty)
@@ -500,7 +550,7 @@ final class MeetingPhase4CTests: XCTestCase {
         session.cancel()
     }
 
-    func testCaptureCrashRecoveryClearsAutosaveAfterSuccessfulRecovery() async {
+    func testCaptureCrashRecoveryDoesNotDestroyAutosaveOnRead() async {
         let segment = makeSegment(text: "recovered")
         let audio = FakeAudioManager()
         let transcript = FakeTranscriptManager()
@@ -512,7 +562,9 @@ final class MeetingPhase4CTests: XCTestCase {
         XCTAssertEqual(recovery?.segments, [segment])
         XCTAssertEqual(recovery?.duration, 42)
         XCTAssertEqual(transcript.crashRecoveryCheckCount, 1)
-        XCTAssertEqual(transcript.clearAutoSaveCount, 1)
+        // Reading recovery data must not delete it: a second crash before
+        // the recovered meeting is saved would otherwise erase it for good.
+        XCTAssertEqual(transcript.clearAutoSaveCount, 0)
     }
 
     func testCaptureStartFailureCleansTempFilesAndDoesNotLeaveSessionActive() async throws {
@@ -536,6 +588,104 @@ final class MeetingPhase4CTests: XCTestCase {
         XCTAssertFalse(session.isRecording)
         let captured = await session.stop(saveToHistory: true)
         XCTAssertNil(captured)
+    }
+
+    func testCancelDuringStartNeverPublishesAndStopsTheStartedAudio() async throws {
+        let audio = FakeAudioManager()
+        audio.suspendStart = true
+        let transcript = FakeTranscriptManager()
+        let session = makeCaptureSession(audio: audio, transcript: transcript)
+
+        let startTask = Task {
+            try await session.start(configuration: MeetingCaptureStartConfiguration(
+                selectedApp: nil,
+                selectedMicrophone: nil,
+                streamingEnabled: true
+            ))
+        }
+        while audio.startCallCount == 0 {
+            await Task.yield()
+        }
+
+        // User cancels while the panel shows "Preparing...".
+        session.cancel()
+        audio.releaseSuspendedStart()
+
+        do {
+            try await startTask.value
+            XCTFail("Expected CancellationError from superseded start")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        // The capture that finished starting after the cancel must be torn
+        // down, not published: no phantom recording, no orphaned hot mic,
+        // no timers on a discarded session.
+        XCTAssertFalse(session.isRecording)
+        XCTAssertEqual(audio.stopCallCount, 1)
+        XCTAssertEqual(audio.cleanupCallCount, 1)
+        XCTAssertEqual(transcript.startAutoSaveCount, 0)
+    }
+
+    func testStopStartOverlapDoesNotClobberTheNewSession() async throws {
+        let firstMicURL = URL(fileURLWithPath: "/tmp/phase4c-overlap-mic.raw")
+        let firstAudio = FakeAudioManager()
+        firstAudio.stopResult = (firstMicURL, 16_000, nil, 0)
+        firstAudio.samplesByURL[firstMicURL] = [0.5]
+        let secondAudio = FakeAudioManager()
+        let firstTranscript = FakeTranscriptManager()
+        firstTranscript.holdChunkTasksUntilReleased = true
+        let secondTranscript = FakeTranscriptManager()
+
+        var audios = [firstAudio, secondAudio]
+        var transcripts = [firstTranscript, secondTranscript]
+        let session = MeetingCaptureSession(
+            transcriptionService: SpyTranscriber(),
+            audioManagerFactory: { audios.removeFirst() },
+            transcriptManagerFactory: { transcripts.removeFirst() }
+        )
+
+        try await session.start(configuration: MeetingCaptureStartConfiguration(
+            selectedApp: nil,
+            selectedMicrophone: nil,
+            streamingEnabled: true
+        ))
+        firstAudio.emitChunk(makeChunk())
+
+        // Stop suspends awaiting the held chunk task — the exact window in
+        // which a user (Escape during processing, then Start) can begin a
+        // new meeting.
+        let stopTask = Task {
+            await session.stop(saveToHistory: true)
+        }
+        while firstAudio.stopCallCount == 0 {
+            await Task.yield()
+        }
+
+        try await session.start(configuration: MeetingCaptureStartConfiguration(
+            selectedApp: nil,
+            selectedMicrophone: nil,
+            streamingEnabled: true
+        ))
+        XCTAssertTrue(session.isRecording)
+
+        firstTranscript.releaseHeldChunkTasks()
+        let captured = await stopTask.value
+
+        // The finishing stop returns its own session's audio...
+        XCTAssertEqual(captured?.micSamples, [0.5])
+        // ...and the new session is untouched: still recording, its audio
+        // never stopped, its recovery data never cleared.
+        XCTAssertTrue(session.isRecording)
+        XCTAssertEqual(secondAudio.stopCallCount, 0)
+        XCTAssertEqual(secondAudio.cleanupCallCount, 0)
+        XCTAssertEqual(secondTranscript.stopAutoSaveCount, 0)
+        XCTAssertEqual(secondTranscript.clearAutoSaveCount, 0)
+        XCTAssertEqual(secondTranscript.startAutoSaveCount, 1)
+
+        session.cancel()
     }
 
     // MARK: - Handler Integration
@@ -567,7 +717,6 @@ final class MeetingPhase4CTests: XCTestCase {
         let handler = MeetingPipelineHandler(
             state: state,
             transcriptionService: transcriber,
-            diarizationService: nil,
             screenPermission: ScreenRecordingPermissionService(),
             micPermission: MicrophonePermissionService(),
             settings: settings,
@@ -607,7 +756,6 @@ final class MeetingPhase4CTests: XCTestCase {
         let handler = MeetingPipelineHandler(
             state: state,
             transcriptionService: transcriber,
-            diarizationService: nil,
             screenPermission: ScreenRecordingPermissionService(),
             micPermission: MicrophonePermissionService(),
             settings: settings,
@@ -649,7 +797,6 @@ final class MeetingPhase4CTests: XCTestCase {
         let handler = MeetingPipelineHandler(
             state: state,
             transcriptionService: transcriber,
-            diarizationService: nil,
             screenPermission: ScreenRecordingPermissionService(),
             micPermission: MicrophonePermissionService(),
             settings: settings,

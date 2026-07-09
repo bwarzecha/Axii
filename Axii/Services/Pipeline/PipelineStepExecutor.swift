@@ -32,9 +32,11 @@ final class DiarizeStepExecutor: PipelineStepExecutor {
     }
 
     func execute(context: inout PipelineContext) async throws {
-        // Note: Full diarization with dual audio is handled by MeetingPipelineHandler.
-        // This executor covers single-source speaker model diarization (future)
-        // and source-label mode for simple recording with known speaker.
+        // Note: Meeting mode labels speakers by audio source (mic = "You",
+        // system = "Remote") in MeetingFinalizationService; DiarizationService
+        // is not involved there. This executor covers single-source speaker
+        // model diarization (future) and source-label mode for simple
+        // recording with known speaker.
         guard let samples = context.samples,
               !samples.isEmpty else {
             logger.warning("Diarize step skipped: no audio data")

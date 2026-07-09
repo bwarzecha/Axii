@@ -9,11 +9,13 @@
 import Foundation
 
 /// Auto-save data structure for crash recovery.
+/// sessionID is optional so files written by older builds still decode.
 private struct AutoSaveData: Codable {
     let segments: [MeetingSegment]
     let duration: TimeInterval
     let startTime: Date
     let selectedAppName: String?
+    var sessionID: UUID?
 }
 
 /// Manages meeting transcription with auto-save for reliability.
@@ -31,6 +33,9 @@ final class MeetingTranscriptManager {
     // MARK: - State
 
     private(set) var segments: [MeetingSegment] = []
+    /// Identifies this recording in the autosave file so that clearing
+    /// recovery data for one session can never delete another session's.
+    private(set) var sessionID = UUID()
     private var recordingStartTime: Date?
     private var autoSaveTimer: Timer?
     private var selectedAppName: String?
@@ -54,7 +59,7 @@ final class MeetingTranscriptManager {
 
     // MARK: - Auto-save Path
 
-    private var autoSavePath: URL {
+    private static var autoSavePath: URL {
         let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -69,6 +74,8 @@ final class MeetingTranscriptManager {
 
         return axiiDir.appendingPathComponent("meeting_autosave.json")
     }
+
+    private var autoSavePath: URL { Self.autoSavePath }
 
     // MARK: - Initialization
 
@@ -88,6 +95,7 @@ final class MeetingTranscriptManager {
         transcriptionChain?.cancel()
         transcriptionChain = nil
         segments = []
+        sessionID = UUID()
         recordingStartTime = Date()
         selectedAppName = nil
         lastMicSegmentIndex = nil
@@ -121,6 +129,13 @@ final class MeetingTranscriptManager {
         autoSaveTimer = nil
     }
 
+    /// Write the current transcript to the recovery file immediately.
+    /// Called at stop so recovery is not up to one autosave interval stale
+    /// during the finalize/persist window.
+    func flushAutoSave() {
+        performAutoSave()
+    }
+
     /// Perform auto-save to disk.
     private func performAutoSave() {
         guard !segments.isEmpty else { return }
@@ -130,7 +145,8 @@ final class MeetingTranscriptManager {
             segments: segments,
             duration: duration,
             startTime: recordingStartTime ?? Date(),
-            selectedAppName: selectedAppName
+            selectedAppName: selectedAppName,
+            sessionID: sessionID
         )
 
         do {
@@ -142,22 +158,36 @@ final class MeetingTranscriptManager {
         }
     }
 
-    /// Check for and recover from a crashed session.
+    /// Check for a recoverable crashed session.
+    ///
+    /// Reading does NOT delete the file: recovery data survives until the
+    /// recovered meeting is persisted, superseded by a new recording's
+    /// autosave, or expires. Deleting on read would make recovery a
+    /// single-shot that a second crash erases.
+    ///
+    /// Scope: recovery covers streamed transcript segments only. With
+    /// streaming transcription disabled nothing is autosaved, and temp
+    /// audio in the system temp directory is not recovered.
     func checkForCrashRecovery() -> (segments: [MeetingSegment], duration: TimeInterval)? {
         guard FileManager.default.fileExists(atPath: autoSavePath.path) else {
             return nil
         }
 
         do {
-            let jsonData = try Data(contentsOf: autoSavePath)
-            let data = try JSONDecoder().decode(AutoSaveData.self, from: jsonData)
-
-            // Only recover if it's recent (within last hour)
-            let age = Date().timeIntervalSince(data.startTime)
-            if age > 3600 {
+            // Expiry is keyed to when the file was last WRITTEN, not when
+            // the recording started: a 3-hour meeting autosaved seconds
+            // before a crash is fresh, not expired.
+            let attributes = try FileManager.default.attributesOfItem(
+                atPath: autoSavePath.path
+            )
+            if let modified = attributes[.modificationDate] as? Date,
+               Date().timeIntervalSince(modified) > 3600 {
                 clearAutoSave()
                 return nil
             }
+
+            let jsonData = try Data(contentsOf: autoSavePath)
+            let data = try JSONDecoder().decode(AutoSaveData.self, from: jsonData)
 
             print("MeetingTranscriptManager: Found recovery data with \(data.segments.count) segments")
             return (data.segments, data.duration)
@@ -168,8 +198,21 @@ final class MeetingTranscriptManager {
         }
     }
 
-    /// Clear auto-save file (call on successful meeting end).
+    /// Clear auto-save file (deliberate discard of the live session).
     func clearAutoSave() {
+        try? FileManager.default.removeItem(at: autoSavePath)
+    }
+
+    /// Clear the auto-save file only if it belongs to the given session.
+    /// Used at the persistence commit point, which may run long after the
+    /// capture ended — by then a newer recording may own the file.
+    static func clearAutoSave(matching sessionID: UUID) {
+        guard let jsonData = try? Data(contentsOf: autoSavePath),
+              let data = try? JSONDecoder().decode(AutoSaveData.self, from: jsonData)
+        else { return }
+        // Files from older builds have no sessionID; treat them as owned by
+        // whoever is committing (there can only have been one writer).
+        guard data.sessionID == nil || data.sessionID == sessionID else { return }
         try? FileManager.default.removeItem(at: autoSavePath)
     }
 

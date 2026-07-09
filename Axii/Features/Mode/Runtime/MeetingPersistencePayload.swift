@@ -22,5 +22,9 @@ struct MeetingPersistencePayload {
     let segments: [MeetingSegment]
     let duration: TimeInterval
     let appName: String?
+    /// Recovery data kept alive until this payload is durably persisted.
+    /// The persistence caller clears it after a successful save (or when
+    /// persistence is disabled); it stays on disk after a persist failure.
+    var recoveryArtifacts: MeetingRecoveryArtifacts?
 }
 #endif

@@ -5,6 +5,14 @@
 //  Owns the active meeting capture session: audio manager, live transcript
 //  manager, chunk tasks, autosave timer control, and capture cleanup.
 //
+//  Concurrency model: at most one capture is live at a time ("no concurrent
+//  capture sessions" is an invariant, enforced by phase gating in the UI and
+//  by cancel-on-reentry in start()). Every await in this file is guarded:
+//  start() publishes nothing until the capture is fully live and the epoch
+//  still matches; stop() detaches the entire capture into locals before its
+//  first await, so a session that starts afterwards can never be clobbered
+//  by the finishing one.
+//
 
 #if os(macOS)
 import Foundation
@@ -19,11 +27,17 @@ final class MeetingCaptureSession {
 
     private var audioManager: (any MeetingAudioManaging)?
     private var transcriptManager: (any MeetingTranscriptManaging)?
-    private var durationTimer: Timer?
+    // Grows by one tiny completed-task handle per streamed chunk (~480/hour)
+    // and is emptied on stop/cancel; deliberately not pruned mid-recording.
     private var chunkTranscriptionTasks: [Task<Void, Never>] = []
-    private var currentDuration: TimeInterval = 0
     private var selectedApp: AudioApp?
     private var selectedMicrophone: AudioDevice?
+    private let switches = MeetingSwitchSerializer()
+    private let durationTicker = MeetingDurationTicker()
+
+    // Bumped by start/stop/cancel. An operation that resumes from an await
+    // and finds the epoch changed must not publish or mutate session state.
+    private var epoch = 0
 
     var onAudioLevel: ((Float) -> Void)?
     var onSegmentsUpdated: (([MeetingSegment]) -> Void)?
@@ -45,56 +59,37 @@ final class MeetingCaptureSession {
         self.transcriptManagerFactory = transcriptManagerFactory ?? {
             MeetingTranscriptManager(transcriptionService: transcriptionService)
         }
+        durationTicker.onTick = { [weak self] duration in
+            self?.onDurationUpdated?(duration)
+        }
     }
 
     deinit {
-        durationTimer?.invalidate()
         for task in chunkTranscriptionTasks {
             task.cancel()
         }
     }
 
+    // MARK: - Start
+
     func start(configuration: MeetingCaptureStartConfiguration) async throws {
         if audioManager != nil || transcriptManager != nil {
             cancel()
         }
-        resetTransientState()
+        epoch += 1
+        let startEpoch = epoch
+        durationTicker.reset()
 
         selectedApp = configuration.selectedApp
         selectedMicrophone = configuration.selectedMicrophone
 
         let audio = audioManagerFactory()
         let transcript = transcriptManagerFactory()
-        audioManager = audio
-        transcriptManager = transcript
-
-        audio.onAudioLevel = { [weak self] level in
-            self?.onAudioLevel?(level)
-        }
-
-        audio.onTranscriptionChunk = nil
-        if configuration.streamingEnabled {
-            audio.onTranscriptionChunk = { [weak self] chunk in
-                guard let self, let transcript = self.transcriptManager else {
-                    return
-                }
-                let task = transcript.transcribeChunk(chunk)
-                self.chunkTranscriptionTasks.append(task)
-                if self.chunkTranscriptionTasks.count > 20 {
-                    self.chunkTranscriptionTasks.removeAll {
-                        $0.isCancelled
-                    }
-                }
-            }
-        }
-
-        audio.onError = { [weak self] message in
-            self?.onError?(message)
-        }
-
-        transcript.onSegmentsUpdated = { [weak self] segments in
-            self?.onSegmentsUpdated?(segments)
-        }
+        wireCallbacks(
+            audio: audio,
+            transcript: transcript,
+            streamingEnabled: configuration.streamingEnabled
+        )
         transcript.setSelectedApp(configuration.selectedApp)
         transcript.reset()
 
@@ -106,79 +101,95 @@ final class MeetingCaptureSession {
         } catch {
             clearCallbacks(audio: audio, transcript: transcript)
             audio.cleanupTempFiles()
-            audioManager = nil
-            transcriptManager = nil
             throw error
         }
 
+        // stop()/cancel()/start() arrived while audio was starting: this
+        // capture must never be published. Teardown must happen HERE — audio
+        // is fully started at this point, so its stop() works, whereas the
+        // earlier cancel() saw a partial start and its stop() was a no-op.
+        guard epoch == startEpoch else {
+            clearCallbacks(audio: audio, transcript: transcript)
+            _ = audio.stop()
+            audio.cleanupTempFiles()
+            throw CancellationError()
+        }
+
+        audioManager = audio
+        transcriptManager = transcript
         transcript.startAutoSave()
-        startDurationTimer()
+        durationTicker.start()
     }
 
+    // MARK: - Stop
+
     func stop(saveToHistory: Bool) async -> MeetingCapturedAudio? {
-        stopDurationTimer()
-        transcriptManager?.stopAutoSave()
+        let capture = detachCurrentCapture()
+        await switches.settle()
 
-        let pendingTasks = chunkTranscriptionTasks
-        for task in pendingTasks {
-            task.cancel()
-        }
-        chunkTranscriptionTasks = []
-
-        guard let audio = audioManager else {
-            clearCallbacks(audio: nil, transcript: transcriptManager)
-            transcriptManager = nil
+        guard let audio = capture.audio else {
             return nil
         }
 
         let stoppedAudio = audio.stop()
-        let duration = currentDuration
 
         guard saveToHistory else {
-            clearCallbacks(audio: audio, transcript: transcriptManager)
+            capture.transcript?.clearAutoSave()
             audio.cleanupTempFiles()
-            audioManager = nil
-            transcriptManager = nil
             return nil
         }
 
-        for task in pendingTasks {
+        // The autosave cadence is 60s; flush the freshest transcript to the
+        // recovery file before the long finalize/persist window opens.
+        capture.transcript?.flushAutoSave()
+
+        for task in capture.pendingTasks {
             await task.value
         }
 
-        let captured = MeetingCapturedAudio(
+        // Recovery artifacts (autosave + temp audio) are NOT cleaned here:
+        // finalization and persistence still lie ahead, and a crash there
+        // must stay recoverable. The persistence caller commits them.
+        return MeetingCapturedAudio(
             micSamples: audio.readSamplesFromFile(stoppedAudio.micFile),
             micSampleRate: stoppedAudio.micRate,
             systemSamples: audio.readSamplesFromFile(stoppedAudio.systemFile),
             systemSampleRate: stoppedAudio.systemRate,
-            duration: duration,
-            appName: selectedApp?.name
+            duration: capture.duration,
+            appName: capture.appName,
+            recoveryArtifacts: capture.transcript.map {
+                MeetingRecoveryArtifacts(
+                    sessionID: $0.sessionID,
+                    micFileURL: stoppedAudio.micFile,
+                    systemFileURL: stoppedAudio.systemFile
+                )
+            }
         )
-
-        transcriptManager?.clearAutoSave()
-        clearCallbacks(audio: audio, transcript: transcriptManager)
-        audio.cleanupTempFiles()
-        audioManager = nil
-        transcriptManager = nil
-
-        return captured
     }
+
+    // MARK: - Cancel
 
     func cancel() {
-        stopDurationTimer()
-        transcriptManager?.stopAutoSave()
-
-        for task in chunkTranscriptionTasks {
-            task.cancel()
+        let capture = detachCurrentCapture()
+        guard switches.hasPending else {
+            discard(capture)
+            return
         }
-        chunkTranscriptionTasks = []
-
-        _ = audioManager?.stop()
-        clearCallbacks(audio: audioManager, transcript: transcriptManager)
-        audioManager?.cleanupTempFiles()
-        audioManager = nil
-        transcriptManager = nil
+        // A switch is mid-flight: its restart leg would resurrect audio after
+        // a synchronous stop here. Let it settle, then discard.
+        Task { @MainActor in
+            await self.switches.settle()
+            self.discard(capture)
+        }
     }
+
+    private func discard(_ capture: DetachedCapture) {
+        _ = capture.audio?.stop()
+        capture.transcript?.clearAutoSave()
+        capture.audio?.cleanupTempFiles()
+    }
+
+    // MARK: - App Selection
 
     func selectApp(_ app: AudioApp?) {
         selectedApp = app
@@ -186,13 +197,12 @@ final class MeetingCaptureSession {
 
         guard let audioManager else { return }
         let micSource = resolveMicSource()
-        Task {
-            try? await audioManager.switchApp(
-                to: app,
-                micSource: micSource
-            )
+        switches.run {
+            try? await audioManager.switchApp(to: app, micSource: micSource)
         }
     }
+
+    // MARK: - Microphone Switching
 
     func switchMicrophone(
         to device: AudioDevice?,
@@ -203,50 +213,56 @@ final class MeetingCaptureSession {
         self.selectedApp = selectedApp
 
         guard let audioManager else { return }
-        try? await audioManager.switchApp(
-            to: selectedApp,
-            micSource: micSource ?? resolveMicSource()
-        )
+        let source = micSource ?? resolveMicSource()
+        let task = switches.run {
+            try? await audioManager.switchApp(to: selectedApp, micSource: source)
+        }
+        await task.value
     }
+
+    // MARK: - Crash Recovery
 
     func checkCrashRecovery() -> (
         segments: [MeetingSegment],
         duration: TimeInterval
     )? {
-        let transcript = transcriptManagerFactory()
-        guard let recovery = transcript.checkForCrashRecovery() else {
-            return nil
-        }
-        transcript.clearAutoSave()
-        return recovery
+        transcriptManagerFactory().checkForCrashRecovery()
     }
 
-    private func resetTransientState() {
-        stopDurationTimer()
-        for task in chunkTranscriptionTasks {
+    // MARK: - Private: Detach & Teardown
+
+    private struct DetachedCapture {
+        let audio: (any MeetingAudioManaging)?
+        let transcript: (any MeetingTranscriptManaging)?
+        let pendingTasks: [Task<Void, Never>]
+        let duration: TimeInterval
+        let appName: String?
+    }
+
+    /// Removes the live capture from session state synchronously — no awaits.
+    /// After this returns, nothing in this class references the capture; the
+    /// caller owns it exclusively and a new start() cannot touch it.
+    private func detachCurrentCapture() -> DetachedCapture {
+        epoch += 1
+        durationTicker.stop()
+
+        let capture = DetachedCapture(
+            audio: audioManager,
+            transcript: transcriptManager,
+            pendingTasks: chunkTranscriptionTasks,
+            duration: durationTicker.duration,
+            appName: selectedApp?.name
+        )
+        audioManager = nil
+        transcriptManager = nil
+        chunkTranscriptionTasks = []
+
+        capture.transcript?.stopAutoSave()
+        for task in capture.pendingTasks {
             task.cancel()
         }
-        chunkTranscriptionTasks = []
-        currentDuration = 0
-    }
-
-    private func startDurationTimer() {
-        let startTime = Date()
-        durationTimer = Timer.scheduledTimer(
-            withTimeInterval: 1.0,
-            repeats: true
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.currentDuration = Date().timeIntervalSince(startTime)
-                self.onDurationUpdated?(self.currentDuration)
-            }
-        }
-    }
-
-    private func stopDurationTimer() {
-        durationTimer?.invalidate()
-        durationTimer = nil
+        clearCallbacks(audio: capture.audio, transcript: capture.transcript)
+        return capture
     }
 
     private func clearCallbacks(
@@ -258,6 +274,39 @@ final class MeetingCaptureSession {
         audio?.onError = nil
         transcript?.onSegmentsUpdated = nil
     }
+
+    // MARK: - Private: Callback Wiring
+
+    private func wireCallbacks(
+        audio: any MeetingAudioManaging,
+        transcript: any MeetingTranscriptManaging,
+        streamingEnabled: Bool
+    ) {
+        audio.onAudioLevel = { [weak self] level in
+            self?.onAudioLevel?(level)
+        }
+        audio.onError = { [weak self] message in
+            self?.onError?(message)
+        }
+        transcript.onSegmentsUpdated = { [weak self] segments in
+            self?.onSegmentsUpdated?(segments)
+        }
+
+        guard streamingEnabled else {
+            audio.onTranscriptionChunk = nil
+            return
+        }
+        audio.onTranscriptionChunk = { [weak self, weak transcript] chunk in
+            // The identity check drops chunks that raced a detach: once a
+            // capture is detached its transcript is no longer published here.
+            guard let self, let transcript,
+                  self.transcriptManager === transcript else { return }
+            let task = transcript.transcribeChunk(chunk)
+            self.chunkTranscriptionTasks.append(task)
+        }
+    }
+
+    // MARK: - Private: Source Resolution
 
     private func resolveMicSource() -> AudioSource.MicrophoneSource {
         if let selectedMicrophone {

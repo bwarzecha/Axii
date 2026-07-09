@@ -132,7 +132,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
            let screen = screenPermission {
             self.meetingHandler = MeetingPipelineHandler(
                 state: state, transcriptionService: transcriptionService,
-                diarizationService: diarizationService, screenPermission: screen,
+                screenPermission: screen,
                 micPermission: micPermission, settings: settings
             )
         }
@@ -263,7 +263,24 @@ final class ModeFeature: Feature, ModeDismissControlling {
 
     private func refreshDeviceList() {
         state.availableMicrophones = DeviceMonitor.availableMicrophones()
-        state.selectedMicrophone = resolveSelectedMicrophone()
+        let resolved = resolveSelectedMicrophone()
+        let previous = state.selectedMicrophone
+        state.selectedMicrophone = resolved
+
+        // A meeting captures with the device it was started with; if the
+        // resolved selection changed under it (unplug → nil, replug → the
+        // preferred mic again), the capture session must be told or its
+        // stored selection drifts from what the user sees. Dictation needs
+        // no reconciliation: it resolves the device fresh on each start.
+        if let handler = meetingHandler,
+           state.phase == .recording,
+           resolved?.uid != previous?.uid {
+            let source: AudioSource.MicrophoneSource =
+                resolved.map { .specific($0) } ?? .systemDefault
+            Task {
+                await handler.switchMicrophone(to: resolved, micSource: source)
+            }
+        }
     }
 
     func resolveSelectedMicrophone() -> AudioDevice? {

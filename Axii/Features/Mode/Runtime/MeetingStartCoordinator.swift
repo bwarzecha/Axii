@@ -52,9 +52,7 @@ final class MeetingStartCoordinator {
         permissionPollTimer?.invalidate()
     }
 
-    func requestStart(
-        onPreparing: @MainActor () -> Void = {}
-    ) async throws -> MeetingStartOutcome {
+    func requestStart() async throws -> MeetingStartOutcome {
         if micPermission.state.isBlocked {
             micPermission.openSystemSettings()
             return .blocked("Microphone permission required")
@@ -65,13 +63,8 @@ final class MeetingStartCoordinator {
             return .waitingForScreenRecording
         }
 
-        onPreparing()
         try await prepareTranscriptionIfNeeded()
         return .readyToRecord
-    }
-
-    func prepareAfterScreenPermissionGrant() async throws {
-        try await prepareTranscriptionIfNeeded()
     }
 
     func startScreenPermissionPolling(

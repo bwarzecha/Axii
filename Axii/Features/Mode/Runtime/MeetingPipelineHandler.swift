@@ -65,12 +65,16 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
     private let startCoordinator: MeetingStartCoordinator
     private let captureSession: MeetingCaptureSession
 
+    // Bumped by start/stop/cancel. A stop that resumes from finalization and
+    // finds the generation changed must not write to state — a newer session
+    // owns the UI now.
+    private var generation = 0
+
     // MARK: - Initialization
 
     init(
         state: ModeRuntimeState,
         transcriptionService: any TranscriptionProviding,
-        diarizationService: DiarizationService?,
         screenPermission: ScreenRecordingPermissionService,
         micPermission: MicrophonePermissionService,
         settings: SettingsService,
@@ -90,55 +94,54 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
         self.captureSession = captureSession ?? MeetingCaptureSession(
             transcriptionService: transcriptionService
         )
-        self.finalizationService.onProgressUpdated = { [weak state] progress, status in
-            state?.processingProgress = progress
-            state?.processingStatus = status
-        }
         wireCaptureSessionCallbacks()
     }
 
     // MARK: - Start
 
     func start() async {
+        generation += 1
+        let gen = generation
         do {
-            switch try await startCoordinator.requestStart(
-                onPreparing: { [weak state] in
-                    state?.phase = .preparing
-                }
-            ) {
+            state.phase = .preparing
+            switch try await startCoordinator.requestStart() {
             case .readyToRecord:
                 try await beginRecording()
             case .waitingForScreenRecording:
-                state.phase = .preparing
+                // Once the user grants permission, run the whole start gate
+                // again — the permission preflight is live, so it now passes
+                // straight through to recording. One start flow, not two.
                 startCoordinator.startScreenPermissionPolling(
                     while: { [weak state] in state?.phase == .preparing },
                     onGranted: { [weak self] in
-                        await self?.prepareAndRecordAfterScreenPermissionGrant()
+                        await self?.start()
                     }
                 )
             case .blocked(let message):
                 state.phase = .error(message)
             }
+        } catch is CancellationError {
+            // A newer cancel/stop/start superseded this start mid-flight;
+            // whoever did owns the UI phase now.
         } catch {
-            state.phase = .error("Failed: \(error.localizedDescription)")
-        }
-    }
-
-    private func prepareAndRecordAfterScreenPermissionGrant() async {
-        do {
-            state.phase = .preparing
-            try await startCoordinator.prepareAfterScreenPermissionGrant()
-            try await beginRecording()
-        } catch {
-            state.phase = .error("Failed: \(error.localizedDescription)")
+            if generation == gen {
+                state.phase = .error("Failed: \(error.localizedDescription)")
+            }
         }
     }
 
     // MARK: - Stop
 
     func stop(saveToHistory: Bool) async -> MeetingStopResult? {
+        generation += 1
+        let gen = generation
+
         if saveToHistory && captureSession.isRecording {
             state.phase = .processing
+        } else if !saveToHistory {
+            // Discard is immediate from the user's perspective; do not hold
+            // the UI hostage to audio teardown.
+            state.phase = .idle
         }
 
         guard let capturedAudio = await captureSession.stop(
@@ -147,7 +150,7 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
             return nil
         }
 
-        let payload = await finalizationService.finalize(
+        var payload = await finalizationService.finalize(
             input: MeetingFinalizationInput(
                 micSamples: capturedAudio.micSamples,
                 micSampleRate: capturedAudio.micSampleRate,
@@ -155,12 +158,22 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
                 systemSampleRate: capturedAudio.systemSampleRate,
                 duration: capturedAudio.duration,
                 appName: capturedAudio.appName
-            )
+            ),
+            onProgress: { [weak self] progress, status in
+                guard let self, self.generation == gen else { return }
+                self.state.processingProgress = progress
+                self.state.processingStatus = status
+            }
         )
 
-        // Reflect the finalized transcript in live state so the UI can
-        // show the final transcript before persistence completes.
-        state.segments = payload.segments
+        payload.recoveryArtifacts = capturedAudio.recoveryArtifacts
+
+        // Reflect the finalized transcript in live state so the UI can show
+        // the final transcript before persistence completes — unless a newer
+        // session owns the UI now.
+        if generation == gen {
+            state.segments = payload.segments
+        }
 
         return payload
     }
@@ -168,6 +181,7 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
     // MARK: - Cancel
 
     func cancel() {
+        generation += 1
         startCoordinator.cancelPermissionPolling()
         captureSession.cancel()
     }
