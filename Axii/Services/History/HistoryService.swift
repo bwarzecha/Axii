@@ -187,15 +187,16 @@ final class HistoryService {
             try ensureDirectoryExists()
             try fileManager.createDirectory(at: folderURL, withIntermediateDirectories: true)
 
-            // Write metadata.json
-            let metadataData = try encoder.encode(metadata)
-            let metadataURL = folderURL.appendingPathComponent("metadata.json")
-            try metadataData.write(to: metadataURL)
-
-            // Write interaction.json
+            // Content first, index last: a kill between the two writes must
+            // leave no visible-but-broken history row. Both atomic so a kill
+            // mid-write cannot leave a truncated, undeletable entry.
             let interactionData = try encoder.encode(interaction)
             let interactionURL = folderURL.appendingPathComponent("interaction.json")
-            try interactionData.write(to: interactionURL)
+            try interactionData.write(to: interactionURL, options: .atomic)
+
+            let metadataData = try encoder.encode(metadata)
+            let metadataURL = folderURL.appendingPathComponent("metadata.json")
+            try metadataData.write(to: metadataURL, options: .atomic)
 
             // Update cache
             cache[metadata.id] = metadata
@@ -260,7 +261,7 @@ final class HistoryService {
 
         do {
             let wavData = createWAVData(samples: samples, sampleRate: sampleRate)
-            try wavData.write(to: fileURL)
+            try wavData.write(to: fileURL, options: .atomic)
         } catch {
             throw HistoryError.audioWriteFailed(error)
         }

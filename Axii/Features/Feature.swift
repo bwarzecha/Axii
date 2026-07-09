@@ -46,6 +46,11 @@ final class FeatureContext {
     /// feature's live session.
     var onDeactivate: ((any Feature) -> Void)?
 
+    /// Returns the currently active feature when it holds unsaved data —
+    /// consulted BEFORE a new mode starts capturing, so the user decides
+    /// the busy mode's fate instead of losing its recording.
+    var busyFeature: (() -> (any Feature)?)?
+
     init(
         hotkeyService: any HotkeyRegistering,
         advancedHotkeyService: (any AdvancedHotkeyRegistering)? = nil,
@@ -107,5 +112,19 @@ protocol Feature: AnyObject {
 
     /// Force cancel - called when another feature needs to take over
     func cancel()
+
+    /// True while the feature holds unsaved user data (an active recording
+    /// or an unfinished save) — takeovers must not destroy it silently.
+    var isDataBearing: Bool { get }
+
+    /// Yield control while PRESERVING data: stop-and-save/deliver whatever
+    /// is in flight, then release the UI. Falls back to cancel() for
+    /// features without data-bearing states.
+    func stopAndPreserve()
+}
+
+extension Feature {
+    var isDataBearing: Bool { false }
+    func stopAndPreserve() { cancel() }
 }
 #endif

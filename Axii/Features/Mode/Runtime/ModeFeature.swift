@@ -327,9 +327,67 @@ final class ModeFeature: Feature, ModeDismissControlling {
         return state.availableMicrophones.first { $0.uid == uid }
     }
 
+    // MARK: - Data-Bearing Takeover Protection
+
+    var isDataBearing: Bool {
+        if meetingHandler?.hasLiveCapture == true { return true }
+        switch state.phase {
+        case .recording, .transcribing, .processing: return true
+        default: return false
+        }
+    }
+
+    /// Stop-and-deliver whatever is in flight, releasing the UI without
+    /// destroying data: meetings save to history, dictation/conversation
+    /// turns finish in the background (their stale-write guards keep them
+    /// from touching the successor's UI).
+    func stopAndPreserve() {
+        if let handler = meetingHandler, handler.hasLiveCapture {
+            stopMeeting(saveToHistory: true)
+        } else if state.phase.isRecording, recordingHelper != nil {
+            if multiTurnProcessor != nil { stopAndProcessMultiTurn() }
+            else { stopSimpleRecording() }
+        } else if state.phase == .transcribing || state.phase == .processing {
+            // A turn or save is already in flight — let it finish detached.
+        } else {
+            cancel()
+            return
+        }
+        isActive = false
+    }
+
+    private enum BusyModeChoice {
+        case saveAndSwitch, discardAndSwitch, stay
+    }
+
+    private func askBusyModeChoice() -> BusyModeChoice {
+        let alert = NSAlert()
+        alert.messageText = "Another mode is busy"
+        alert.informativeText = "A recording or save is in progress in another mode. What should happen to it?"
+        alert.addButton(withTitle: "Save & Switch")
+        alert.addButton(withTitle: "Discard & Switch")
+        alert.addButton(withTitle: "Stay")
+        alert.alertStyle = .warning
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return .saveAndSwitch
+        case .alertSecondButtonReturn: return .discardAndSwitch
+        default: return .stay
+        }
+    }
+
     // MARK: - Hotkey Routing
 
     private func handleHotkey() {
+        // Another mode holds unsaved data: the user decides its fate BEFORE
+        // this mode touches the microphone — a muscle-memory keystroke must
+        // never silently destroy an hour-long recording.
+        if let busy = context?.busyFeature?(), busy !== self {
+            switch askBusyModeChoice() {
+            case .saveAndSwitch: busy.stopAndPreserve()
+            case .discardAndSwitch: busy.cancel()
+            case .stay: return
+            }
+        }
         switch hotkeyRoute {
         case .meeting:
             handleLongRunningHotkey()

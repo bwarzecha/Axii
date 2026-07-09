@@ -282,6 +282,13 @@ final class AudioSession {
             stop()
 
         case .fallbackToDefault:
+            // Combined (meeting) sessions capture the mic inside SCStream —
+            // spawning a standalone MicrophoneCapture here would interleave
+            // TWO mic producers into one recording. The meeting reconcile
+            // path owns the restart; .deviceDisconnected was already
+            // yielded above.
+            guard systemCapture == nil else { return }
+
             // Try to switch to system default
             guard let defaultDevice = DeviceMonitor.systemDefaultDevice() else {
                 eventContinuation.yield(.error(.deviceUnavailable))

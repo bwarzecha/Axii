@@ -134,9 +134,19 @@ final class RecordingSessionHelper {
     // MARK: - Private
 
     private func handleChunk(_ chunk: AudioSessionChunk) {
-        // Accumulate samples
-        samples.append(contentsOf: chunk.samples)
-        sampleRate = chunk.sampleRate
+        // One buffer, one rate: after a device fallback the incoming rate
+        // can change mid-recording — normalize the chunk instead of
+        // mislabeling everything recorded so far (garbled transcription).
+        if samples.isEmpty {
+            sampleRate = chunk.sampleRate
+        }
+        if chunk.sampleRate == sampleRate {
+            samples.append(contentsOf: chunk.samples)
+        } else {
+            samples.append(contentsOf: AudioResampler.resample(
+                chunk.samples, from: chunk.sampleRate, to: sampleRate
+            ))
+        }
 
         // Calculate visualization
         let rms = Self.calculateRMS(chunk.samples)
@@ -171,7 +181,20 @@ final class RecordingSessionHelper {
 
         case .deviceChanged(let newDevice):
             currentDevice = newDevice
-            onSignalStateChanged?(newDevice.isBluetooth)
+            if newDevice.isBluetooth {
+                // Re-arm the warmup state machine: without this, the
+                // waiting flag can stick forever after a wired->BT fallback
+                // (no .signal clear, no timeout armed).
+                warmupWasStarted = true
+                initialWarmupComplete = false
+                onSignalStateChanged?(true)
+                startWarmupTimeout()
+            } else {
+                // Falling back to a wired mic mid-warmup must not fire the
+                // "Bluetooth failed to start" abort.
+                cancelWarmupTimeout()
+                onSignalStateChanged?(false)
+            }
 
         case .interrupted:
             onError?(.captureFailure(underlying: "Audio interrupted"))

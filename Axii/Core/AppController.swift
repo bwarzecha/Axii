@@ -60,6 +60,7 @@ final class AppController {
             advancedHotkeyService: advancedHotkeyService,
             settings: settings
         )
+        AxiiAppDelegate.featureManager = featureManager
         transcriptionService = TranscriptionService()
         diarizationService = DiarizationService()
         clipboardService = ClipboardService()

@@ -10,8 +10,53 @@ import SwiftUI
 #if os(macOS)
 import AppKit
 
+/// Termination gate: quitting (Cmd-Q, logout, Sparkle relaunch) must never
+/// silently kill a live recording — dictation audio is memory-only and a
+/// meeting's save may be mid-flight.
+final class AxiiAppDelegate: NSObject, NSApplicationDelegate {
+    static weak var featureManager: FeatureManager?
+
+    func applicationShouldTerminate(
+        _ sender: NSApplication
+    ) -> NSApplication.TerminateReply {
+        guard let busy = Self.featureManager?.dataBearingFeature else {
+            return .terminateNow
+        }
+
+        if let mode = busy as? ModeFeature, mode.state.phase.isRecording {
+            let alert = NSAlert()
+            alert.messageText = "Recording in progress"
+            alert.informativeText = "Quitting now will stop the recording. Save it first?"
+            alert.addButton(withTitle: "Save, then Quit")
+            alert.addButton(withTitle: "Quit and Discard")
+            alert.addButton(withTitle: "Cancel")
+            alert.alertStyle = .warning
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                busy.stopAndPreserve()
+            case .alertSecondButtonReturn:
+                return .terminateNow
+            default:
+                return .terminateCancel
+            }
+        }
+
+        // A save/turn is in flight (or was just started above): let it
+        // finish, then quit. Bounded so a wedged save cannot block logout.
+        Task { @MainActor in
+            let deadline = Date().addingTimeInterval(60)
+            while busy.isDataBearing, Date() < deadline {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+}
+
 @main
 struct AxiiApp: App {
+    @NSApplicationDelegateAdaptor(AxiiAppDelegate.self) private var appDelegate
     @State private var controller: AppController
     @StateObject private var updaterService = UpdaterService()
 

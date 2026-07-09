@@ -64,16 +64,35 @@ final class FeatureManager {
             self.deactivateCurrentFeature()
         }
 
+        context.busyFeature = { [weak self] in
+            guard let self, let active = self.activeFeature,
+                  active.isDataBearing else { return nil }
+            return active
+        }
+
         feature.register(with: context)
         features.append(feature)
+    }
+
+    /// Any registered feature currently holding unsaved user data —
+    /// consulted by app termination to avoid killing a live recording.
+    var dataBearingFeature: (any Feature)? {
+        features.first { $0.isDataBearing }
     }
 
     // MARK: - Feature Lifecycle
 
     private func activateFeature(_ feature: any Feature) {
-        // Cancel current feature if different
+        // Displace the current feature if different. Safety net: any
+        // activation path that skipped the busy-mode dialog preserves data
+        // (stop-and-save) rather than destroying it; for idle features this
+        // is equivalent to cancel.
         if let current = activeFeature, current !== feature {
-            current.cancel()
+            if current.isDataBearing {
+                current.stopAndPreserve()
+            } else {
+                current.cancel()
+            }
         }
 
         activeFeature = feature
