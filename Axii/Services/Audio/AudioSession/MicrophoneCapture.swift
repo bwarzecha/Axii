@@ -23,6 +23,10 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
     /// (or synchronously from the main thread) can deadlock the app.
     private let sessionQueue = DispatchQueue(label: "audio.capture.session", qos: .userInteractive)
 
+    // Confined to captureQueue: written only via captureQueue.async from
+    // start()/stop(), read only inside captureOutput (which runs on
+    // captureQueue). Never touch these from the caller thread directly —
+    // stop() returns while delegate callbacks may still be executing.
     private var currentDevice: AudioDevice?
     private var sampleRate: Double = 48000
     private var lastSignalState: SignalState = .silence
@@ -51,19 +55,20 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
 
         // Get audio device
         let audioDevice: AVCaptureDevice
+        let resolvedDevice: AudioDevice?
         if let device = device {
             guard let specificDevice = findAVCaptureDevice(uid: device.uid) else {
                 throw AudioSessionError.deviceUnavailable
             }
             audioDevice = specificDevice
-            currentDevice = device
+            resolvedDevice = device
         } else {
             guard let defaultDevice = AVCaptureDevice.default(for: .audio) else {
                 throw AudioSessionError.deviceUnavailable
             }
             audioDevice = defaultDevice
             // Get device info for the default
-            currentDevice = DeviceMonitor.systemDefaultDevice()
+            resolvedDevice = DeviceMonitor.systemDefaultDevice()
         }
 
         // Add audio input
@@ -93,7 +98,15 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
         captureSession = session
         audioOutput = output
         isCapturing = true
-        lastSignalState = .silence
+
+        // Seed delegate state on captureQueue before any callback can run:
+        // callbacks are enqueued FIFO behind this block, and none exist until
+        // startRunning below completes.
+        captureQueue.async { [self] in
+            currentDevice = resolvedDevice
+            lastSignalState = .silence
+            sampleRate = 48000
+        }
 
         // Start on session queue to avoid blocking
         sessionQueue.async {
@@ -113,12 +126,19 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
         captureSession = nil
         audioOutput = nil
         isCapturing = false
-        currentDevice = nil
+
+        // Clear delegate state on its own queue: callbacks already enqueued
+        // ahead of this block still deliver (legitimate pre-stop audio, same
+        // as the old synchronous teardown); anything after it is dropped by
+        // captureOutput's currentDevice guard — no cross-thread access.
+        captureQueue.async { [self] in
+            currentDevice = nil
+        }
 
         // Tear down asynchronously; the caller (main actor) must not wait.
+        // stopRunning blocks until teardown completes, so it must run neither
+        // on the caller thread nor on the delegate queue (deadlock risk).
         // The session is retained by the closure until teardown completes.
-        // Trailing chunks are dropped either way: currentDevice is already nil
-        // and callers cancel their chunk consumers before calling stop().
         sessionQueue.async {
             session.stopRunning()
         }
