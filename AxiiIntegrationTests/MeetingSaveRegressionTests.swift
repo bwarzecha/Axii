@@ -133,6 +133,31 @@ final class MeetingSaveRegressionTests: XCTestCase {
         )
     }
 
+    /// A payload whose recovery artifacts point at real files in tempDir,
+    /// so tests can observe the commit point on disk.
+    private func makePayloadWithArtifacts() throws -> (
+        payload: MeetingPersistencePayload,
+        micFile: URL,
+        autosaveFile: URL
+    ) {
+        let micFile = tempDir.appendingPathComponent("artifact-mic.raw")
+        let autosaveFile = tempDir.appendingPathComponent("artifact-autosave.json")
+        try Data([1, 2, 3]).write(to: micFile)
+        // A sessionID-less legacy-format autosave decodes and is treated as
+        // owned by the committing session.
+        try Data(#"{"segments":[],"duration":1,"startTime":0,"selectedAppName":null}"#.utf8)
+            .write(to: autosaveFile)
+
+        var payload = makePayload()
+        payload.recoveryArtifacts = MeetingRecoveryArtifacts(
+            sessionID: UUID(),
+            autosaveFileURL: autosaveFile,
+            micFileURL: micFile,
+            systemFileURL: nil
+        )
+        return (payload, micFile, autosaveFile)
+    }
+
     private func makeFeature(
         meetingHandler: any MeetingPipelineHandling,
         meetingPersistence: (any MeetingPersisting)? = nil
@@ -195,5 +220,61 @@ final class MeetingSaveRegressionTests: XCTestCase {
         XCTAssertEqual(persistence.callCount, 1)
         XCTAssertEqual(feature.state.phase, .error("Failed to save meeting"),
                        "A failed save must be visible to the user, not silently dropped")
+    }
+
+    // MARK: - Recovery Artifact Commit Point
+
+    func testPersistSuccess_ClearsRecoveryArtifacts() async throws {
+        let (payload, micFile, autosaveFile) = try makePayloadWithArtifacts()
+        let handler = StubMeetingHandler(stopResult: payload)
+        let feature = makeFeature(
+            meetingHandler: handler,
+            meetingPersistence: SpyPersistence()
+        )
+        feature.state.phase = .processing
+
+        let stopTask = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
+        await stopTask.value
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: micFile.path),
+                       "Temp audio is cleared once the meeting is durably saved")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: autosaveFile.path),
+                       "Autosave is cleared once the meeting is durably saved")
+    }
+
+    func testPersistFailure_KeepsRecoveryArtifacts() async throws {
+        let (payload, micFile, autosaveFile) = try makePayloadWithArtifacts()
+        let handler = StubMeetingHandler(stopResult: payload)
+        let feature = makeFeature(
+            meetingHandler: handler,
+            meetingPersistence: FailingPersistence()
+        )
+        feature.state.phase = .processing
+
+        let stopTask = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
+        await stopTask.value
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: micFile.path),
+                      "A meeting that failed to save must stay recoverable")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: autosaveFile.path),
+                      "A meeting that failed to save must stay recoverable")
+    }
+
+    func testHistoryDisabled_StillClearsRecoveryArtifacts() async throws {
+        historyService.isEnabled = false
+        let (payload, micFile, autosaveFile) = try makePayloadWithArtifacts()
+        let handler = StubMeetingHandler(stopResult: payload)
+        let feature = makeFeature(
+            meetingHandler: handler,
+            meetingPersistence: SpyPersistence()
+        )
+        feature.state.phase = .processing
+
+        let stopTask = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
+        await stopTask.value
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: micFile.path),
+                       "With history disabled there is nothing to recover into — no phantom recovery")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: autosaveFile.path))
     }
 }
