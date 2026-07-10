@@ -98,6 +98,17 @@ extension ModeFeature {
         let streamedSegments = state.segments
         let task = Task { @MainActor in
             defer { self.meetingStopTask = nil }
+            // The capture's own idle-sleep suppression ends at detach, but
+            // finalize + persist can run for minutes after the user walked
+            // away — idle sleep here would freeze a save-locked panel until
+            // wake. Held to the end of the save, success or failure.
+            let saveActivity = saveToHistory
+                ? ProcessInfo.processInfo.beginActivity(
+                    options: [.idleSystemSleepDisabled, .userInitiated],
+                    reason: "Saving meeting"
+                )
+                : nil
+            defer { saveActivity.map { ProcessInfo.processInfo.endActivity($0) } }
             var result = await handler.stop(saveToHistory: saveToHistory)
             if saveToHistory, var payload = result,
                payload.segments.isEmpty, !streamedSegments.isEmpty {
@@ -155,6 +166,14 @@ extension ModeFeature {
             // .processing must not be stomped by a stale error either.
             if state.phase == .processing, gen == meetingStopGeneration {
                 state.phase = .error("Failed to save meeting")
+                // A displaced save (Save & Switch) fails on a HIDDEN panel:
+                // no surface shows the error and the user believes the
+                // meeting saved. Re-present unless another capture owns
+                // the UI — the artifacts still recover at next launch.
+                if !isActive, context?.busyFeature?() == nil {
+                    isActive = true
+                    context?.onActivate?(self)
+                }
             }
             return false
         }

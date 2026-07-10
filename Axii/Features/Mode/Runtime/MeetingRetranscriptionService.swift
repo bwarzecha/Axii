@@ -17,6 +17,7 @@ enum MeetingRetranscriptionError: LocalizedError {
     case noAudio
     case producedEmptyTranscript
     case historyDisabled
+    case meetingDeleted
 
     var errorDescription: String? {
         switch self {
@@ -26,6 +27,8 @@ enum MeetingRetranscriptionError: LocalizedError {
             return "Transcription found no speech; the existing transcript was kept"
         case .historyDisabled:
             return "History is disabled, so the new transcript cannot be saved"
+        case .meetingDeleted:
+            return "This meeting was deleted while transcription was running"
         }
     }
 }
@@ -82,6 +85,13 @@ final class MeetingRetranscriptionService {
 
         if payload.segments.isEmpty, !meeting.segments.isEmpty {
             throw MeetingRetranscriptionError.producedEmptyTranscript
+        }
+
+        // Minutes may have passed. If the user deleted the meeting while
+        // transcription ran, saving now would resurrect a zombie record
+        // whose audio files the delete already removed.
+        guard historyService.cache[meeting.id] != nil else {
+            throw MeetingRetranscriptionError.meetingDeleted
         }
 
         let updated = Meeting(

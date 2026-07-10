@@ -181,7 +181,11 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
     @objc private func handleInterruption(_ notification: Notification) {
         // AVCaptureSession interruption handling
         // Note: On macOS, interruption reasons may differ from iOS
-        onError?(.captureFailure(underlying: "Audio session was interrupted"))
+        // Deliver on main like the chunk path — the notification can arrive
+        // on the posting thread, and consumers mutate main-actor state.
+        DispatchQueue.main.async { [weak self] in
+            self?.onError?(.captureFailure(underlying: "Audio session was interrupted"))
+        }
     }
 }
 

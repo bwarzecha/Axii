@@ -138,7 +138,10 @@ final class AudioSession {
         // Setup device monitor
         let monitor = DeviceMonitor()
         monitor.onDeviceDisconnected = { [weak self] device in
-            self?.handleDeviceDisconnected(device)
+            // DeviceMonitor calls this synchronously on CoreAudio's notify
+            // queue; the handler mutates session state and must run on the
+            // main actor or it races stop() (orphaned fallback microphone).
+            Task { @MainActor in self?.handleDeviceDisconnected(device) }
         }
         if let device = targetDevice {
             monitor.monitorDevice(device)
@@ -154,7 +157,9 @@ final class AudioSession {
             self?.handleSignalStateChange(state)
         }
         mic.onError = { [weak self] error in
-            self?.handleError(error)
+            // May arrive on a capture/notification thread; handleError
+            // stops the session and must serialize with the main actor.
+            Task { @MainActor in self?.handleError(error) }
         }
         capture = mic
 
@@ -180,7 +185,9 @@ final class AudioSession {
             self?.handleChunk(chunk)
         }
         sys.onError = { [weak self] error in
-            self?.handleError(error)
+            // May arrive on a capture/notification thread; handleError
+            // stops the session and must serialize with the main actor.
+            Task { @MainActor in self?.handleError(error) }
         }
         systemCapture = sys
 
@@ -218,7 +225,10 @@ final class AudioSession {
         // Setup device monitor for mic
         let monitor = DeviceMonitor()
         monitor.onDeviceDisconnected = { [weak self] device in
-            self?.handleDeviceDisconnected(device)
+            // DeviceMonitor calls this synchronously on CoreAudio's notify
+            // queue; the handler mutates session state and must run on the
+            // main actor or it races stop() (orphaned fallback microphone).
+            Task { @MainActor in self?.handleDeviceDisconnected(device) }
         }
         if let device = micDevice {
             monitor.monitorDevice(device)
@@ -232,7 +242,9 @@ final class AudioSession {
             self?.handleChunk(chunk)
         }
         sys.onError = { [weak self] error in
-            self?.handleError(error)
+            // May arrive on a capture/notification thread; handleError
+            // stops the session and must serialize with the main actor.
+            Task { @MainActor in self?.handleError(error) }
         }
         systemCapture = sys
 
@@ -308,7 +320,7 @@ final class AudioSession {
                 self?.handleSignalStateChange(state)
             }
             newCapture.onError = { [weak self] error in
-                self?.handleError(error)
+                Task { @MainActor in self?.handleError(error) }
             }
 
             do {

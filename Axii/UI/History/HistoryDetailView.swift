@@ -34,7 +34,10 @@ struct HistoryDetailView: View {
     @State private var showCopied = false
     @State var audioError: String?
     @State var selectedAudioTrack: MeetingAudioTrack = .both
-    @State var isRetranscribing = false
+    /// The meeting a retranscription task currently owns — @State persists
+    /// across list-selection changes, so a plain Bool would leak meeting A's
+    /// progress (and its finished transcript) into meeting B's detail pane.
+    @State var retranscribingID: UUID?
     @State var retranscribeProgress: Double = 0
     @State var retranscribeStatus = ""
 

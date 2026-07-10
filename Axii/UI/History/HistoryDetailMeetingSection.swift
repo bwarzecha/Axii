@@ -94,7 +94,7 @@ extension HistoryDetailView {
     func retranscribeControl(for meeting: Meeting) -> some View {
         if retranscriber != nil,
            meeting.micRecording != nil || meeting.systemRecording != nil {
-            if isRetranscribing {
+            if retranscribingID == meeting.id {
                 HStack(spacing: 6) {
                     ProgressView(value: retranscribeProgress)
                         .progressViewStyle(.linear)
@@ -110,6 +110,7 @@ extension HistoryDetailView {
                 } label: {
                     Label("Re-transcribe", systemImage: "arrow.clockwise")
                 }
+                .disabled(retranscribingID != nil)
                 .help(meeting.segments.isEmpty
                       ? "Build a transcript from the recorded audio"
                       : "Re-run transcription and replace the transcript")
@@ -132,22 +133,39 @@ extension HistoryDetailView {
         runRetranscription(meeting)
     }
 
+    /// True while the detail pane still shows the meeting this task started
+    /// on. The @State storage survives list-selection changes, so every
+    /// post-await write must re-check — otherwise meeting A's transcript
+    /// lands under meeting B's header and Delete destroys the wrong record.
+    private func isShowing(_ id: UUID) -> Bool {
+        if case .meeting(let current) = interaction, current.id == id {
+            return true
+        }
+        return false
+    }
+
     private func runRetranscription(_ meeting: Meeting) {
-        guard let retranscriber, !isRetranscribing else { return }
-        isRetranscribing = true
+        guard let retranscriber, retranscribingID == nil else { return }
+        let targetID = meeting.id
+        retranscribingID = targetID
         retranscribeProgress = 0
         retranscribeStatus = ""
         audioError = nil
         stopAudio()
         Task { @MainActor in
-            defer { isRetranscribing = false }
+            defer {
+                if retranscribingID == targetID { retranscribingID = nil }
+            }
             do {
                 let updated = try await retranscriber.retranscribe(meeting) { progress, status in
+                    guard isShowing(targetID) else { return }
                     retranscribeProgress = progress
                     retranscribeStatus = status
                 }
+                guard isShowing(targetID) else { return }
                 interaction = .meeting(updated)
             } catch {
+                guard isShowing(targetID) else { return }
                 audioError = error.localizedDescription
             }
         }

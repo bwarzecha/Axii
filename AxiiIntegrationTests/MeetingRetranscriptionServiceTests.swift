@@ -149,6 +149,55 @@ final class MeetingRetranscriptionServiceTests: XCTestCase {
         }
     }
 
+    private actor GatedTranscriber: TranscriptionProviding {
+        private(set) var started = false
+        private var continuation: CheckedContinuation<Void, Never>?
+        var isReady: Bool { true }
+        func prepare() async throws {}
+        func transcribe(samples: [Float], sampleRate: Double) async throws -> String {
+            started = true
+            await withCheckedContinuation { continuation = $0 }
+            return "hello"
+        }
+        func release() {
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
+    /// Deleting the meeting while a long retranscription runs must not
+    /// resurrect it as a zombie record pointing at removed audio files.
+    func testMeetingDeletedMidRunIsNotResurrected() async throws {
+        let meeting = try await persistMeeting(segments: [])
+        let gated = GatedTranscriber()
+        let service = MeetingRetranscriptionService(
+            transcriptionService: gated,
+            historyService: historyService
+        )
+
+        let run = Task { try await service.retranscribe(meeting) }
+        var spins = 0
+        while await !gated.started, spins < 10_000 {
+            await Task.yield()
+            spins += 1
+        }
+
+        // The user deletes the meeting while transcription is mid-flight.
+        try await historyService.delete(id: meeting.id)
+        await gated.release()
+
+        do {
+            _ = try await run.value
+            XCTFail("Expected meetingDeleted")
+        } catch let error as MeetingRetranscriptionError {
+            guard case .meetingDeleted = error else {
+                return XCTFail("Wrong error: \(error)")
+            }
+        }
+        XCTAssertTrue(historyService.listMetadata(type: .meeting).isEmpty,
+                      "The deleted meeting stays deleted")
+    }
+
     func testHistoryDisabledSurfacesInsteadOfPretendingSuccess() async throws {
         let meeting = try await persistMeeting(segments: [])
         historyService.isEnabled = false
