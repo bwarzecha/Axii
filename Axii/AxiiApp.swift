@@ -113,6 +113,7 @@ struct AxiiApp: App {
                 onConfigChanged: { controller.featureManager.updateModeConfig($0) },
                 onModeCreated: { controller.registerNewMode($0) },
                 onModeDeleted: { controller.featureManager.unregisterMode(id: $0) },
+                canDeleteMode: { controller.featureManager.canDeleteMode($0) },
                 updaterService: updaterService
             )
             .onAppear {

@@ -22,6 +22,9 @@ struct ModeEditorView: View {
     let onDelete: () -> Void
     let onReset: () -> Void
     let onDuplicate: () -> Void
+    /// Live query: false while the mode is recording, saving, or showing its
+    /// panel. Evaluated in body so phase changes re-disable the button.
+    var canDelete: () -> Bool = { true }
 
     @State private var expandedSections: Set<EditorSection> = Set(EditorSection.allCases)
     @State private var showDeleteConfirmation = false
@@ -93,10 +96,14 @@ struct ModeEditorView: View {
                     .foregroundStyle(.secondary)
                     .font(.caption)
             } else {
+                let isDeletable = canDelete()
                 Button("Delete Mode", role: .destructive) { showDeleteConfirmation = true }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(isDeletable ? .red : .secondary)
                     .font(.caption)
+                    .disabled(!isDeletable)
+                    .help(isDeletable ? "Delete this mode"
+                          : "Stop the recording or wait for the save to finish first")
             }
         }
         .padding(.bottom, 4)

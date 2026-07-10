@@ -19,6 +19,10 @@ struct SidebarSettingsView: View {
     var onConfigChanged: (ModeConfig) -> Void
     var onModeCreated: (ModeConfig) -> Void
     var onModeDeleted: (UUID) -> Void
+    /// Asks the runtime whether deleting this mode would destroy anything
+    /// (active panel, live recording, in-flight save). Deletion is refused
+    /// while it would.
+    var canDeleteMode: (UUID) -> Bool = { _ in true }
     @ObservedObject var updaterService: UpdaterService
 
     @State private var selectedItem: SettingsSidebarItem = .general
@@ -114,7 +118,8 @@ struct SidebarSettingsView: View {
                     },
                     onDuplicate: {
                         handleDuplicate(mode)
-                    }
+                    },
+                    canDelete: { canDeleteMode(id) }
                 )
                 .id(id) // Force view recreation when switching modes
             } else {
@@ -149,12 +154,25 @@ struct SidebarSettingsView: View {
     }
 
     private func handleDelete(id: UUID) {
+        // The button disables while busy, but that state can go stale (a
+        // hotkey can start a recording while Settings sits open) — re-check
+        // at the moment of truth, BEFORE the mode's file is deleted, so file
+        // and runtime never disagree about whether the mode exists.
+        guard canDeleteMode(id) else {
+            let alert = NSAlert()
+            alert.messageText = "Mode is in use"
+            alert.informativeText = "Stop the recording or wait for the save to finish before deleting this mode."
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
         do {
             try modeService.delete(id: id)
-            onModeDeleted(id)
         } catch {
-            // File already gone or inaccessible — still safe to clean up
+            // File already gone or inaccessible — still unregister the
+            // runtime below so no hotkey-driveable zombie survives.
         }
+        onModeDeleted(id)
         reloadModes()
         selectedItem = .general
     }

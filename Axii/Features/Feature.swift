@@ -121,10 +121,16 @@ protocol Feature: AnyObject {
     /// is in flight, then release the UI. Falls back to cancel() for
     /// features without data-bearing states.
     func stopAndPreserve()
+
+    /// Inverse of register(with:): release everything the feature claimed
+    /// outside itself (hotkeys, context). Called when the feature is removed
+    /// from the registry — a removed feature must not stay keystroke-driveable.
+    func unregister()
 }
 
 extension Feature {
     var isDataBearing: Bool { false }
     func stopAndPreserve() { cancel() }
+    func unregister() {}
 }
 #endif

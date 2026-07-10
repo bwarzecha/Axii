@@ -137,18 +137,34 @@ final class FeatureManager {
     }
 
     /// Removes a ModeFeature by config ID (for deleted custom modes).
-    func unregisterMode(id: UUID) {
+    /// Refused while the mode is busy: deleting a mode must never destroy a
+    /// live recording or an in-flight save, no matter which caller skipped
+    /// the UI guard. Returns false when refused.
+    @discardableResult
+    func unregisterMode(id: UUID) -> Bool {
         guard let index = features.firstIndex(where: {
             ($0 as? ModeFeature)?.config.id == id
-        }) else { return }
+        }) else { return true }
+        guard canDeleteMode(id) else { return false }
         let feature = features[index]
+        // Hotkey first: once the feature leaves the registry, no keystroke
+        // may revive it. Then runtime hygiene (pending dismiss timers) —
+        // safe here because the busy guard proved there is nothing to lose.
+        feature.unregister()
         feature.cancel()
+        (feature as? ModeFeature)?.clearPersistedDeviceSelection()
         features.remove(at: index)
+        return true
     }
 
-    /// Checks if a mode is currently active (for editor disable state).
-    func isModeActive(_ id: UUID) -> Bool {
-        features.compactMap { $0 as? ModeFeature }.first { $0.config.id == id }?.isActive ?? false
+    /// True when deleting the mode would destroy nothing: panel not showing,
+    /// no recording, no save in flight. The editor disables Delete otherwise;
+    /// unregisterMode enforces it regardless.
+    func canDeleteMode(_ id: UUID) -> Bool {
+        guard let feature = features.first(where: {
+            ($0 as? ModeFeature)?.config.id == id
+        }) else { return true }
+        return !(feature.isActive || feature.isDataBearing || feature === activeFeature)
     }
 }
 #endif
