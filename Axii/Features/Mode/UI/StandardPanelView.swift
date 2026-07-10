@@ -130,7 +130,8 @@ struct StandardPanelView: View {
                     ModeMicrophonePicker(
                         availableMicrophones: state.availableMicrophones,
                         selectedMicrophone: state.selectedMicrophone,
-                        onSelect: { onMicrophoneSwitch?($0) }
+                        onSelect: { onMicrophoneSwitch?($0) },
+                        activeCaptureDevice: state.activeCaptureDevice
                     )
                 case .transcribing:
                     Text("Transcribing...")

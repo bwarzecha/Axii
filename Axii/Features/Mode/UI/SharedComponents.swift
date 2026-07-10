@@ -45,6 +45,10 @@ struct ModeMicrophonePicker: View {
     let availableMicrophones: [AudioDevice]
     let selectedMicrophone: AudioDevice?
     let onSelect: (AudioDevice?) -> Void
+    /// The device actually capturing (when known). Shown next to the
+    /// selection whenever it differs — after an unplug forces a fallback,
+    /// the panel must name the mic that is really recording.
+    var activeCaptureDevice: AudioDevice? = nil
 
     var body: some View {
         Menu {
@@ -83,11 +87,28 @@ struct ModeMicrophonePicker: View {
                     .font(.caption)
                 Text(shortDeviceName)
                     .font(.caption)
+                if let fallback = activeFallback {
+                    Text("→ \(fallback.name)")
+                        .font(.caption)
+                        .foregroundStyle(fallback.isWarning ? Color.orange : Color.secondary)
+                        .lineLimit(1)
+                        .help("Recording from \(activeCaptureDevice?.name ?? fallback.name)")
+                }
             }
             .foregroundStyle(.secondary)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+    }
+
+    /// Non-nil when capture runs on a different device than the selection
+    /// claims — the truth wins over the preference. Orange when an explicit
+    /// selection silently diverged (a fallback took over); plain when the
+    /// selection is "Default" and this merely names the concrete device.
+    private var activeFallback: (name: String, isWarning: Bool)? {
+        guard let active = activeCaptureDevice,
+              active.uid != selectedMicrophone?.uid else { return nil }
+        return (shortName(for: active), selectedMicrophone != nil)
     }
 
     private func transportIcon(for device: AudioDevice) -> String {
@@ -102,6 +123,10 @@ struct ModeMicrophonePicker: View {
 
     private var shortDeviceName: String {
         guard let device = selectedMicrophone else { return "Default" }
+        return shortName(for: device)
+    }
+
+    private func shortName(for device: AudioDevice) -> String {
         if device.name.contains("MacBook") || device.name.contains("Built-in") {
             return "Built-in"
         }

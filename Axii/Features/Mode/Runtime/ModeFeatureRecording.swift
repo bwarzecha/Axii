@@ -48,12 +48,16 @@ extension ModeFeature {
         }
         helper.onSignalStateChanged = { [weak self] in self?.state.isWaitingForSignal = $0 }
         helper.onError = { [weak self] in self?.handleSessionError($0) }
+        helper.onDeviceChanged = { [weak self] device in
+            self?.state.activeCaptureDevice = device
+        }
 
         let source: AudioSource = resolveSelectedMicrophone().map { .microphone($0) } ?? .systemDefault
         Task {
             do {
                 try await helper.start(source: source)
                 state.phase = .recording; isActive = true; context?.onActivate?(self)
+                state.activeCaptureDevice = helper.currentDevice
             } catch let error as AudioSessionError { handleSessionError(error) }
             catch { state.phase = .error("Microphone error"); scheduleDismiss(after: 2.0) }
         }
@@ -64,6 +68,7 @@ extension ModeFeature {
         let (samples, sampleRate) = takeCombinedRecording(finishing: helper)
         recordingHelper = nil
         state.audioLevel = 0; state.isWaitingForSignal = false; state.phase = .transcribing
+        state.activeCaptureDevice = nil
 
         processSingleShotCapture(samples: samples, sampleRate: sampleRate)
     }
@@ -109,6 +114,7 @@ extension ModeFeature {
         let (samples, sampleRate) = takeCombinedRecording(finishing: helper)
         recordingHelper = nil
         state.audioLevel = 0; state.isWaitingForSignal = false; state.phase = .processing
+        state.activeCaptureDevice = nil
 
         let capture = CompletedCapture(
             samples: samples, sampleRate: sampleRate, focusSnapshot: nil
@@ -164,10 +170,14 @@ extension ModeFeature {
             if sampleRate > 0, Double(samples.count) / sampleRate > 1.0 {
                 state.audioLevel = 0; state.isWaitingForSignal = false
                 state.phase = .transcribing
+                state.activeCaptureDevice = nil
                 processSingleShotCapture(samples: samples, sampleRate: sampleRate)
                 return
             }
         }
+        // Whatever the error, the capture is over — stop claiming a device
+        // is recording.
+        state.activeCaptureDevice = nil
         switch error {
         case .permissionDenied:
             if micPermission.state.isBlocked { micPermission.openSystemSettings() }

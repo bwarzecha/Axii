@@ -30,6 +30,10 @@ final class RecordingSessionHelper {
     var onVisualizationUpdate: ((VisualizationUpdate) -> Void)?
     var onSignalStateChanged: ((Bool) -> Void)?  // isWaitingForSignal (initial warmup)
     var onError: ((AudioSessionError) -> Void)?
+    /// Fired when capture silently moves to a different device (unplug →
+    /// fallback). The UI must show the mic that is actually recording, not
+    /// the one the user picked and lost.
+    var onDeviceChanged: ((AudioDevice) -> Void)?
 
     // Internal state
     private var audioSession: AudioSession?
@@ -159,7 +163,9 @@ final class RecordingSessionHelper {
         ))
     }
 
-    private func handleEvent(_ event: AudioEvent) {
+    // Internal (not private) so tests can inject device events — the
+    // AudioSession that produces them needs real hardware.
+    func handleEvent(_ event: AudioEvent) {
         switch event {
         case .signalState(let signalState):
             // Only process signal events for Bluetooth devices after warmup has been initiated
@@ -181,6 +187,7 @@ final class RecordingSessionHelper {
 
         case .deviceChanged(let newDevice):
             currentDevice = newDevice
+            onDeviceChanged?(newDevice)
             if newDevice.isBluetooth {
                 // Re-arm the warmup state machine: without this, the
                 // waiting flag can stick forever after a wired->BT fallback

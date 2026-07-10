@@ -142,7 +142,8 @@ extension StandardPanelView {
                             ModeMicrophonePicker(
                                 availableMicrophones: state.availableMicrophones,
                                 selectedMicrophone: state.selectedMicrophone,
-                                onSelect: { onMicrophoneSwitch?($0) }
+                                onSelect: { onMicrophoneSwitch?($0) },
+                                activeCaptureDevice: state.activeCaptureDevice
                             )
                         }
                         Spacer()

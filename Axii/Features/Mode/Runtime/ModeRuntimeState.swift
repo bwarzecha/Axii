@@ -41,6 +41,10 @@ final class ModeRuntimeState {
     // Devices
     var availableMicrophones: [AudioDevice] = []
     var selectedMicrophone: AudioDevice? = nil
+    /// The device actually capturing right now — can silently diverge from
+    /// selectedMicrophone when an unplug forces a fallback. The panel shows
+    /// this so the user is never lied to about which mic is recording.
+    var activeCaptureDevice: AudioDevice? = nil
     var availableApps: [AudioApp] = []
     var selectedApp: AudioApp? = nil
 
@@ -83,6 +87,7 @@ final class ModeRuntimeState {
         needsManualCopy = false
         manualCopyText = ""
         focusSnapshot = nil
+        activeCaptureDevice = nil
     }
 }
 // Note: Reuses DisplayMessage from ConversationState.swift (internal scope)
