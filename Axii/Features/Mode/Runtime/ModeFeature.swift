@@ -257,6 +257,10 @@ final class ModeFeature: Feature, ModeDismissControlling {
 
     var isDataBearing: Bool {
         if meetingHandler?.hasLiveCapture == true { return true }
+        // An unsaved (history-off) meeting awaiting export exists ONLY in
+        // this panel and its on-disk artifacts — displacement must not
+        // silently destroy it.
+        if pendingMeetingExport != nil { return true }
         switch state.phase {
         case .recording, .transcribing, .processing: return true
         default: return false
@@ -270,6 +274,13 @@ final class ModeFeature: Feature, ModeDismissControlling {
     func stopAndPreserve() {
         if let handler = meetingHandler, handler.hasLiveCapture {
             stopMeeting(saveToHistory: true)
+        } else if let export = pendingMeetingExport {
+            // History-off meeting awaiting export: copy the transcript out
+            // (the only delivery possible without history) and leave the
+            // recovery artifacts ON DISK — recoverable if history returns,
+            // expired otherwise. Only cancel() destroys them deliberately.
+            clipboardService.copy(Self.transcriptText(from: export.segments))
+            pendingMeetingExport = nil
         } else if state.phase.isRecording,
                   recordingHelper != nil || !carriedRecordingSegments.isEmpty {
             // The carried check matters: inside the 0.1s mic-switch restart

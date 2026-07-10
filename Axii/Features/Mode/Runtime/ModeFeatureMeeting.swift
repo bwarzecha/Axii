@@ -39,11 +39,24 @@ extension ModeFeature {
             let salvage = stopMeeting(saveToHistory: true)
             Task { @MainActor in
                 await salvage?.value
+                // The salvage can run for minutes. If a takeover or Escape
+                // closed this panel meanwhile, the retry no longer owns
+                // anything — restarting would put a hot capture behind a
+                // closed panel with no way to reach it.
+                guard self.isActive, self.state.phase == .idle,
+                      !handler.hasLiveCapture else { return }
                 await handler.start()
             }
             return
         }
         guard confirmStartWithoutHistory() else { return }
+        // The confirm dialog can sit open indefinitely while hotkeys keep
+        // firing (Carbon events deliver during modal sessions). Re-validate
+        // before committing: a stale "Record Anyway" must neither
+        // cancel-on-reentry a capture that went live during the modal nor
+        // start one behind a panel a takeover has closed.
+        guard isActive, !handler.hasLiveCapture,
+              state.phase == .idle || state.phase == .preparing else { return }
         // Freeze the persistence contract for this meeting. Flipping the
         // history setting mid-recording must not change where an hour of
         // audio ends up — least of all silently.
@@ -78,9 +91,19 @@ extension ModeFeature {
         }
         meetingStopGeneration += 1
         let gen = meetingStopGeneration
+        // Snapshot the streamed transcript SYNCHRONOUSLY: when this stop is
+        // teardown's error-salvage, state.reset() runs before the task below
+        // does, and the handler's own fallback would read empty segments —
+        // losing the only transcript in existence if finalization also fails.
+        let streamedSegments = state.segments
         let task = Task { @MainActor in
             defer { self.meetingStopTask = nil }
-            let result = await handler.stop(saveToHistory: saveToHistory)
+            var result = await handler.stop(saveToHistory: saveToHistory)
+            if saveToHistory, var payload = result,
+               payload.segments.isEmpty, !streamedSegments.isEmpty {
+                payload.segments = streamedSegments
+                result = payload
+            }
             if let result, saveToHistory {
                 guard await persistMeeting(result, generation: gen) else { return }
             }
@@ -149,6 +172,17 @@ extension ModeFeature {
         generation gen: Int
     ) {
         guard gen == meetingStopGeneration else { return }
+        if !isActive {
+            // The panel closed while the salvage ran. An offer parked in a
+            // closed panel is worse than none: the next hotkey press would
+            // silently clipboard-and-destroy it. Re-present the panel when
+            // nothing else is mid-capture; otherwise leave the artifacts on
+            // disk (recoverable if history returns, expired otherwise)
+            // rather than hijack a live recording's UI.
+            guard context?.busyFeature?() == nil else { return }
+            isActive = true
+            context?.onActivate?(self)
+        }
         pendingMeetingExport = result
         state.segments = result.segments
         state.duration = result.duration

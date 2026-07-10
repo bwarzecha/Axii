@@ -35,17 +35,44 @@ final class AxiiAppDelegate: NSObject, NSApplicationDelegate {
             case .alertFirstButtonReturn:
                 busy.stopAndPreserve()
             case .alertSecondButtonReturn:
-                return .terminateNow
+                // Discard means DISCARD: without the explicit cancel, the
+                // autosave and spool files survive the exit and launch
+                // recovery resurrects the meeting the user chose to destroy.
+                // The artifact cleanup can defer one MainActor hop behind
+                // the switch serializer — give it that hop before dying.
+                busy.cancel()
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    sender.reply(toApplicationShouldTerminate: true)
+                }
+                return .terminateLater
             default:
                 return .terminateCancel
             }
         }
 
-        // A save/turn is in flight (or was just started above): let it
-        // finish, then quit. Bounded so a wedged save cannot block logout.
+        // Saves/turns are in flight (or one was just started above): let
+        // them ALL finish, then quit — a detached meeting save and a
+        // just-stopped dictation can coexist, so re-scan every iteration
+        // instead of watching one snapshot. Bounded: a wedged save cannot
+        // block logout, and its recovery artifacts survive termination.
+        let stoppedFeature = busy
         Task { @MainActor in
             let deadline = Date().addingTimeInterval(60)
-            while busy.isDataBearing, Date() < deadline {
+            while Date() < deadline {
+                guard let stillBusy = Self.featureManager?.dataBearingFeature else {
+                    break // everything drained
+                }
+                // A NEW recording started during the wait (a different
+                // feature went live): the user changed their mind about
+                // quitting — killing that recording silently is exactly
+                // what this gate exists to prevent.
+                if stillBusy !== stoppedFeature,
+                   let mode = stillBusy as? ModeFeature,
+                   mode.state.phase.isRecording {
+                    sender.reply(toApplicationShouldTerminate: false)
+                    return
+                }
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
             sender.reply(toApplicationShouldTerminate: true)
