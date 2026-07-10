@@ -101,6 +101,9 @@ final class MeetingTranscriptManager {
 
     /// Reset for a new meeting.
     func reset() {
+        // Hygiene: if this manager was somehow live, its old identity must
+        // not linger in the live-session registry.
+        Self.liveSessionIDs.remove(sessionID)
         transcriptionChain?.cancel()
         transcriptionChain = nil
         segments = []
@@ -119,21 +122,35 @@ final class MeetingTranscriptManager {
 
     // MARK: - Auto-Save
 
+    /// Session IDs whose autosave is currently running, process-wide.
+    /// The autosave path is SHARED: a crash-recovery check made while a
+    /// session is live (a second recovery-enabled mode registering
+    /// mid-meeting) would otherwise "recover" — and then destroy — the
+    /// live session's safety net.
+    private static var liveSessionIDs: Set<UUID> = []
+
     /// Start the auto-save timer.
     func startAutoSave() {
+        Self.liveSessionIDs.insert(sessionID)
         recordingStartTime = Date()
-        autoSaveTimer = Timer.scheduledTimer(
-            withTimeInterval: Self.autoSaveIntervalSeconds,
+        // .common run-loop mode: a timer in .default silently stops firing
+        // while any modal alert sits open, and a stall longer than the 1h
+        // expiry would make the whole meeting unrecoverable at relaunch.
+        let timer = Timer(
+            timeInterval: Self.autoSaveIntervalSeconds,
             repeats: true
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.performAutoSave()
             }
         }
+        autoSaveTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     /// Stop the auto-save timer.
     func stopAutoSave() {
+        Self.liveSessionIDs.remove(sessionID)
         autoSaveTimer?.invalidate()
         autoSaveTimer = nil
     }
@@ -203,6 +220,14 @@ final class MeetingTranscriptManager {
 
             let jsonData = try Data(contentsOf: autoSavePath)
             let data = try JSONDecoder().decode(AutoSaveData.self, from: jsonData)
+
+            // A LIVE session's autosave is not a crash — it is the safety
+            // net of a recording happening right now. Handing it out as
+            // recovery would persist a phantom duplicate and then delete
+            // the live session's spool files at the commit point.
+            if let owner = data.sessionID, Self.liveSessionIDs.contains(owner) {
+                return nil
+            }
 
             print("MeetingTranscriptManager: Found recovery data with \(data.segments.count) segments")
             return MeetingCrashRecovery(

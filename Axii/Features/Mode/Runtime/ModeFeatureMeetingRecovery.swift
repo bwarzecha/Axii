@@ -14,6 +14,13 @@ private let logger = Logger(subsystem: "com.axii", category: "ModeFeatureMeeting
 
 extension ModeFeature {
 
+    /// Crash recovery consumes a SHARED autosave file — it must run at most
+    /// once per process. Without this gate, every crash-recovery mode
+    /// registered at launch would persist the same crashed meeting again,
+    /// and a mode created or rebuilt at runtime would run "recovery"
+    /// against whatever session is live right then.
+    static var crashRecoveryDidRun = false
+
     /// Recover a crashed meeting's transcript at launch: mirror it into the
     /// panel AND persist it to history so the next recording cannot destroy
     /// it (the autosave file is shared; a new session's first write would
@@ -22,9 +29,11 @@ extension ModeFeature {
     @discardableResult
     func recoverCrashedMeetingIfNeeded() -> Task<Void, Never>? {
         guard let handler = meetingHandler else { return nil }
+        guard !Self.crashRecoveryDidRun else { return nil }
+        Self.crashRecoveryDidRun = true
         defer {
-            // Sweep spool audio whose sessions expired; runs before any
-            // capture can start, so it never touches a live recording.
+            // Sweep spool audio whose sessions expired; runs once, before
+            // any capture can start, so it never touches a live recording.
             MeetingAudioManager.cleanExpiredSpoolFiles()
         }
         guard let recovery = handler.checkCrashRecovery() else { return nil }

@@ -29,6 +29,9 @@ final class MeetingSaveRegressionTests: XCTestCase {
         settings = SettingsService(
             defaults: UserDefaults(suiteName: "MeetingSaveRegression-\(UUID().uuidString)")!
         )
+        // Crash recovery is once-per-process in production; each test is
+        // its own "launch".
+        ModeFeature.crashRecoveryDidRun = false
     }
 
     override func tearDown() async throws {
