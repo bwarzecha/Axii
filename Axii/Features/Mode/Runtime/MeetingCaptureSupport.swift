@@ -7,6 +7,7 @@
 //
 
 #if os(macOS)
+import AppKit
 import Foundation
 
 /// Serializes app/mic switch operations so they can never interleave with
@@ -45,8 +46,14 @@ final class MeetingSwitchSerializer {
     }
 }
 
-/// Wall-clock duration ticker for an active recording. Owns the Timer so the
-/// session cannot leak one across start/stop cycles.
+/// Duration ticker for an active recording. Owns the Timer so the session
+/// cannot leak one across start/stop cycles.
+///
+/// Counts elapsed time in RESUMABLE SEGMENTS, not raw wall clock: the wall
+/// clock keeps running through system sleep while the audio does not, so an
+/// unpaused ticker would overstate an hour-long meeting by every minute the
+/// lid was closed. pause()/resume() bracket sleep; duration tracks what was
+/// actually captured.
 @MainActor
 final class MeetingDurationTicker {
     private var timer: Timer?
@@ -54,8 +61,17 @@ final class MeetingDurationTicker {
     // A tick Task enqueued just before invalidation would otherwise land
     // after reset() and write the OLD recording's elapsed time.
     private var run = 0
+    /// Time banked by completed segments (before the last pause).
+    private var accumulated: TimeInterval = 0
+    /// Start of the currently running segment; nil while paused/stopped.
+    private var segmentStart: Date?
+    private let interval: TimeInterval
 
     var onTick: ((TimeInterval) -> Void)?
+
+    init(interval: TimeInterval = 1.0) {
+        self.interval = interval
+    }
 
     /// Stops any previous timer and zeroes the duration — called at session
     /// start so a detach during a still-starting session reads 0, not the
@@ -63,25 +79,49 @@ final class MeetingDurationTicker {
     func reset() {
         stop()
         duration = 0
+        accumulated = 0
     }
 
     func start() {
+        timer?.invalidate()
         run += 1
         let currentRun = run
-        let startTime = Date()
+        segmentStart = Date()
         timer = Timer.scheduledTimer(
-            withTimeInterval: 1.0,
+            withTimeInterval: interval,
             repeats: true
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.run == currentRun else { return }
-                self.duration = Date().timeIntervalSince(startTime)
+                self.duration = self.accumulated
+                    + (self.segmentStart.map { Date().timeIntervalSince($0) } ?? 0)
                 self.onTick?(self.duration)
             }
         }
     }
 
+    /// The system is going down: bank the running segment and stop counting.
+    /// Idempotent — a second willSleep cannot double-bank.
+    func pause() {
+        if let start = segmentStart {
+            accumulated += Date().timeIntervalSince(start)
+            duration = accumulated
+        }
+        segmentStart = nil
+        run += 1
+        timer?.invalidate()
+        timer = nil
+    }
+
+    /// Continue counting after a wake. A wake without a matching pause
+    /// (spurious notification while running) is a no-op.
+    func resume() {
+        guard segmentStart == nil, timer == nil else { return }
+        start()
+    }
+
     func stop() {
+        segmentStart = nil
         run += 1
         timer?.invalidate()
         timer = nil
@@ -89,6 +129,67 @@ final class MeetingDurationTicker {
 
     deinit {
         timer?.invalidate()
+    }
+}
+
+/// Keeps a meeting recording honest across system power transitions:
+/// prevents IDLE sleep while recording (a meeting is foreground work even
+/// when nobody touches the keyboard), and surfaces willSleep/didWake so the
+/// session can flush its recovery autosave and pause the duration ticker.
+/// Lid-close sleep still happens — that is the user's call to make.
+@MainActor
+final class MeetingPowerMonitor {
+    private var activityToken: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
+    private let center: NotificationCenter
+
+    var onWillSleep: (() -> Void)?
+    var onDidWake: (() -> Void)?
+
+    /// Production observes NSWorkspace's center (where sleep/wake arrive);
+    /// tests inject a private one and post the same notification names.
+    init(center: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+        self.center = center
+    }
+
+    func beginRecording(reason: String) {
+        endRecording()
+        activityToken = ProcessInfo.processInfo.beginActivity(
+            options: [.idleSystemSleepDisabled],
+            reason: reason
+        )
+        observers = [
+            center.addObserver(
+                forName: NSWorkspace.willSleepNotification,
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.onWillSleep?() }
+            },
+            center.addObserver(
+                forName: NSWorkspace.didWakeNotification,
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.onDidWake?() }
+            },
+        ]
+    }
+
+    func endRecording() {
+        if let token = activityToken {
+            ProcessInfo.processInfo.endActivity(token)
+        }
+        activityToken = nil
+        observers.forEach { center.removeObserver($0) }
+        observers = []
+    }
+
+    deinit {
+        // Belt and braces: normal teardown goes through endRecording() at
+        // capture detach. NotificationCenter removal is thread-safe.
+        if let token = activityToken {
+            ProcessInfo.processInfo.endActivity(token)
+        }
+        observers.forEach { center.removeObserver($0) }
     }
 }
 #endif

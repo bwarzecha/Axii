@@ -6,6 +6,7 @@
 //  start/capture split.
 //
 
+import AppKit
 import CoreAudio
 import XCTest
 @testable import Axii
@@ -648,6 +649,55 @@ final class MeetingPhase4CTests: XCTestCase {
         XCTAssertEqual(audio.stopCallCount, 1)
         XCTAssertEqual(audio.cleanupCallCount, 1)
         XCTAssertEqual(transcript.startAutoSaveCount, 0)
+    }
+
+    // MARK: - Sleep/Wake (CF-16)
+
+    /// The wall clock keeps running through system sleep; the audio does
+    /// not. Persisted duration must come from the captured samples, so a
+    /// meeting slept through the lid-close reports what was recorded, not
+    /// how long the laptop was shut.
+    func testStopDerivesDurationFromCapturedSamples() async throws {
+        let micURL = URL(fileURLWithPath: "/tmp/phase4c-duration-\(UUID().uuidString).raw")
+        let audio = FakeAudioManager()
+        audio.stopResult = (micURL, 16_000, nil, 0)
+        audio.samplesByURL[micURL] = tone(seconds: 3)
+        let transcript = FakeTranscriptManager()
+        let session = makeCaptureSession(audio: audio, transcript: transcript)
+
+        try await session.start(configuration: MeetingCaptureStartConfiguration(
+            selectedApp: nil, selectedMicrophone: nil, streamingEnabled: true
+        ))
+        let captured = await session.stop(saveToHistory: true)
+
+        XCTAssertEqual(captured?.duration ?? 0, 3.0, accuracy: 0.01,
+                       "Duration = samples/rate, immune to wall-clock skew")
+    }
+
+    /// Sleep can arrive while the autosave is up to 60s stale, and the
+    /// machine may never wake (battery dies shut) — the recovery file must
+    /// be flushed BEFORE the system goes down.
+    func testWillSleepFlushesAutoSaveWhileRecording() async throws {
+        let audio = FakeAudioManager()
+        let transcript = FakeTranscriptManager()
+        let session = makeCaptureSession(audio: audio, transcript: transcript)
+        try await session.start(configuration: MeetingCaptureStartConfiguration(
+            selectedApp: nil, selectedMicrophone: nil, streamingEnabled: true
+        ))
+        let flushesBefore = transcript.flushAutoSaveCount
+
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.willSleepNotification, object: nil
+        )
+        var spins = 0
+        while transcript.flushAutoSaveCount == flushesBefore, spins < 10_000 {
+            await Task.yield()
+            spins += 1
+        }
+
+        XCTAssertGreaterThan(transcript.flushAutoSaveCount, flushesBefore,
+                             "Sleep must flush the recovery autosave first")
+        _ = await session.stop(saveToHistory: false)
     }
 
     func testStopStartOverlapDoesNotClobberTheNewSession() async throws {

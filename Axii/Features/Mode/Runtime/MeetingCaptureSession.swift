@@ -34,6 +34,7 @@ final class MeetingCaptureSession {
     private var selectedMicrophone: AudioDevice?
     private let switches = MeetingSwitchSerializer()
     private let durationTicker = MeetingDurationTicker()
+    private let powerMonitor = MeetingPowerMonitor()
 
     // Bumped by start/stop/cancel. An operation that resumes from an await
     // and finds the epoch changed must not publish or mutate session state.
@@ -61,6 +62,18 @@ final class MeetingCaptureSession {
         }
         durationTicker.onTick = { [weak self] duration in
             self?.onDurationUpdated?(duration)
+        }
+        // Sleep mid-meeting: protect the recording FIRST (the autosave may
+        // be up to 60s stale, and the machine may never wake), then stop
+        // counting time the audio pipeline will not capture.
+        powerMonitor.onWillSleep = { [weak self] in
+            guard let self, self.isRecording else { return }
+            self.flushAutoSaveNow()
+            self.durationTicker.pause()
+        }
+        powerMonitor.onDidWake = { [weak self] in
+            guard let self, self.isRecording else { return }
+            self.durationTicker.resume()
         }
     }
 
@@ -119,6 +132,7 @@ final class MeetingCaptureSession {
         transcriptManager = transcript
         transcript.startAutoSave()
         durationTicker.start()
+        powerMonitor.beginRecording(reason: "Axii is recording a meeting")
     }
 
     // MARK: - Stop
@@ -147,15 +161,28 @@ final class MeetingCaptureSession {
             await task.value
         }
 
+        let micSamples = audio.readSamplesFromFile(stoppedAudio.micFile)
+        let systemSamples = audio.readSamplesFromFile(stoppedAudio.systemFile)
+
+        // The AUDIO is the truth for persisted duration: the wall clock kept
+        // running through any system sleep, the samples did not. The ticker
+        // value is only the fallback for captures whose spool never
+        // materialized.
+        let micDuration = stoppedAudio.micRate > 0
+            ? Double(micSamples.count) / stoppedAudio.micRate : 0
+        let systemDuration = stoppedAudio.systemRate > 0
+            ? Double(systemSamples.count) / stoppedAudio.systemRate : 0
+        let audioDuration = max(micDuration, systemDuration)
+
         // Recovery artifacts (autosave + temp audio) are NOT cleaned here:
         // finalization and persistence still lie ahead, and a crash there
         // must stay recoverable. The persistence caller commits them.
         return MeetingCapturedAudio(
-            micSamples: audio.readSamplesFromFile(stoppedAudio.micFile),
+            micSamples: micSamples,
             micSampleRate: stoppedAudio.micRate,
-            systemSamples: audio.readSamplesFromFile(stoppedAudio.systemFile),
+            systemSamples: systemSamples,
             systemSampleRate: stoppedAudio.systemRate,
-            duration: capture.duration,
+            duration: audioDuration > 0 ? audioDuration : capture.duration,
             appName: capture.appName,
             recoveryArtifacts: capture.transcript.map {
                 MeetingRecoveryArtifacts(
@@ -251,6 +278,7 @@ final class MeetingCaptureSession {
     private func detachCurrentCapture() -> DetachedCapture {
         epoch += 1
         durationTicker.stop()
+        powerMonitor.endRecording()
 
         let capture = DetachedCapture(
             audio: audioManager,

@@ -23,6 +23,14 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   wait for the switch chain to settle before tearing audio down —
   interrupting `switchApp`'s stop-and-restart dance would orphan the
   restarted audio session.
+- **Audio is the truth for duration; sleep is excluded.** Persisted duration
+  is derived from captured samples ÷ rate at `stop()` — the wall clock keeps
+  running through system sleep, the samples do not. The live ticker
+  (`MeetingDurationTicker`) pauses on `NSWorkspace.willSleepNotification` and
+  resumes at wake (`MeetingPowerMonitor`); willSleep also flushes the
+  recovery autosave FIRST (the machine may never wake). Idle system sleep is
+  suppressed while recording via `ProcessInfo.beginActivity`; lid-close sleep
+  remains the user's call.
 
 ## Stale-write guards (handler/adapter)
 
