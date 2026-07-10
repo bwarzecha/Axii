@@ -178,6 +178,40 @@ final class ModeUnregisterTests: XCTestCase {
         XCTAssertFalse(manager.unregisterMode(id: config.id))
     }
 
+    // MARK: - Duplicate Registration (pre-activation mode creation)
+
+    /// A mode created before feature activation registers immediately AND
+    /// again in the later registerFeatures sweep. Two live instances would
+    /// split the hotkey and the editor between different configs.
+    func testRegisteringSameModeIdReplacesQuiescentDuplicate() {
+        let config = makeHotkeylessConfig()
+        let first = makeFeature(config: config)
+        let second = makeFeature(config: config)
+        let manager = makeManager()
+
+        manager.register(first)
+        manager.register(second)
+
+        XCTAssertNil(first.context, "The quiescent duplicate is fully released")
+        XCTAssertNotNil(second.context, "The replacement owns the registration")
+    }
+
+    func testRegisteringSameModeIdKeepsBusyOriginal() {
+        let config = makeHotkeylessConfig()
+        let first = makeFeature(config: config)
+        let second = makeFeature(config: config)
+        let manager = makeManager()
+
+        manager.register(first)
+        first.state.phase = .recording
+
+        manager.register(second)
+
+        XCTAssertNotNil(first.context,
+                        "A recording instance is never displaced by a duplicate")
+        XCTAssertNil(second.context, "The newcomer is dropped instead")
+    }
+
     func testUnregisterModeRemovesIdleModeAndItsPreferences() {
         let config = makeHotkeylessConfig()
         let feature = makeFeature(config: config)

@@ -180,6 +180,13 @@ struct SidebarSettingsView: View {
     private func handleReset(id: UUID) {
         try? modeService.resetToDefault(id: id)
         reloadModes()
+        // The runtime must follow the reset like it follows every other
+        // edit — otherwise the feature keeps executing the pre-reset config
+        // (old hotkey, old outputs, old processing) until relaunch while
+        // the editor shows defaults.
+        if let fresh = modes.first(where: { $0.id == id }) {
+            onConfigChanged(fresh)
+        }
     }
 
     private func handleDuplicate(_ mode: ModeConfig) {

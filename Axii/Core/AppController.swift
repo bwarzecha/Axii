@@ -155,9 +155,9 @@ final class AppController {
 
         if advancedHotkeyService.start() {
             print("Advanced hotkey mode started after permission granted")
-            // Re-register hotkeys with the now-active service
-            settings.onHotkeyChanged?()
-            settings.onConversationHotkeyChanged?()
+            // Re-register EVERY feature with the now-active service —
+            // the legacy settings callbacks cover only built-in modes.
+            featureManager.reRegisterAllHotkeys()
         }
     }
 
@@ -168,7 +168,6 @@ final class AppController {
         advancedHotkeyService.unregisterAll()
 
         // Start the appropriate service based on mode
-        // Features will re-register via onHotkeyChanged callback (fired after this)
         switch settings.hotkeyMode {
         case .standard:
             print("Switched to Standard hotkey mode")
@@ -179,6 +178,11 @@ final class AppController {
                 print("Failed to start Advanced hotkey mode - permission not granted")
             }
         }
+
+        // Every registration — custom modes and the active feature's Escape
+        // included — died in the wipe above. Re-arm them all: a mode
+        // mid-recording whose finish hotkey stays dead is unstoppable.
+        featureManager.reRegisterAllHotkeys()
     }
 
     // MARK: - Feature Registration

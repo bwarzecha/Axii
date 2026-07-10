@@ -48,7 +48,23 @@ final class FeatureManager {
     }
 
     /// Registers a feature. The feature will register its own hotkeys.
+    /// Idempotent per mode id: a mode created before feature activation is
+    /// registered immediately AND again by the later registerFeatures sweep —
+    /// two live instances would split the hotkey and the editor between
+    /// different configs. The quiescent duplicate is replaced; a busy one is
+    /// kept and the newcomer dropped (never displace live data).
     func register(_ feature: any Feature) {
+        if let mode = feature as? ModeFeature,
+           let existingIndex = features.firstIndex(where: {
+               ($0 as? ModeFeature)?.config.id == mode.config.id
+           }) {
+            let existing = features[existingIndex]
+            guard isQuiescent(existing) else { return }
+            existing.unregister()
+            existing.cancel()
+            features.remove(at: existingIndex)
+        }
+
         let context = FeatureContext(
             hotkeyService: hotkeyService,
             advancedHotkeyService: advancedHotkeyService,
@@ -107,8 +123,26 @@ final class FeatureManager {
         panelController?.show()
 
         // Register escape hotkey for active feature
+        registerEscapeHotkey()
+    }
+
+    private func registerEscapeHotkey() {
         hotkeyService.register(.escape, key: .escape, modifiers: []) { [weak self] in
             self?.handleEscape()
+        }
+    }
+
+    /// Re-register every feature's hotkey (plus Escape if a feature is
+    /// active). A hotkey-mode switch wipes BOTH services with unregisterAll;
+    /// the legacy per-built-in settings callbacks re-registered only the
+    /// three built-in modes, leaving every custom mode's hotkey dead until
+    /// relaunch — including the finish hotkey of a recording in progress.
+    func reRegisterAllHotkeys() {
+        for feature in features {
+            (feature as? ModeFeature)?.registerHotkey()
+        }
+        if activeFeature != nil {
+            registerEscapeHotkey()
         }
     }
 
