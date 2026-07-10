@@ -35,13 +35,24 @@ extension ModeFeature {
     // MARK: - Hotkey Routing
 
     func handleHotkey() {
+        // While ANY modal alert is up, global hotkeys are inert. Carbon
+        // events deliver during modal sessions, and acting on them corrupts
+        // the question the dialog is asking: nested busy dialogs whose stale
+        // outer verdict destroys a turn the inner one preserved, or a new
+        // capture started behind a dialog that then "discards" it.
+        guard !isModalSessionActive() else { return }
         // Another mode holds unsaved data: the user decides its fate BEFORE
         // this mode touches the microphone — a muscle-memory keystroke must
         // never silently destroy an hour-long recording.
         if let busy = context?.busyFeature?(), busy !== self {
             switch askBusyModeChoice() {
-            case .saveAndSwitch: busy.stopAndPreserve()
-            case .discardAndSwitch: busy.cancel()
+            case .saveAndSwitch:
+                // Re-validate after the modal: the dialog may have sat open
+                // while the busy feature's save finished on its own. The
+                // verdict applies only to data that still exists.
+                if busy.isDataBearing { busy.stopAndPreserve() }
+            case .discardAndSwitch:
+                if busy.isDataBearing { busy.cancel() }
             case .stay: return
             }
         }

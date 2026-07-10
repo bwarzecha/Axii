@@ -153,4 +153,26 @@ final class ModeTurnSalvageTests: XCTestCase {
         XCTAssertTrue(restart.isCancelled)
         XCTAssertFalse(feature.isActive)
     }
+
+    // MARK: - Hotkeys Are Inert During Modal Sessions
+
+    /// Carbon hotkeys deliver during modal alerts. Acting on them corrupts
+    /// the question the dialog is asking (nested dialogs, stale verdicts) —
+    /// while a modal is up, the hotkey must do nothing.
+    func testHotkeyIsInertWhileModalSessionActive() {
+        let feature = makeFeature()
+        _ = putFeatureInSwitchGap(feature, carriedSeconds: 2)
+        feature.isModalSessionActive = { true }
+
+        feature.handleHotkey()
+
+        XCTAssertEqual(feature.state.phase, .recording,
+                       "The stop keystroke must not act behind a modal dialog")
+
+        feature.isModalSessionActive = { false }
+        feature.handleHotkey()
+
+        XCTAssertEqual(feature.state.phase, .transcribing,
+                       "Once the modal is gone the same keystroke works normally")
+    }
 }

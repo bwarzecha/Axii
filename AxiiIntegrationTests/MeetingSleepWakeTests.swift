@@ -112,6 +112,23 @@ final class MeetingSleepWakeTests: XCTestCase {
         XCTAssertEqual(sleeps, 1, "Observers released at endRecording")
     }
 
+    /// The flush must COMPLETE before the willSleep handler returns — a
+    /// deferred hop can still be queued when the process suspends, and a
+    /// battery dying asleep means it never runs at all.
+    func testWillSleepCallbackRunsSynchronouslyWithPost() {
+        let center = NotificationCenter()
+        let monitor = MeetingPowerMonitor(center: center)
+        var fired = false
+        monitor.onWillSleep = { fired = true }
+        monitor.beginRecording(reason: "test")
+
+        center.post(name: NSWorkspace.willSleepNotification, object: nil)
+
+        XCTAssertTrue(fired,
+                      "The callback finished before post() returned — no async hop")
+        monitor.endRecording()
+    }
+
     func testPowerMonitorBeginTwiceDoesNotDoubleObserve() async throws {
         let center = NotificationCenter()
         let monitor = MeetingPowerMonitor(center: center)

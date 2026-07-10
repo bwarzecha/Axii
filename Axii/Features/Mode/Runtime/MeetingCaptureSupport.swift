@@ -158,20 +158,37 @@ final class MeetingPowerMonitor {
             options: [.idleSystemSleepDisabled],
             reason: reason
         )
+        // queue: nil = the block runs SYNCHRONOUSLY on the posting thread.
+        // NSWorkspace posts sleep/wake on the main thread, and synchronous
+        // execution is the point: the autosave flush must COMPLETE before
+        // the willSleep handler returns — a Task hop could still be queued
+        // when the process suspends, and if the battery dies asleep the
+        // flush never happens at all. (It would also bank the whole sleep
+        // interval into the duration ticker at wake.)
         observers = [
             center.addObserver(
                 forName: NSWorkspace.willSleepNotification,
-                object: nil, queue: .main
+                object: nil, queue: nil
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.onWillSleep?() }
+                Self.runOnMain { self?.onWillSleep?() }
             },
             center.addObserver(
                 forName: NSWorkspace.didWakeNotification,
-                object: nil, queue: .main
+                object: nil, queue: nil
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.onDidWake?() }
+                Self.runOnMain { self?.onDidWake?() }
             },
         ]
+    }
+
+    /// Synchronous when already on the main thread (the NSWorkspace case);
+    /// falls back to a hop only for unexpected off-main delivery.
+    private static func runOnMain(_ body: @escaping @MainActor () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated(body)
+        } else {
+            Task { @MainActor in body() }
+        }
     }
 
     func endRecording() {

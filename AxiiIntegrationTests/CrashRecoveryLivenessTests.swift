@@ -135,6 +135,9 @@ final class CrashRecoveryLivenessTests: XCTestCase {
         let handlerB = RecoveryStubHandler()
         let featureB = makeFeature(handler: handlerB)
         featureB.meetingHandler = handlerB
+        // Belt over setUp's reset: other suites in this process may register
+        // crash-recovery features between class setups.
+        ModeFeature.crashRecoveryDidRun = false
 
         _ = featureA.recoverCrashedMeetingIfNeeded()
         XCTAssertEqual(handlerA.checkCount, 1,

@@ -120,6 +120,11 @@ final class FeatureManager {
     }
 
     private func handleEscape() {
+        // While a modal alert is up, Escape belongs to the DIALOG. The
+        // global hotkey consumes the keypress before the alert sees it —
+        // acting on it here would cancel the very recording the dialog is
+        // offering to save.
+        guard NSApp.modalWindow == nil else { return }
         activeFeature?.handleEscape()
     }
 

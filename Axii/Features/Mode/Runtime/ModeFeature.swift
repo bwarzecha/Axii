@@ -66,6 +66,9 @@ final class ModeFeature: Feature, ModeDismissControlling {
     /// The delayed restart after a mic switch — cancellable so a teardown
     /// in the 0.1s gap cannot be resurrected by it.
     var micSwitchRestartWorkItem: DispatchWorkItem?
+    /// Overridable seam for tests; production asks AppKit whether a modal
+    /// alert session is running.
+    var isModalSessionActive: () -> Bool = { NSApp.modalWindow != nil }
     let pipelineRunner: PipelineRunner
     let meetingPersistence: any MeetingPersisting
 
