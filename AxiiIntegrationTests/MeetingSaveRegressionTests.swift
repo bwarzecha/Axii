@@ -65,7 +65,7 @@ final class MeetingSaveRegressionTests: XCTestCase {
         func persist(
             payload: MeetingPersistencePayload,
             audioFormat: AudioStorageFormat
-        ) async throws -> Meeting {
+        ) async throws -> Meeting? {
             callCount += 1
             throw NSError(
                 domain: "test", code: 1,
@@ -75,17 +75,21 @@ final class MeetingSaveRegressionTests: XCTestCase {
     }
 
     /// A persistence fake that records whether it was called.
+    /// `writesNothing` mimics history being switched off between meeting start
+    /// and the persist call: no throw, but nothing reaches disk.
     @MainActor
     private final class SpyPersistence: MeetingPersisting {
         private(set) var callCount = 0
         private(set) var lastPayload: MeetingPersistencePayload?
+        var writesNothing = false
 
         func persist(
             payload: MeetingPersistencePayload,
             audioFormat: AudioStorageFormat
-        ) async throws -> Meeting {
+        ) async throws -> Meeting? {
             callCount += 1
             lastPayload = payload
+            if writesNothing { return nil }
             return Meeting(
                 segments: payload.segments,
                 duration: payload.duration,
@@ -186,26 +190,80 @@ final class MeetingSaveRegressionTests: XCTestCase {
 
     // MARK: - History Disabled
 
-    func testHistoryDisabled_MeetingStopDoesNotPersist() async throws {
-        historyService.isEnabled = false
-        let handler = StubMeetingHandler(stopResult: makePayload())
+    /// A meeting recorded with history off is never handed to persistence, and
+    /// its transcript is parked in .done so the user can copy it out.
+    func testHistoryDisabledAtStart_OffersExportInsteadOfPersisting() async throws {
+        var payload = makePayload()
+        payload.segments = [
+            MeetingSegment(
+                text: "hello", speakerId: "You",
+                isFromMicrophone: true, startTime: 0, endTime: 1
+            )
+        ]
+        let handler = StubMeetingHandler(stopResult: payload)
         let spy = SpyPersistence()
         let feature = makeFeature(
             meetingHandler: handler,
             meetingPersistence: spy
         )
+        feature.meetingHistoryEnabledAtStart = false
         feature.state.phase = .processing
 
         let stopTask = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
         await stopTask.value
 
         XCTAssertEqual(handler.stopCallCount, 1)
-        XCTAssertEqual(handler.stopSaveToHistory, true)
-        XCTAssertEqual(spy.callCount, 0, "Persistence should not be called when history is disabled")
-        XCTAssertEqual(feature.state.phase, .idle)
+        XCTAssertEqual(spy.callCount, 0, "Persistence should not be called when history was off at start")
+        XCTAssertEqual(feature.state.phase, .done)
+        XCTAssertTrue(feature.state.needsManualCopy,
+                      "An unsaved meeting must offer its transcript before it disappears")
+        XCTAssertEqual(feature.state.manualCopyText, "You: hello")
+        XCTAssertNotNil(feature.pendingMeetingExport)
 
         let meetings = historyService.listMetadata(type: .meeting)
         XCTAssertTrue(meetings.isEmpty, "No meetings should be persisted when history is disabled")
+    }
+
+    /// The setting the user recorded under governs the save, not whatever the
+    /// toggle says when they hit Stop. Flipping it mid-meeting must not turn
+    /// an hour of audio into a silent no-op.
+    func testHistoryEnabledAtStart_PersistsEvenIfDisabledMidMeeting() async throws {
+        let handler = StubMeetingHandler(stopResult: makePayload())
+        let spy = SpyPersistence()
+        let feature = makeFeature(meetingHandler: handler, meetingPersistence: spy)
+        feature.meetingHistoryEnabledAtStart = true
+        historyService.isEnabled = false
+        feature.state.phase = .processing
+
+        let stopTask = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
+        await stopTask.value
+
+        XCTAssertEqual(spy.callCount, 1,
+                       "A meeting started with history on is still handed to persistence")
+        XCTAssertEqual(feature.state.phase, .idle)
+    }
+
+    /// Defense in depth: if the write reaches HistoryService and lands nowhere
+    /// (disabled underneath us), the artifacts must survive and the user must
+    /// be given the transcript rather than a false success.
+    func testPersistWritesNothing_KeepsArtifactsAndOffersExport() async throws {
+        let (payload, micFile, autosaveFile) = try makePayloadWithArtifacts()
+        let handler = StubMeetingHandler(stopResult: payload)
+        let spy = SpyPersistence()
+        spy.writesNothing = true
+        let feature = makeFeature(meetingHandler: handler, meetingPersistence: spy)
+        feature.meetingHistoryEnabledAtStart = true
+        feature.state.phase = .processing
+
+        let stopTask = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
+        await stopTask.value
+
+        XCTAssertEqual(spy.callCount, 1)
+        XCTAssertEqual(feature.state.phase, .done)
+        XCTAssertNotNil(feature.pendingMeetingExport)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: micFile.path),
+                      "Nothing was written, so nothing may be released")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: autosaveFile.path))
     }
 
     // MARK: - Persistence Failure Is Surfaced
@@ -349,7 +407,7 @@ final class MeetingSaveRegressionTests: XCTestCase {
         func persist(
             payload: MeetingPersistencePayload,
             audioFormat: AudioStorageFormat
-        ) async throws -> Meeting {
+        ) async throws -> Meeting? {
             await withCheckedContinuation { continuations.append($0) }
             return Meeting(
                 segments: payload.segments,
@@ -510,21 +568,79 @@ final class MeetingSaveRegressionTests: XCTestCase {
         XCTAssertTrue(handler.micSwitches.isEmpty)
     }
 
-    func testHistoryDisabled_StillClearsRecoveryArtifacts() async throws {
-        historyService.isEnabled = false
+    // MARK: - Unsaved Meeting Export Window
+
+    /// While an unsaved meeting sits in .done awaiting export, its artifacts
+    /// stay on disk: a crash during the export window must still be
+    /// recoverable. They are released only when the panel closes.
+    func testHistoryDisabled_KeepsArtifactsUntilPanelCloses() async throws {
         let (payload, micFile, autosaveFile) = try makePayloadWithArtifacts()
         let handler = StubMeetingHandler(stopResult: payload)
         let feature = makeFeature(
             meetingHandler: handler,
             meetingPersistence: SpyPersistence()
         )
+        feature.meetingHistoryEnabledAtStart = false
         feature.state.phase = .processing
 
         let stopTask = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
         await stopTask.value
 
+        XCTAssertTrue(FileManager.default.fileExists(atPath: micFile.path),
+                      "The export window must stay crash-recoverable")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: autosaveFile.path))
+
+        feature.cancel()
+
         XCTAssertFalse(FileManager.default.fileExists(atPath: micFile.path),
-                       "With history disabled there is nothing to recover into — no phantom recovery")
+                       "Closing the panel ends the export window and releases the data")
         XCTAssertFalse(FileManager.default.fileExists(atPath: autosaveFile.path))
+        XCTAssertNil(feature.pendingMeetingExport)
+    }
+
+    // MARK: - Save-In-Flight Close Guard
+
+    /// Escape during a meeting save would tear down the runtime under an
+    /// in-flight persist. Refuse it until the save resolves.
+    func testEscapeDuringSaveIsRefused() async throws {
+        let gated = GatedPersistence()
+        let handler = StubMeetingHandler(stopResult: makePayload())
+        let feature = makeFeature(meetingHandler: handler, meetingPersistence: gated)
+        feature.isActive = true
+        feature.state.phase = .processing
+
+        let stop = try XCTUnwrap(feature.stopMeeting(saveToHistory: true))
+        var spins = 0
+        while gated.continuations.isEmpty, spins < 10_000 {
+            await Task.yield()
+            spins += 1
+        }
+
+        XCTAssertTrue(feature.isSavingMeeting)
+        feature.handleEscape()
+        XCTAssertEqual(feature.state.phase, .processing,
+                       "Escape must not tear down a runtime that is mid-save")
+        XCTAssertTrue(feature.isActive)
+
+        gated.release(0)
+        await stop.value
+
+        XCTAssertFalse(feature.isSavingMeeting)
+        feature.handleEscape()
+        XCTAssertFalse(feature.isActive, "Once the save lands, Escape closes the panel")
+    }
+
+    /// A discard-stop sets no in-flight save, so it must not block the exit.
+    func testEscapeAfterDiscardStopIsAllowed() async throws {
+        let handler = StubMeetingHandler(stopResult: nil)
+        let feature = makeFeature(meetingHandler: handler)
+        feature.isActive = true
+
+        let stop = try XCTUnwrap(feature.stopMeeting(saveToHistory: false))
+        await stop.value
+
+        XCTAssertFalse(feature.isSavingMeeting)
+        feature.handleEscape()
+        XCTAssertFalse(feature.isActive)
     }
 }

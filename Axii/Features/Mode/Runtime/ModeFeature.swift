@@ -48,6 +48,14 @@ final class ModeFeature: Feature, ModeDismissControlling {
     /// race it (a second handler.stop would flip the UI to idle mid-save and
     /// generation-suppress the first stop's error reporting).
     var meetingStopTask: Task<Void, Never>?
+    /// History-enabled as it was when this meeting STARTED. The user may flip
+    /// the setting mid-meeting; the contract they recorded under is the one
+    /// that governs the save, and a mid-meeting flip must never silently
+    /// discard an hour of audio at the commit point.
+    var meetingHistoryEnabledAtStart: Bool = true
+    /// A finished meeting that was never written to history (history off).
+    /// Held so the panel can offer an export before the data disappears.
+    var pendingMeetingExport: MeetingPersistencePayload?
     /// Audio captured before a mid-recording mic switch: switching devices
     /// must never destroy what was already said. Combined at stop.
     var carriedRecordingSegments: [(samples: [Float], sampleRate: Double)] = []
@@ -167,7 +175,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
                 state: state, config: config, hotkeyHint: hotkeyHint,
                 onStart: { [weak self] in self?.handleStartButton() },
                 onStop: { [weak self] in self?.handleStopButton() },
-                onClose: { [weak self] in self?.cancelAndDeactivate() },
+                onClose: { [weak self] in self?.handleCloseButton() },
                 onMicrophoneSwitch: { [weak self] in self?.switchMicrophone(to: $0) },
                 onAppSelect: { [weak self] in self?.meetingHandler?.selectApp($0) },
                 onRefreshApps: { [weak self] in Task { await self?.meetingHandler?.refreshAppList() } },
@@ -213,7 +221,16 @@ final class ModeFeature: Feature, ModeDismissControlling {
         if state.phase.isRecording && config.lifecycle.escapeBehavior == .blockWhileRecording {
             return
         }
+        if isSavingMeeting { return }
         cancelAndDeactivate()
+    }
+
+    /// A meeting save is writing to disk. Closing the panel now would tear
+    /// down the runtime under an in-flight persist, so every user-initiated
+    /// exit is refused until it resolves (the panel shows its progress).
+    /// Scoped to save-stops: a discard-stop sets no meetingStopTask.
+    var isSavingMeeting: Bool {
+        meetingStopTask != nil
     }
 
     func cancel() {
@@ -237,6 +254,8 @@ final class ModeFeature: Feature, ModeDismissControlling {
         } else {
             meetingHandler?.cancel()
         }
+        // The user's chance to export an unsaved meeting ends with the panel.
+        releasePendingMeetingExport()
         state.clearConversationSession()
         state.reset()
         isActive = false
@@ -434,7 +453,12 @@ final class ModeFeature: Feature, ModeDismissControlling {
         case .recording:
             state.panelMode = state.panelMode == .compact ? .expanded : .compact
         case .error: cancelAndDeactivate()
-        case .processing, .done, .transcribing: break
+        case .done:
+            // An unsaved meeting is on screen awaiting export — the hotkey
+            // must not discard it. Copy is the only exit that keeps the data.
+            if pendingMeetingExport != nil { copyAndDismiss(state.manualCopyText) }
+            else { state.reset() }
+        case .processing, .transcribing: break
         }
     }
 
@@ -446,6 +470,13 @@ final class ModeFeature: Feature, ModeDismissControlling {
 
     private func handleStopButton() {
         if meetingHandler != nil { stopMeeting(saveToHistory: true) }
+    }
+
+    /// The panel hides its close button during a save, but a stale click can
+    /// still land as the phase flips — refuse it rather than tear down mid-write.
+    private func handleCloseButton() {
+        if isSavingMeeting { return }
+        cancelAndDeactivate()
     }
 
     // MARK: - Helpers

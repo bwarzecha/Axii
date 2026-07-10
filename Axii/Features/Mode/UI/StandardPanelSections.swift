@@ -106,7 +106,7 @@ extension StandardPanelView {
         case .processing:
             return state.processingStatus.isEmpty ? "Processing..." : state.processingStatus
         case .transcribing: return "Transcribing..."
-        case .done: return "Done"
+        case .done: return state.needsManualCopy ? "Not saved to history" : "Done"
         case .error(let msg): return msg
         }
     }
@@ -175,6 +175,12 @@ extension StandardPanelView {
                     .monospacedDigit()
             }
             .padding(.horizontal, 12)
+        } else if state.phase == .done, state.needsManualCopy {
+            // This recording was never written to history. Copy is the only
+            // way it survives the panel closing.
+            Button("Copy Transcript") { onCopy?(state.manualCopyText) }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
         } else {
             Button(action: {
                 if state.phase.isRecording { onStop?() } else { onStart?() }

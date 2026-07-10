@@ -71,7 +71,8 @@ final class MeetingPersistenceServiceTests: XCTestCase {
 
     func testPersistWithBothTracks_AttachesBothRecordings() async throws {
         let payload = makeBothTracksPayload()
-        let meeting = try await service.persist(payload: payload, audioFormat: .aac)
+        let persisted = try await service.persist(payload: payload, audioFormat: .aac)
+        let meeting = try XCTUnwrap(persisted)
 
         XCTAssertNotNil(meeting.micRecording, "Mic recording should be attached")
         XCTAssertNotNil(meeting.systemRecording, "System recording should be attached")
@@ -96,7 +97,8 @@ final class MeetingPersistenceServiceTests: XCTestCase {
 
     func testPersistPreservesConfiguredCompressedFormat() async throws {
         let payload = makeBothTracksPayload()
-        let meeting = try await service.persist(payload: payload, audioFormat: .aac)
+        let persisted = try await service.persist(payload: payload, audioFormat: .aac)
+        let meeting = try XCTUnwrap(persisted)
 
         XCTAssertTrue(
             meeting.micRecording?.filename.hasSuffix(".m4a") == true,
@@ -125,7 +127,8 @@ final class MeetingPersistenceServiceTests: XCTestCase {
 
     func testPersistRecordingReferencesResolveToExistingFiles() async throws {
         let payload = makeBothTracksPayload()
-        let meeting = try await service.persist(payload: payload, audioFormat: .aac)
+        let persisted = try await service.persist(payload: payload, audioFormat: .aac)
+        let meeting = try XCTUnwrap(persisted)
 
         let micURL = historyService.getAudioURL(meeting.micRecording!, for: meeting.id)
         let sysURL = historyService.getAudioURL(meeting.systemRecording!, for: meeting.id)
@@ -153,7 +156,8 @@ final class MeetingPersistenceServiceTests: XCTestCase {
             appName: "FaceTime"
         )
 
-        let meeting = try await service.persist(payload: payload, audioFormat: .aac)
+        let persisted = try await service.persist(payload: payload, audioFormat: .aac)
+        let meeting = try XCTUnwrap(persisted)
 
         XCTAssertNil(meeting.micRecording, "No mic recording for empty samples")
         XCTAssertNil(meeting.systemRecording, "No system recording for empty samples")
@@ -181,7 +185,8 @@ final class MeetingPersistenceServiceTests: XCTestCase {
             appName: nil
         )
 
-        let meeting = try await service.persist(payload: payload, audioFormat: .aac)
+        let persisted = try await service.persist(payload: payload, audioFormat: .aac)
+        let meeting = try XCTUnwrap(persisted)
 
         XCTAssertNotNil(meeting.micRecording, "Mic recording should be attached")
         XCTAssertNil(meeting.systemRecording, "System recording should be nil")
@@ -195,11 +200,28 @@ final class MeetingPersistenceServiceTests: XCTestCase {
         XCTAssertNil(reloaded.systemRecording)
     }
 
+    // MARK: - History Disabled
+
+    /// A disabled history writes nothing. The service must say so rather than
+    /// hand back a Meeting that exists only in memory — its caller releases
+    /// the recovery artifacts on a non-nil return.
+    func testPersistWithHistoryDisabled_ReturnsNilAndWritesNothing() async throws {
+        historyService.isEnabled = false
+
+        let meeting = try await service.persist(
+            payload: makeBothTracksPayload(), audioFormat: .aac
+        )
+
+        XCTAssertNil(meeting, "A disabled history must not report a saved meeting")
+        XCTAssertTrue(historyService.listMetadata(type: .meeting).isEmpty)
+    }
+
     // MARK: - Identity Stability
 
     func testPersistPreservesIdentityAcrossAudioAttachReSave() async throws {
         let payload = makeBothTracksPayload()
-        let meeting = try await service.persist(payload: payload, audioFormat: .aac)
+        let persisted = try await service.persist(payload: payload, audioFormat: .aac)
+        let meeting = try XCTUnwrap(persisted)
 
         // Reload and verify id and createdAt are preserved
         let loaded = try await historyService.loadInteraction(id: meeting.id)

@@ -20,10 +20,12 @@ private let logger = Logger(subsystem: "com.axii", category: "MeetingPersistence
 /// Protocol for adapter-level test injection of meeting persistence.
 @MainActor
 protocol MeetingPersisting {
+    /// Returns the persisted meeting, or `nil` when history is disabled and
+    /// nothing was written. Callers must not release recovery artifacts on nil.
     func persist(
         payload: MeetingPersistencePayload,
         audioFormat: AudioStorageFormat
-    ) async throws -> Meeting
+    ) async throws -> Meeting?
 }
 
 /// Dedicated service for persisting finalized meetings and their audio.
@@ -55,12 +57,13 @@ final class MeetingPersistenceService: MeetingPersisting {
     /// - Parameters:
     ///   - payload: The finalized meeting data from the pipeline handler.
     ///   - audioFormat: The audio compression format to use.
-    /// - Returns: The final persisted Meeting (with recordings attached).
+    /// - Returns: The final persisted Meeting (with recordings attached), or
+    ///   nil when history is disabled and nothing was written to disk.
     /// - Throws: On any persistence failure. Callers decide error semantics.
     func persist(
         payload: MeetingPersistencePayload,
         audioFormat: AudioStorageFormat
-    ) async throws -> Meeting {
+    ) async throws -> Meeting? {
         // 1. Create base meeting
         let meeting = Meeting(
             segments: payload.segments,
@@ -68,8 +71,12 @@ final class MeetingPersistenceService: MeetingPersisting {
             appName: payload.appName
         )
 
-        // 2. Initial save — establishes history folder and metadata cache entry
-        try await historyService.save(.meeting(meeting))
+        // 2. Initial save — establishes history folder and metadata cache entry.
+        // A disabled history writes nothing; report that instead of continuing
+        // to "save" audio into a record that does not exist.
+        guard try await historyService.save(.meeting(meeting)) == .saved else {
+            return nil
+        }
 
         // 3. Save compressed audio tracks if present
         var micRecording: AudioRecording?

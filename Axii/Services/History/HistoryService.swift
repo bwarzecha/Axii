@@ -19,6 +19,7 @@ enum HistoryError: LocalizedError {
     case loadFailed(Error)
     case interactionNotFound(UUID)
     case audioWriteFailed(Error)
+    case historyDisabled
 
     var errorDescription: String? {
         switch self {
@@ -32,8 +33,18 @@ enum HistoryError: LocalizedError {
             return "Interaction not found: \(id)"
         case .audioWriteFailed(let error):
             return "Failed to write audio file: \(error.localizedDescription)"
+        case .historyDisabled:
+            return "History saving is disabled"
         }
     }
+}
+
+/// Outcome of a history write. `save` cannot silently do nothing: a caller
+/// that is about to release the only other copy of the user's data (recovery
+/// artifacts, temp audio) must be able to tell "written" from "dropped".
+enum HistoryWriteStatus: Equatable {
+    case saved
+    case skippedDisabled
 }
 
 /// Unified storage service for all interaction types.
@@ -176,9 +187,12 @@ final class HistoryService {
 
     // MARK: - Save
 
-    /// Save an interaction (writes both metadata.json and interaction.json, updates cache)
-    func save(_ interaction: Interaction) async throws {
-        guard isEnabled else { return }
+    /// Save an interaction (writes both metadata.json and interaction.json, updates cache).
+    /// Returns `.skippedDisabled` when history is off — callers holding the only
+    /// other copy of the data must branch on this rather than assume a write.
+    @discardableResult
+    func save(_ interaction: Interaction) async throws -> HistoryWriteStatus {
+        guard isEnabled else { return .skippedDisabled }
 
         let metadata = interaction.toMetadata()
         let folderURL = historyDirectory.appendingPathComponent(metadata.folderName)
@@ -203,6 +217,7 @@ final class HistoryService {
         } catch {
             throw HistoryError.saveFailed(error)
         }
+        return .saved
     }
 
     /// Update an existing interaction's metadata in cache after modifying it
@@ -231,20 +246,15 @@ final class HistoryService {
     // MARK: - Audio Operations
 
     /// Save audio samples as a WAV file for an interaction
-    /// Returns the AudioRecording metadata
+    /// Returns the AudioRecording metadata.
+    /// Throws `.historyDisabled` when history is off: a placeholder recording
+    /// with an empty filename would make a record claim audio it does not have.
     func saveAudio(
         samples: [Float],
         sampleRate: Double,
         for interactionId: UUID
     ) async throws -> AudioRecording {
-        guard isEnabled else {
-            // Return a placeholder recording without actually saving
-            return AudioRecording(
-                filename: "",
-                duration: Double(samples.count) / sampleRate,
-                sampleRate: sampleRate
-            )
-        }
+        guard isEnabled else { throw HistoryError.historyDisabled }
 
         guard let metadata = cache[interactionId] else {
             throw HistoryError.interactionNotFound(interactionId)
@@ -276,20 +286,15 @@ final class HistoryService {
     }
 
     /// Save audio samples in a compressed format (ALAC or AAC)
-    /// Returns the AudioRecording metadata
+    /// Returns the AudioRecording metadata.
+    /// Throws `.historyDisabled` when history is off — see `saveAudio`.
     func saveAudioCompressed(
         samples: [Float],
         sampleRate: Double,
         format: AudioStorageFormat,
         for interactionId: UUID
     ) async throws -> AudioRecording {
-        guard isEnabled else {
-            return AudioRecording(
-                filename: "",
-                duration: Double(samples.count) / sampleRate,
-                sampleRate: sampleRate
-            )
-        }
+        guard isEnabled else { throw HistoryError.historyDisabled }
 
         guard let metadata = cache[interactionId] else {
             throw HistoryError.interactionNotFound(interactionId)
