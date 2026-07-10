@@ -65,9 +65,38 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   locations, and in-progress recordings live in Application Support
   (`Axii/InProgressRecordings`), not the purgeable system temp directory.
   Expired spool files are swept at launch, before any capture can start.
+- **Recovery runs once per process** (`ModeFeature.crashRecoveryDidRun`) —
+  a mode created/duplicated/rebuilt at runtime must never re-run launch
+  recovery against a live session, and N recovery-enabled modes must not
+  persist the same crashed meeting N times.
+- **Live sessions are not crashes.** `MeetingTranscriptManager` keeps a
+  process-wide registry of session IDs whose autosave is running;
+  `checkForCrashRecovery()` refuses to hand out a file owned by a live
+  writer (the shared autosave path makes that reachable).
 - **Scope (honest limits):** with streaming transcription disabled nothing
   is autosaved, so neither transcript nor audio is recoverable for such
   sessions.
+
+## UI / modal / run-loop invariants
+
+- **Hotkeys are inert during modal alerts** (mode keys and Escape both):
+  Carbon events deliver during modal sessions, and acting on them corrupts
+  the question the dialog is asking — Escape would destroy the recording a
+  quit/busy dialog is offering to save. Dialog verdicts re-validate
+  `isDataBearing` after `runModal` returns.
+- **Modal-blocking dialogs re-validate the world when they return.**
+  `startMeeting` re-checks `isActive`/`hasLiveCapture`/phase after its
+  confirm dialog; the busy-mode dialog applies its verdict only to data
+  that still exists.
+- **Timers that protect data run in `.common` run-loop mode** (autosave
+  timer): `.default`-mode timers silently stop firing while any modal
+  alert is open.
+- **willSleep work is synchronous.** `MeetingPowerMonitor` delivers
+  sleep/wake callbacks on the posting thread with no task hop — the
+  autosave flush completes before the willSleep handler returns, because
+  the machine may never wake.
+- **Saves hold their own sleep assertion** through finalize + persist; the
+  capture's assertion ends at detach.
 
 ## Test harness layers
 
