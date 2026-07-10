@@ -26,6 +26,9 @@ extension ModeFeature {
     }
 
     func startMeeting() {
+        // Guarded internally: a deferred edit never applies while the
+        // error-salvage path below still holds a live capture.
+        applyPendingConfigIfIdle()
         guard let handler = meetingHandler else {
             state.phase = .error("Meeting handler not configured")
             return
@@ -88,6 +91,10 @@ extension ModeFeature {
             if state.phase == .processing, gen == meetingStopGeneration {
                 state.phase = .idle
             }
+            // The save is durable and the capture detached — an edit made
+            // mid-meeting can land now (internally guarded against a newer
+            // session that is already recording again).
+            self.applyPendingConfigIfIdle()
         }
         if saveToHistory { meetingStopTask = task }
         return task

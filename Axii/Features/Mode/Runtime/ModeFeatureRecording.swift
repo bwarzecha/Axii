@@ -14,6 +14,9 @@ extension ModeFeature {
     // MARK: - Simple Recording (singleShot + multiTurn)
 
     func startSimpleRecording() {
+        // A new turn records under the LATEST config — an edit deferred
+        // during the previous turn lands before anything reads it.
+        applyPendingConfigIfIdle()
         // A pending dismiss from a previous turn (e.g. its "No speech
         // detected" timeout) must never fire into this new recording.
         cancelScheduledDismiss()

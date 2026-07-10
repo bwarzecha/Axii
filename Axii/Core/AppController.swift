@@ -80,6 +80,11 @@ final class AppController {
         // Setup
         setupPanel()
         wireSettingsCallbacks()
+        // Capture-type edits rebuild the feature (different runtime shape);
+        // construction stays on the single makeModeFeature path.
+        featureManager.modeFeatureFactory = { [weak self] config in
+            self.map { $0.makeModeFeature(from: config) }
+        }
 
         // Sync history enabled state
         historyService.isEnabled = settings.isHistoryEnabled

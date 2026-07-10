@@ -110,7 +110,17 @@ struct AxiiApp: App {
                 llmSettings: controller.llmSettings,
                 bedrockClient: controller.llmService.bedrockClient,
                 modeService: controller.modeService,
-                onConfigChanged: { controller.featureManager.updateModeConfig($0) },
+                onConfigChanged: { updated in
+                    if !controller.featureManager.updateModeConfig(updated) {
+                        // The mode is mid-recording/save; its capture type
+                        // cannot be swapped under a live session.
+                        let alert = NSAlert()
+                        alert.messageText = "Capture change will apply later"
+                        alert.informativeText = "This mode is recording or saving. The audio capture change takes effect after it finishes and the mode is edited again, or when Axii restarts."
+                        alert.alertStyle = .informational
+                        alert.runModal()
+                    }
+                },
                 onModeCreated: { controller.registerNewMode($0) },
                 onModeDeleted: { controller.featureManager.unregisterMode(id: $0) },
                 canDeleteMode: { controller.featureManager.canDeleteMode($0) },

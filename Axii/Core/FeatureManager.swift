@@ -130,10 +130,41 @@ final class FeatureManager {
 
     // MARK: - Mode Config Updates
 
-    /// Updates a ModeFeature's config (called by editor). Re-registers hotkey if changed.
-    func updateModeConfig(_ config: ModeConfig) {
-        guard let modeFeature = features.compactMap({ $0 as? ModeFeature }).first(where: { $0.config.id == config.id }) else { return }
-        modeFeature.updateConfig(config)
+    /// Builds a fresh ModeFeature for capture-type config changes.
+    /// Wired by AppController, which owns the service graph.
+    var modeFeatureFactory: ((ModeConfig) -> ModeFeature?)?
+
+    /// Updates a ModeFeature's config (called by editor).
+    ///
+    /// In-place edits apply immediately when idle and defer while busy (the
+    /// feature enforces this). A capture-type change (mic-only ↔ mic+system)
+    /// needs a different runtime shape — meeting handler, screen permission —
+    /// so the feature is REBUILT, and only when quiescent. Returns false when
+    /// a capture-type change had to wait: behavior converges once the mode is
+    /// idle and next re-saved, or at launch (mode JSON is already current).
+    /// Until then the mode safely keeps its old capture behavior — routing
+    /// follows the handler that actually exists, never the config alone.
+    @discardableResult
+    func updateModeConfig(_ config: ModeConfig) -> Bool {
+        guard let feature = features.compactMap({ $0 as? ModeFeature })
+            .first(where: { $0.config.id == config.id }) else { return true }
+
+        let needsRebuild = (feature.meetingHandler != nil) != config.audioCapture.isDual
+        if needsRebuild, isQuiescent(feature), let fresh = modeFeatureFactory?(config) {
+            feature.unregister()
+            features.removeAll { ($0 as? ModeFeature) === feature }
+            register(fresh)
+            return true
+        }
+
+        // Report an unapplied capture-type change only on the save that
+        // INTRODUCES it — the editor auto-saves every field, and the user
+        // must not be re-warned on each subsequent keystroke.
+        let requestedIsDual = (feature.pendingConfig ?? feature.config).audioCapture.isDual
+        let introducesCaptureChange = needsRebuild
+            && requestedIsDual != config.audioCapture.isDual
+        feature.updateConfig(config)
+        return !introducesCaptureChange
     }
 
     /// Removes a ModeFeature by config ID (for deleted custom modes).
@@ -164,7 +195,13 @@ final class FeatureManager {
         guard let feature = features.first(where: {
             ($0 as? ModeFeature)?.config.id == id
         }) else { return true }
-        return !(feature.isActive || feature.isDataBearing || feature === activeFeature)
+        return isQuiescent(feature)
+    }
+
+    /// Nothing running, nothing showing, nothing unsaved — the only state in
+    /// which a feature may be torn down or rebuilt without losing anything.
+    private func isQuiescent(_ feature: any Feature) -> Bool {
+        !(feature.isActive || feature.isDataBearing || feature === activeFeature)
     }
 }
 #endif

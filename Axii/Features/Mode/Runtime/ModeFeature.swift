@@ -16,6 +16,10 @@ import SwiftUI
 @MainActor
 final class ModeFeature: Feature, ModeDismissControlling {
     var config: ModeConfig
+    /// A config edit that arrived while the mode held data. The contract a
+    /// capture STARTED under (hotkey route, escape behavior, outputs)
+    /// governs it to completion; the edit lands at the next idle boundary.
+    var pendingConfig: ModeConfig?
     let state: ModeRuntimeState
     var isActive: Bool = false
 
@@ -283,6 +287,10 @@ final class ModeFeature: Feature, ModeDismissControlling {
     func cancelAndDeactivate() {
         teardownRuntime()
         context?.onDeactivate?(self)
+        // The panel is gone and nothing is in flight — a config edit made
+        // mid-capture can land now. Deliberately NOT in cancel(): callers of
+        // plain cancel() (takeover, deletion) manage lifecycle themselves.
+        applyPendingConfigIfIdle()
     }
 
     // MARK: - ModeDismissControlling

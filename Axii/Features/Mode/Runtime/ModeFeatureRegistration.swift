@@ -89,8 +89,29 @@ extension ModeFeature {
         }
     }
 
-    /// Update config from editor. Re-registers hotkey if changed.
+    /// Update config from editor. DEFERRED while the mode holds data:
+    /// applying an edit mid-capture can flip the stop keystroke to a
+    /// different execution family and strand the live recording — the turn
+    /// contract must not change under an in-flight capture. Deferred edits
+    /// land at the next idle boundary (panel close, next start, save
+    /// completion). Capture-type changes are FeatureManager's job: they
+    /// need a different runtime shape, so the feature is rebuilt.
     func updateConfig(_ newConfig: ModeConfig) {
+        guard !isDataBearing else {
+            pendingConfig = newConfig
+            return
+        }
+        applyConfig(newConfig)
+    }
+
+    /// Land a deferred edit once nothing in flight can be affected by it.
+    func applyPendingConfigIfIdle() {
+        guard !isDataBearing, let pending = pendingConfig else { return }
+        pendingConfig = nil
+        applyConfig(pending)
+    }
+
+    private func applyConfig(_ newConfig: ModeConfig) {
         let hotkeyChanged = config.hotkey != newConfig.hotkey
         config = newConfig
         if hotkeyChanged { registerHotkey() }
