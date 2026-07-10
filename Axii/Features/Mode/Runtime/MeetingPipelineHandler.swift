@@ -151,6 +151,12 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
             // Discard is immediate from the user's perspective; do not hold
             // the UI hostage to audio teardown.
             state.phase = .idle
+        } else if state.phase == .preparing {
+            // A save-stop that lands while a start is still preparing (a
+            // stale Stop click racing an error retry): the generation bump
+            // above supersedes that start — it will publish nothing — so
+            // the phase must not stay parked at .preparing forever.
+            state.phase = .idle
         }
 
         // Snapshot the streamed transcript before finalization can replace

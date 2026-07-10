@@ -61,6 +61,33 @@ final class ModeInteractionFuzzTests: XCTestCase {
         try await runFuzz(profile: .fullChaos, seedBase: 20_000)
     }
 
+    /// The meeting surface: real adapter + real handler + real capture
+    /// session over gate-controlled chaos fakes, with persistence outcomes
+    /// (success / failure / history-off no-write) seeded per call.
+    func testMeetingSurface_StructuralInvariantsHold() async throws {
+        for i in 0..<iterations {
+            let seed: UInt64 = 30_000 &+ UInt64(i)
+            let driver = MeetingModeFuzzDriver(
+                seed: seed,
+                settings: settings,
+                historyService: historyService
+            )
+            await driver.runSchedule(steps: 40)
+            driver.checkInvariants()
+
+            let violations = driver.violations.violations
+            if !violations.isEmpty {
+                XCTFail(
+                    "seed \(seed) [meeting]: "
+                    + violations.joined(separator: " | ")
+                    + "\nactions: "
+                    + driver.actionLog.joined(separator: " → ")
+                )
+                return
+            }
+        }
+    }
+
     private func runFuzz(
         profile: ModeFuzzDriver.Profile,
         seedBase: UInt64
