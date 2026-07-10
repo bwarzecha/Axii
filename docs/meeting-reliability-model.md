@@ -100,12 +100,27 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
 
 ## Test harness layers
 
-- **Schedule fuzzer** (`MeetingConcurrencyFuzzTests`): every async dependency
-  in the chaos fakes suspends on a `GateHub`, so the driver controls exactly
-  which suspended call proceeds next. 500 seeded random schedules of
-  start/stop/cancel/switch/chunk/error/start-failure operations are checked
-  against conservation invariants at quiescence. A failing seed is a
-  reproducible bug report.
+- **Capture schedule fuzzer** (`MeetingConcurrencyFuzzTests`): every async
+  dependency in the chaos fakes suspends on a `GateHub`, so the driver
+  controls exactly which suspended call proceeds next. 500 seeded random
+  schedules of start/stop/cancel/switch/chunk/error/start-failure operations
+  are checked against conservation invariants at quiescence. A failing seed
+  is a reproducible bug report.
+- **Interaction fuzzer** (`ModeInteractionFuzzTests`): seeded schedules over
+  the mode runtime's REAL UI entry points — hotkey, Escape, panel buttons,
+  mic switches, device events, session errors, config edits, timer fires —
+  with capture, transcription, and delayed work all gate-controlled via
+  production seams (helper factory, dialog providers, delay scheduler).
+  Two profiles: `noCancel` enforces STRICT audio conservation (every
+  recorded sample reaches the transcriber — the silent-data-loss detector);
+  `fullChaos` adds cancels and checks structural invariants (no unowned
+  capture, no stuck phase, all audio accounted for). In-suite 300 seeds per
+  profile; `AXII_FUZZ_ITERATIONS` scales the deep tiers. Found a real bug
+  on its first run (stale error arming a dismiss timer that fired into the
+  recording a resumed start later published).
+- **Tiers** (`Scripts/reliability-suite.sh`): `--pr` = fast suite only;
+  default (nightly) adds TSan + 10k-seed deep fuzzes; `--release` runs the
+  deep fuzzes at 50k seeds.
 - **Crash matrix** (`MeetingCrashRecoveryTests`): the real transcript manager
   against temp-dir autosave files, simulating crashes at each lifecycle point.
 - **Commit-point tests** (`MeetingSaveRegressionTests`): recovery artifacts

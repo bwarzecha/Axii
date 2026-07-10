@@ -9,15 +9,16 @@
 #if os(macOS)
 import AppKit
 
+/// The user's verdict on another mode's unsaved data before a takeover.
+enum ModeBusyChoice {
+    case saveAndSwitch, discardAndSwitch, stay
+}
+
 extension ModeFeature {
 
     // MARK: - Cross-Mode Takeover Protection
 
-    private enum BusyModeChoice {
-        case saveAndSwitch, discardAndSwitch, stay
-    }
-
-    private func askBusyModeChoice() -> BusyModeChoice {
+    private func askBusyModeChoice() -> ModeBusyChoice {
         let alert = NSAlert()
         alert.messageText = "Another mode is busy"
         alert.informativeText = "A recording or save is in progress in another mode. What should happen to it?"
@@ -45,7 +46,7 @@ extension ModeFeature {
         // this mode touches the microphone — a muscle-memory keystroke must
         // never silently destroy an hour-long recording.
         if let busy = context?.busyFeature?(), busy !== self {
-            switch askBusyModeChoice() {
+            switch busyChoiceProvider?() ?? askBusyModeChoice() {
             case .saveAndSwitch:
                 // Re-validate after the modal: the dialog may have sat open
                 // while the busy feature's save finished on its own. The

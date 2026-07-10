@@ -1,0 +1,473 @@
+//
+//  ModeFuzzSupport.swift
+//  AxiiIntegrationTests
+//
+//  Support for the mode-layer INTERACTION fuzzer: a gate-controlled fake
+//  capture helper, a gated transcriber that accounts every sample it
+//  receives, and a seeded driver that fires REAL UI entry points (hotkey,
+//  Escape, panel buttons, mic switches, device events, session errors,
+//  config edits, timer fires) in schedule-controlled interleavings.
+//
+//  Conservation principle: audio a user recorded must reach the transcriber
+//  or pass through an explicit cancel — it must never silently vanish.
+//
+
+import Foundation
+@testable import Axii
+
+// MARK: - Chaos Recording Helper
+
+/// RecordingSessionProviding fake under full schedule control. Mirrors the
+/// production helper's contract: start suspends (permission prompt, device
+/// spin-up), a stop/cancel during that suspension supersedes the start, and
+/// samples accumulate only while live.
+@MainActor
+final class ChaosRecordingHelper: RecordingSessionProviding {
+    let id: Int
+    let startError: AudioSessionError?
+
+    private let gates: GateHub
+    private let violations: ViolationLog
+
+    private(set) var started = false
+    private(set) var live = false
+    private(set) var superseded = false
+    /// Samples currently buffered (not yet taken by stop()).
+    private(set) var bufferedCount = 0
+    /// Every sample this helper ever recorded.
+    private(set) var recordedTotal = 0
+    /// Samples destroyed via cancel() — legal only on explicit user cancels.
+    private(set) var discardedTotal = 0
+
+    var currentDevice: AudioDevice?
+    var onVisualizationUpdate: ((VisualizationUpdate) -> Void)?
+    var onSignalStateChanged: ((Bool) -> Void)?
+    var onError: ((AudioSessionError) -> Void)?
+    var onDeviceChanged: ((AudioDevice) -> Void)?
+
+    init(
+        id: Int,
+        gates: GateHub,
+        violations: ViolationLog,
+        startError: AudioSessionError?
+    ) {
+        self.id = id
+        self.gates = gates
+        self.violations = violations
+        self.startError = startError
+    }
+
+    func start(source: AudioSource) async throws {
+        if started {
+            violations.add("helper[\(id)] started twice")
+        }
+        started = true
+        await gates.pass("helper[\(id)].start")
+        // Mirrors the production epoch guard: a stop/cancel during the
+        // suspension means this start must not go live.
+        if superseded {
+            throw CancellationError()
+        }
+        if let startError {
+            throw startError
+        }
+        live = true
+    }
+
+    func stop() -> (samples: [Float], sampleRate: Double) {
+        superseded = true
+        live = false
+        let taken = bufferedCount
+        bufferedCount = 0
+        return ([Float](repeating: 0.5, count: taken), 16_000)
+    }
+
+    func cancel() {
+        superseded = true
+        live = false
+        discardedTotal += bufferedCount
+        bufferedCount = 0
+    }
+
+    /// Driver injects two seconds of audio — comfortably above the 1s
+    /// salvage threshold, so an errored capture is always salvageable and
+    /// strict conservation holds.
+    func emitAudio() {
+        guard live else { return }
+        bufferedCount += 32_000
+        recordedTotal += 32_000
+    }
+
+    func fireError(_ error: AudioSessionError) {
+        onError?(error)
+    }
+
+    func fireDeviceChanged(_ device: AudioDevice) {
+        currentDevice = device
+        onDeviceChanged?(device)
+    }
+}
+
+// MARK: - Accounting Transcriber
+
+/// Suspends on the gate hub and counts every sample it receives — the
+/// "delivered" side of the conservation invariant.
+actor AccountingTranscriber: TranscriptionProviding {
+    private let gates: GateHub
+    private(set) var receivedSamples = 0
+
+    init(gates: GateHub) {
+        self.gates = gates
+    }
+
+    var isReady: Bool { true }
+    func prepare() async throws {}
+
+    func transcribe(samples: [Float], sampleRate: Double) async throws -> String {
+        receivedSamples += samples.count
+        await gates.pass("transcribe")
+        return "fuzzed transcript"
+    }
+}
+
+// MARK: - Driver
+
+/// Seeded schedule driver over a single-shot ModeFeature's UI surface.
+@MainActor
+final class ModeFuzzDriver {
+    enum Profile {
+        /// No user-initiated cancels: every recorded sample must reach the
+        /// transcriber. The strictest data-loss detector.
+        case noCancel
+        /// Everything including Escape/close/cancel: structural invariants
+        /// only (no unowned capture, no stuck phase, no leaked audio).
+        case fullChaos
+    }
+
+    let feature: ModeFeature
+    let gates: GateHub
+    let violations: ViolationLog
+    let transcriber: AccountingTranscriber
+    let profile: Profile
+
+    private(set) var helpers: [ChaosRecordingHelper] = []
+    private(set) var pendingDelayed: [DispatchWorkItem] = []
+    private(set) var actionLog: [String] = []
+    private var rng: SplitMix64
+    private var explicitCancels = 0
+    /// Carried audio destroyed by cancel-family entry points (teardown
+    /// clears the carried buffer directly, invisibly to the helper fakes).
+    private var driverDiscarded = 0
+
+    private let devices = [
+        AudioDevice(id: 1, uid: "mic-a", name: "Mic A", transportType: .usb),
+        AudioDevice(id: 2, uid: "mic-b", name: "Mic B", transportType: .bluetooth),
+        AudioDevice(id: 3, uid: "built-in", name: "Built-in", transportType: .builtIn),
+    ]
+
+    init(
+        seed: UInt64,
+        profile: Profile,
+        settings: SettingsService,
+        historyService: HistoryService
+    ) {
+        self.rng = SplitMix64(seed: seed)
+        self.profile = profile
+        self.gates = GateHub()
+        self.violations = ViolationLog()
+        self.transcriber = AccountingTranscriber(gates: gates)
+
+        let feature = ModeFeature(
+            config: Self.fuzzConfig(),
+            transcriptionService: transcriber,
+            micPermission: MicrophonePermissionService(),
+            pasteService: FuzzPasteProvider(),
+            clipboardService: ClipboardService(),
+            settings: settings,
+            historyService: historyService,
+            mediaControlService: MediaControlService()
+        )
+        self.feature = feature
+
+        feature.isModalSessionActive = { false }
+        feature.busyChoiceProvider = { .stay }
+        feature.historyOffConfirmProvider = { true }
+        feature.makeRecordingHelper = { [unowned self] in
+            var seedRNG = self.rng
+            let failRoll = seedRNG.next(upperBound: 10)
+            self.rng = seedRNG
+            let error: AudioSessionError? = switch failRoll {
+            case 0: .deviceUnavailable
+            case 1: .captureFailure(underlying: "chaos")
+            default: nil
+            }
+            let helper = ChaosRecordingHelper(
+                id: self.helpers.count,
+                gates: self.gates,
+                violations: self.violations,
+                startError: error
+            )
+            self.helpers.append(helper)
+            return helper
+        }
+        feature.scheduleDelayed = { [unowned self] _, item in
+            self.pendingDelayed.append(item)
+        }
+    }
+
+    private static func fuzzConfig() -> ModeConfig {
+        let base = DefaultModes.dictation()
+        return ModeConfig(
+            id: UUID(),
+            name: "Fuzz",
+            icon: "mic",
+            isBuiltIn: false,
+            hotkey: nil,
+            audioCapture: base.audioCapture,
+            transcription: base.transcription,
+            processing: [],
+            outputs: [.display(DisplayConfig())],
+            lifecycle: LifecycleConfig(
+                startMode: .automatic,
+                panelPersistence: .autoDismiss(delay: 2.0),
+                escapeBehavior: .alwaysCancel,
+                pauseMedia: false,       // never touch system media in fuzz
+                captureFocus: false,     // never touch AX APIs in fuzz
+                permissions: [.microphone]
+            ),
+            panel: base.panel
+        )
+    }
+
+    // MARK: Schedule
+
+    private enum Action: CaseIterable {
+        case hotkey, releaseGate, emitAudio, fireDelayed, micSwitch
+        case deviceChanged, sessionError, configEdit, stopAndPreserve
+        case escape, closeButton, cancel
+    }
+
+    private func isAllowed(_ action: Action) -> Bool {
+        switch action {
+        case .escape, .closeButton, .cancel:
+            return profile == .fullChaos
+        default:
+            return true
+        }
+    }
+
+    func runSchedule(steps: Int) async {
+        for _ in 0..<steps {
+            let action = pick()
+            guard isAllowed(action) else { continue }
+            perform(action)
+            // Let whatever the action spawned reach its first suspension.
+            for _ in 0..<3 { await Task.yield() }
+        }
+        await drain()
+    }
+
+    private func pick() -> Action {
+        // Weighted: gate releases and hotkeys dominate, chaos events salt.
+        let roll = rng.next(upperBound: 100)
+        switch roll {
+        case 0..<28: return .releaseGate
+        case 28..<48: return .hotkey
+        case 48..<62: return .emitAudio
+        case 62..<70: return .fireDelayed
+        case 70..<76: return .micSwitch
+        case 76..<81: return .deviceChanged
+        case 81..<86: return .sessionError
+        case 86..<90: return .configEdit
+        case 90..<93: return .stopAndPreserve
+        case 93..<96: return .escape
+        case 96..<98: return .closeButton
+        default: return .cancel
+        }
+    }
+
+    private func perform(_ action: Action) {
+        actionLog.append("\(action)@\(feature.state.phase)")
+        switch action {
+        case .hotkey:
+            // A hotkey during .transcribing is the DESIGNED cancel gesture;
+            // in the no-cancel profile skip it so strict conservation holds.
+            if profile == .noCancel, feature.state.phase == .transcribing {
+                return
+            }
+            feature.handleHotkey()
+        case .releaseGate:
+            gates.releaseRandom(&rng)
+        case .emitAudio:
+            helpers.last { $0.live }?.emitAudio()
+        case .fireDelayed:
+            // A fired timer may be a dismiss -> teardown, which destroys
+            // carried audio directly; account it as a discard.
+            measuringCarriedDiscard { fireRandomDelayed() }
+        case .micSwitch:
+            let device = randomDevice()
+            feature.switchMicrophone(to: device)
+        case .deviceChanged:
+            // Stale device events can arrive from stopped helpers too.
+            helpers.randomElement(using: &rng)?
+                .fireDeviceChanged(randomDevice() ?? devices[0])
+        case .sessionError:
+            let error: AudioSessionError = rng.next(upperBound: 2) == 0
+                ? .deviceUnavailable
+                : .captureFailure(underlying: "chaos")
+            helpers.randomElement(using: &rng)?.fireError(error)
+        case .configEdit:
+            var edited = feature.config
+            edited.name = "Fuzz-\(rng.next(upperBound: 1_000))"
+            feature.updateConfig(edited)
+        case .stopAndPreserve:
+            feature.stopAndPreserve()
+        case .escape:
+            explicitCancels += 1
+            measuringCarriedDiscard { feature.handleEscape() }
+        case .closeButton:
+            explicitCancels += 1
+            measuringCarriedDiscard { feature.handleCloseButton() }
+        case .cancel:
+            explicitCancels += 1
+            measuringCarriedDiscard { feature.cancel() }
+        }
+    }
+
+    /// Carried audio that a cancel-family call destroys is cleared by
+    /// teardown without touching any helper — measure it around the call.
+    private func measuringCarriedDiscard(_ body: () -> Void) {
+        let before = carriedCount
+        body()
+        let after = carriedCount
+        if after < before {
+            driverDiscarded += before - after
+        }
+    }
+
+    private var carriedCount: Int {
+        feature.carriedRecordingSegments.reduce(0) { $0 + $1.samples.count }
+    }
+
+    private func randomDevice() -> AudioDevice? {
+        let roll = rng.next(upperBound: UInt64(devices.count + 1))
+        return roll == 0 ? nil : devices[Int(roll) - 1]
+    }
+
+    private func fireRandomDelayed() {
+        pendingDelayed.removeAll { $0.isCancelled }
+        guard !pendingDelayed.isEmpty else { return }
+        let index = Int(rng.next(upperBound: UInt64(pendingDelayed.count)))
+        let item = pendingDelayed.remove(at: index)
+        item.perform()
+    }
+
+    /// Run everything to quiescence: no suspended gates, no pending timers,
+    /// no in-flight turn.
+    private func drain() async {
+        for _ in 0..<200 {
+            gates.releaseAll()
+            pendingDelayed.removeAll { $0.isCancelled }
+            if let item = pendingDelayed.popLast() {
+                measuringCarriedDiscard { item.perform() }
+            }
+            for _ in 0..<10 { await Task.yield() }
+            if gates.pendingCount == 0, pendingDelayed.isEmpty {
+                if let turn = feature.turnTask { await turn.value }
+                // One extra sweep so work spawned by the turn's tail lands.
+                for _ in 0..<10 { await Task.yield() }
+                pendingDelayed.removeAll { $0.isCancelled }
+                if gates.pendingCount == 0, pendingDelayed.isEmpty {
+                    return
+                }
+            }
+        }
+        violations.add(
+            "drain did not reach quiescence — gates \(gates.pendingCount), "
+            + "delayed \(pendingDelayed.count), turnTask "
+            + "\(feature.turnTask == nil ? "nil" : "live"), "
+            + "phase \(feature.state.phase)"
+        )
+    }
+
+    // MARK: Invariants
+
+    func checkInvariants() async {
+        // 1. No unowned capture: a live helper must BE the feature's current
+        //    helper with the phase telling the truth about it.
+        for helper in helpers where helper.live {
+            let owned = (feature.recordingHelper as? ChaosRecordingHelper) === helper
+            if !(owned && feature.state.phase == .recording && feature.isActive) {
+                violations.add(
+                    "helper[\(helper.id)] live without ownership "
+                    + "(phase \(feature.state.phase), isActive \(feature.isActive))"
+                )
+            }
+        }
+
+        // 2. No stuck phases at quiescence.
+        switch feature.state.phase {
+        case .idle, .done, .error, .recording:
+            break
+        case .preparing, .transcribing, .processing:
+            violations.add("stuck phase at quiescence: \(feature.state.phase)")
+        }
+        if feature.state.phase == .recording,
+           (feature.recordingHelper as? ChaosRecordingHelper)?.live != true {
+            violations.add(".recording with no live capture behind it")
+        }
+
+        // 3. Carried audio must not leak outside a recording.
+        if !feature.carriedRecordingSegments.isEmpty,
+           feature.state.phase != .recording {
+            violations.add("carried audio leaked in phase \(feature.state.phase)")
+        }
+
+        // 4. Conservation. Strict in the no-cancel profile: every sample
+        //    recorded reaches the transcriber, sits in a live buffer, or is
+        //    carried across a mic switch — nothing is discarded or vanishes.
+        let recorded = helpers.reduce(0) { $0 + $1.recordedTotal }
+        let discarded = helpers.reduce(0) { $0 + $1.discardedTotal }
+        let buffered = helpers.reduce(0) { $0 + $1.bufferedCount }
+        let carried = feature.carriedRecordingSegments
+            .reduce(0) { $0 + $1.samples.count }
+        let delivered = await transcriber.receivedSamples
+        let accounted = delivered + buffered + carried
+        if profile == .noCancel {
+            if accounted != recorded || discarded != 0 || driverDiscarded != 0 {
+                violations.add(
+                    "audio vanished without a cancel: recorded \(recorded), "
+                    + "delivered \(delivered), buffered \(buffered), "
+                    + "carried \(carried), discarded \(discarded), "
+                    + "teardown-discarded \(driverDiscarded)"
+                )
+            }
+        } else if accounted + discarded + driverDiscarded != recorded {
+            violations.add(
+                "audio unaccounted for: recorded \(recorded), delivered "
+                + "\(delivered), discarded \(discarded), teardown-discarded "
+                + "\(driverDiscarded), buffered \(buffered), carried \(carried)"
+            )
+        }
+    }
+}
+
+// MARK: - Small Fakes
+
+private final class FuzzPasteProvider: PasteProviding {
+    func paste(
+        text: String,
+        focusSnapshot: FocusSnapshot?,
+        finishBehavior: FinishBehavior,
+        failureBehavior: InsertionFailureBehavior
+    ) async -> PasteService.Outcome { .skipped }
+}
+
+extension Array {
+    /// Seeded random element — Swift's own randomElement takes a
+    /// RandomNumberGenerator, but SplitMix64 is a plain struct.
+    func randomElement(using rng: inout SplitMix64) -> Element? {
+        guard !isEmpty else { return nil }
+        return self[Int(rng.next(upperBound: UInt64(count)))]
+    }
+}

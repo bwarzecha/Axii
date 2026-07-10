@@ -32,9 +32,27 @@ final class ModeFeature: Feature, ModeDismissControlling {
     let outputHandler: OutputHandler
     let historyService: HistoryService
     var context: FeatureContext?
-    var recordingHelper: RecordingSessionHelper?
+    var recordingHelper: (any RecordingSessionProviding)?
     var deactivationWorkItem: DispatchWorkItem?
     private let deviceMonitor = DeviceMonitor()
+
+    // MARK: Fuzz/test seams — production defaults, overridden by the
+    // interaction fuzzer so schedules control what wall-clock, hardware,
+    // and modal dialogs would otherwise decide.
+
+    /// Capture factory; the fuzzer substitutes gate-controlled fakes.
+    var makeRecordingHelper: () -> any RecordingSessionProviding = {
+        RecordingSessionHelper()
+    }
+    /// Busy-mode dialog decision; nil = real NSAlert.
+    var busyChoiceProvider: (() -> ModeBusyChoice)?
+    /// History-off confirm decision; nil = real NSAlert.
+    var historyOffConfirmProvider: (() -> Bool)?
+    /// Delayed-work scheduler (dismiss timers, mic-switch restarts); the
+    /// fuzzer collects the items and fires them under schedule control.
+    var scheduleDelayed: (TimeInterval, DispatchWorkItem) -> Void = { delay, item in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
 
     // Pipeline handlers (created based on config)
     var meetingHandler: (any MeetingPipelineHandling)?
@@ -324,7 +342,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
             self?.cancelAndDeactivate()
         }
         deactivationWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+        scheduleDelayed(delay, item)
     }
 }
 #endif

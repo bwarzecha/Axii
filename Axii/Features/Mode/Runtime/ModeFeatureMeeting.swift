@@ -69,6 +69,7 @@ extension ModeFeature {
     /// before an hour is recorded against that assumption, not after.
     private func confirmStartWithoutHistory() -> Bool {
         guard !historyService.isEnabled else { return true }
+        if let provider = historyOffConfirmProvider { return provider() }
         let alert = NSAlert()
         alert.messageText = "History is turned off"
         alert.informativeText = """

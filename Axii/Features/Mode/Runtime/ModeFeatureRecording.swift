@@ -43,17 +43,30 @@ extension ModeFeature {
     /// so a mid-recording mic switch can resume capture WITHOUT resetting the
     /// turn (carried audio, focus snapshot, generation all survive).
     private func beginCaptureSession() {
-        let helper = RecordingSessionHelper()
+        let helper = makeRecordingHelper()
         recordingHelper = helper
-        helper.onVisualizationUpdate = { [weak self] update in
-            guard self?.state.phase.isRecording == true else { return }
-            self?.state.audioLevel = update.audioLevel
-            self?.state.spectrum = update.spectrum
+        // Every callback is IDENTITY-GUARDED: a superseded helper's late
+        // events (errors from a dying device, visualization stragglers) are
+        // noise about a capture that no longer exists — acting on them can
+        // poison the current turn (e.g. a stale error arming a dismiss
+        // timer that later fires into a live recording).
+        helper.onVisualizationUpdate = { [weak self, weak helper] update in
+            guard let self, let helper, self.recordingHelper === helper,
+                  self.state.phase.isRecording else { return }
+            self.state.audioLevel = update.audioLevel
+            self.state.spectrum = update.spectrum
         }
-        helper.onSignalStateChanged = { [weak self] in self?.state.isWaitingForSignal = $0 }
-        helper.onError = { [weak self] in self?.handleSessionError($0) }
-        helper.onDeviceChanged = { [weak self] device in
-            self?.state.activeCaptureDevice = device
+        helper.onSignalStateChanged = { [weak self, weak helper] waiting in
+            guard let self, let helper, self.recordingHelper === helper else { return }
+            self.state.isWaitingForSignal = waiting
+        }
+        helper.onError = { [weak self, weak helper] error in
+            guard let self, let helper, self.recordingHelper === helper else { return }
+            self.handleSessionError(error)
+        }
+        helper.onDeviceChanged = { [weak self, weak helper] device in
+            guard let self, let helper, self.recordingHelper === helper else { return }
+            self.state.activeCaptureDevice = device
         }
 
         let source: AudioSource = resolveSelectedMicrophone().map { .microphone($0) } ?? .systemDefault
@@ -69,6 +82,10 @@ extension ModeFeature {
                     helper.cancel()
                     return
                 }
+                // Belt: if anything published an error (with its dismiss
+                // timer) while this start was suspended, that timer must
+                // not fire into the recording we are about to publish.
+                cancelScheduledDismiss()
                 state.phase = .recording; isActive = true; context?.onActivate?(self)
                 state.activeCaptureDevice = helper.currentDevice
             } catch is CancellationError {
@@ -193,7 +210,7 @@ extension ModeFeature {
     /// Stop the live helper and merge its audio with anything carried
     /// across mic switches. Clears the carried buffer.
     private func takeCombinedRecording(
-        finishing helper: RecordingSessionHelper
+        finishing helper: any RecordingSessionProviding
     ) -> (samples: [Float], sampleRate: Double) {
         let current = helper.stop()
         var segments = carriedRecordingSegments
@@ -242,8 +259,13 @@ extension ModeFeature {
             }
         }
         // Whatever the error, the capture is over — stop claiming a device
-        // is recording.
+        // is recording, and SUPERSEDE the turn: a start still suspended for
+        // this helper must not resume into the error UI and publish a
+        // recording behind the dismiss timer armed below.
         state.activeCaptureDevice = nil
+        turnGeneration += 1
+        recordingHelper?.cancel()
+        recordingHelper = nil
         switch error {
         case .permissionDenied:
             if micPermission.state.isBlocked { micPermission.openSystemSettings() }
@@ -285,7 +307,7 @@ extension ModeFeature {
                 self.beginCaptureSession()
             }
             micSwitchRestartWorkItem = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: item)
+            scheduleDelayed(0.1, item)
         }
     }
 }

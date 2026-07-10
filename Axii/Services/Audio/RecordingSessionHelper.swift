@@ -15,10 +15,25 @@ struct VisualizationUpdate {
     let spectrum: [Float]
 }
 
+/// Capture boundary for the mode runtime. RecordingSessionHelper is the
+/// production conformer; the interaction fuzzer substitutes a gate-controlled
+/// fake so schedules can be explored without hardware.
+@MainActor
+protocol RecordingSessionProviding: AnyObject {
+    var currentDevice: AudioDevice? { get }
+    var onVisualizationUpdate: ((VisualizationUpdate) -> Void)? { get set }
+    var onSignalStateChanged: ((Bool) -> Void)? { get set }
+    var onError: ((AudioSessionError) -> Void)? { get set }
+    var onDeviceChanged: ((AudioDevice) -> Void)? { get set }
+    func start(source: AudioSource) async throws
+    func stop() -> (samples: [Float], sampleRate: Double)
+    func cancel()
+}
+
 /// Helper for managing audio recording sessions with sample accumulation.
 /// Encapsulates AudioSession lifecycle and provides callbacks for UI updates.
 @MainActor
-final class RecordingSessionHelper {
+final class RecordingSessionHelper: RecordingSessionProviding {
     // Accumulated audio data
     private(set) var samples: [Float] = []
     private(set) var sampleRate: Double = 48000

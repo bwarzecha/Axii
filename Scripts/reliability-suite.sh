@@ -1,14 +1,23 @@
 #!/bin/bash
 #
-# Full reliability gate for Axii — run before releases and nightly.
-# Layers (see docs/meeting-reliability-model.md):
-#   1. fast suite (unit + integration, includes the 500-seed schedule fuzzer)
-#   2. Thread Sanitizer sweep (real-thread races in audio capture/ASR actor)
-#   3. deep schedule fuzz (10,000 seeds)
-#   4. real-transcription quirk suite (requires downloaded Parakeet models)
+# Tiered reliability gate for Axii (see docs/meeting-reliability-model.md).
 #
-# Usage: Scripts/reliability-suite.sh [--fast]
-#   --fast  skips the TSan rebuild and deep fuzz (pre-commit sized run)
+# Layers:
+#   1. fast suite — unit + integration, includes BOTH schedule fuzzers at
+#      their in-suite sizes (500-seed capture fuzzer, 2x300-seed interaction
+#      fuzzer over the UI entry points)
+#   2. Thread Sanitizer sweep — real-thread races in audio capture/ASR
+#   3. deep capture fuzz — 10,000 seeds against MeetingCaptureSession
+#   4. deep interaction fuzz — 10,000 seeds per profile against the mode
+#      runtime's real UI entry points (hotkey/Escape/buttons/mic-switch/
+#      device events/errors/config edits/timer fires); the no-cancel
+#      profile enforces strict audio conservation
+#   5. real-transcription quirk suite (requires downloaded Parakeet models)
+#
+# Tiers:
+#   Scripts/reliability-suite.sh --pr        layer 1 only (pre-commit sized)
+#   Scripts/reliability-suite.sh             all layers (nightly)
+#   Scripts/reliability-suite.sh --release   all layers, 50,000-seed fuzzes
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -16,7 +25,14 @@ cd "$(dirname "$0")/.."
 DEST='platform=macOS'
 PROJ=Axii.xcodeproj
 SCHEME=Axii
-FAST=${1:-}
+TIER=${1:-}
+
+CAPTURE_SEEDS=10000
+INTERACTION_SEEDS=10000
+if [[ "$TIER" == "--release" ]]; then
+    CAPTURE_SEEDS=50000
+    INTERACTION_SEEDS=50000
+fi
 
 run() {
     echo "== $1 =="
@@ -24,18 +40,23 @@ run() {
     "$@" 2>&1 | tail -3
 }
 
-run "Fast suite (includes 500-seed fuzzer)" \
+run "Fast suite (both fuzzers at in-suite size)" \
     xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST"
 
-if [[ "$FAST" != "--fast" ]]; then
+if [[ "$TIER" != "--pr" && "$TIER" != "--fast" ]]; then
     run "Thread Sanitizer sweep" \
         xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST" \
         -enableThreadSanitizer YES
 
-    run "Deep schedule fuzz (10,000 seeds)" \
-        env TEST_RUNNER_AXII_FUZZ_SEEDS=10000 \
+    run "Deep capture fuzz ($CAPTURE_SEEDS seeds)" \
+        env TEST_RUNNER_AXII_FUZZ_SEEDS=$CAPTURE_SEEDS \
         xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST" \
         -only-testing:AxiiIntegrationTests/MeetingConcurrencyFuzzTests
+
+    run "Deep interaction fuzz ($INTERACTION_SEEDS seeds x 2 profiles)" \
+        env TEST_RUNNER_AXII_FUZZ_ITERATIONS=$INTERACTION_SEEDS \
+        xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST" \
+        -only-testing:AxiiIntegrationTests/ModeInteractionFuzzTests
 fi
 
 run "Real-transcription quirks (skips if models absent)" \
