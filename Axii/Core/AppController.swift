@@ -39,6 +39,13 @@ final class AppController {
     // Mode runtime — the sole feature system.
     let modeService = ModeService()
 
+    /// Re-runs transcription over stored meeting audio; used by the history
+    /// UI to build transcripts for auto-saved meetings that never got one.
+    lazy var meetingRetranscriber = MeetingRetranscriptionService(
+        transcriptionService: transcriptionService,
+        historyService: historyService
+    )
+
     // Track if features have been activated
     private var featuresActivated = false
 

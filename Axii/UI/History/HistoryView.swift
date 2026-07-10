@@ -10,6 +10,8 @@ import SwiftUI
 
 struct HistoryView: View {
     let historyService: HistoryService
+    /// Enables the meeting Re-transcribe action in the detail view.
+    var retranscriber: MeetingRetranscriptionService? = nil
 
     @State private var selectedId: UUID?
     @State private var searchText = ""
@@ -89,7 +91,8 @@ struct HistoryView: View {
                 historyService: historyService,
                 onDelete: {
                     self.selectedId = nil
-                }
+                },
+                retranscriber: retranscriber
             )
         } else {
             Text("Select an item to view details")

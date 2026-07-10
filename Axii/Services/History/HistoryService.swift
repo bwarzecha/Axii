@@ -410,12 +410,20 @@ final class HistoryService {
                 AVEncoderBitDepthHintKey: 16
             ]
         case .aac:
-            settings = [
+            var aacSettings: [String: Any] = [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
                 AVSampleRateKey: sampleRate,
                 AVNumberOfChannelsKey: 1,
-                AVEncoderBitRateKey: format.aacBitrate
             ]
+            // The encoder REJECTS 128 kbps at low sample rates — and
+            // Bluetooth HFP microphones capture at 8-16 kHz, so pinning the
+            // bitrate there would fail the entire meeting save. Pin it only
+            // where it is known-valid; otherwise the encoder picks a rate-
+            // appropriate default.
+            if sampleRate >= 32_000 {
+                aacSettings[AVEncoderBitRateKey] = format.aacBitrate
+            }
+            settings = aacSettings
         }
 
         // Create output file

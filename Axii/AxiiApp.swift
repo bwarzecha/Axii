@@ -134,10 +134,13 @@ struct AxiiApp: App {
 
         // History window
         Window("History", id: "history") {
-            HistoryView(historyService: controller.historyService)
-                .onAppear {
-                    NSApp.activate(ignoringOtherApps: true)
-                }
+            HistoryView(
+                historyService: controller.historyService,
+                retranscriber: controller.meetingRetranscriber
+            )
+            .onAppear {
+                NSApp.activate(ignoringOtherApps: true)
+            }
         }
         .defaultSize(width: 700, height: 500)
 

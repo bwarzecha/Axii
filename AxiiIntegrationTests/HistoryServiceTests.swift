@@ -212,6 +212,30 @@ final class HistoryServiceTests: XCTestCase {
         XCTAssertGreaterThan(fileSize, 0, "Audio file should have content")
     }
 
+    /// Bluetooth HFP microphones capture at 8-16 kHz. The AAC encoder
+    /// rejects a pinned 128 kbps at those rates — which used to fail the
+    /// ENTIRE meeting save for Bluetooth-mic meetings.
+    func testSaveAudioCompressedAACSucceedsAtLowSampleRates() async throws {
+        let transcription = Transcription(text: "Bluetooth-rate audio test")
+        try await historyService.save(.transcription(transcription))
+
+        let sampleRate: Double = 16_000
+        let samples = syntheticSamples(count: Int(sampleRate), sampleRate: sampleRate)
+        let recording = try await historyService.saveAudioCompressed(
+            samples: samples,
+            sampleRate: sampleRate,
+            format: .aac,
+            for: transcription.id
+        )
+
+        let audioURL = historyService.getAudioURL(recording, for: transcription.id)
+        XCTAssertNotNil(audioURL)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: audioURL!.path),
+            "A 16 kHz AAC save must produce a playable file, not an error"
+        )
+    }
+
     func testSaveAudioCompressedALACCreatesM4AFile() async throws {
         let transcription = Transcription(text: "ALAC audio test")
         try await historyService.save(.transcription(transcription))
