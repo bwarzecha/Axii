@@ -26,6 +26,10 @@ extension ModeFeature {
         recordingHelper?.cancel(); recordingHelper = nil
         micSwitchRestartWorkItem?.cancel(); micSwitchRestartWorkItem = nil
         carriedRecordingSegments = []
+        // Published SYNCHRONOUSLY: capture start can suspend for seconds on
+        // a permission prompt, and a second hotkey press in that window must
+        // route to .preparing (no-op), not to a second start.
+        state.phase = .preparing
         if config.lifecycle.captureFocus { state.focusSnapshot = FocusSnapshot.capture() }
         if config.lifecycle.pauseMedia { Task { await mediaControlService.pauseIfPlaying() } }
 
@@ -53,24 +57,51 @@ extension ModeFeature {
         }
 
         let source: AudioSource = resolveSelectedMicrophone().map { .microphone($0) } ?? .systemDefault
+        // Ownership guard: helper.start can suspend for SECONDS (permission
+        // prompt, Bluetooth spin-up). If a teardown, new turn, or mic switch
+        // superseded this start, the resume must not publish .recording,
+        // re-activate a dismissed panel, or leave the capture running.
+        let gen = turnGeneration
         Task {
             do {
                 try await helper.start(source: source)
+                guard self.turnGeneration == gen, self.recordingHelper === helper else {
+                    helper.cancel()
+                    return
+                }
                 state.phase = .recording; isActive = true; context?.onActivate?(self)
                 state.activeCaptureDevice = helper.currentDevice
-            } catch let error as AudioSessionError { handleSessionError(error) }
-            catch { state.phase = .error("Microphone error"); scheduleDismiss(after: 2.0) }
+            } catch is CancellationError {
+                // The helper detected supersession itself and already tore
+                // the session down; whoever superseded owns the UI.
+            } catch let error as AudioSessionError {
+                guard self.turnGeneration == gen, self.recordingHelper === helper else { return }
+                handleSessionError(error)
+            } catch {
+                guard self.turnGeneration == gen, self.recordingHelper === helper else { return }
+                state.phase = .error("Microphone error"); scheduleDismiss(after: 2.0)
+            }
         }
     }
 
     func stopSimpleRecording() {
-        guard state.phase.isRecording, let helper = recordingHelper else { return }
-        let (samples, sampleRate) = takeCombinedRecording(finishing: helper)
-        recordingHelper = nil
+        guard state.phase.isRecording else { return }
+        let capture: (samples: [Float], sampleRate: Double)
+        if let helper = recordingHelper {
+            capture = takeCombinedRecording(finishing: helper)
+            recordingHelper = nil
+        } else if let carried = takeCarriedRecording() {
+            // Stop pressed inside the 0.1s mic-switch restart gap: finish
+            // with the carried audio — re-arming the microphone after the
+            // user commanded stop is worse than losing the gap.
+            capture = carried
+        } else {
+            return
+        }
         state.audioLevel = 0; state.isWaitingForSignal = false; state.phase = .transcribing
         state.activeCaptureDevice = nil
 
-        processSingleShotCapture(samples: samples, sampleRate: sampleRate)
+        processSingleShotCapture(samples: capture.samples, sampleRate: capture.sampleRate)
     }
 
     /// Kick off the single-shot post-capture turn. Shared by the normal stop
@@ -104,20 +135,28 @@ extension ModeFeature {
     // MARK: - Multi Turn (Conversation)
 
     func stopAndProcessMultiTurn() {
-        guard state.phase.isRecording, let helper = recordingHelper else { return }
+        guard state.phase.isRecording else { return }
         guard let processor = multiTurnProcessor else {
             state.phase = .error("Conversation not available")
             scheduleDismiss(after: 2.0)
             return
         }
 
-        let (samples, sampleRate) = takeCombinedRecording(finishing: helper)
-        recordingHelper = nil
+        let taken: (samples: [Float], sampleRate: Double)
+        if let helper = recordingHelper {
+            taken = takeCombinedRecording(finishing: helper)
+            recordingHelper = nil
+        } else if let carried = takeCarriedRecording() {
+            // Stop inside the mic-switch restart gap — see stopSimpleRecording.
+            taken = carried
+        } else {
+            return
+        }
         state.audioLevel = 0; state.isWaitingForSignal = false; state.phase = .processing
         state.activeCaptureDevice = nil
 
         let capture = CompletedCapture(
-            samples: samples, sampleRate: sampleRate, focusSnapshot: nil
+            samples: taken.samples, sampleRate: taken.sampleRate, focusSnapshot: nil
         )
         let llmConfig = config.processing.compactMap { step -> LLMTransformConfig? in
             if case .llmTransform(let cfg) = step { return cfg }
@@ -133,6 +172,10 @@ extension ModeFeature {
                 capture: capture, config: turnConfig, state: state,
                 isCurrent: { [weak self] in self?.turnGeneration == gen }
             )
+            // Pause/resume must pair in BOTH turn families, or a paused
+            // podcast stays paused forever after a successful conversation.
+            guard let self, self.turnGeneration == gen else { return }
+            self.resumeMediaIfNeeded()
         }
     }
 
@@ -140,6 +183,10 @@ extension ModeFeature {
 
     func resumeMediaIfNeeded() {
         guard config.lifecycle.pauseMedia else { return }
+        // A detached turn (Save & Switch) finishing while ANOTHER mode holds
+        // a live capture must not blast music into that recording. Inactive
+        // means displaced — leave the media alone.
+        guard isActive else { return }
         Task { await mediaControlService.resumeIfWasPlaying() }
     }
 
@@ -156,18 +203,37 @@ extension ModeFeature {
         return AudioResampler.combine(segments: segments)
     }
 
+    /// Take the audio carried across a mic switch when no helper is live
+    /// (the 0.1s restart gap, or a restart that failed). Cancels the pending
+    /// restart so the microphone cannot re-arm after this capture is taken.
+    private func takeCarriedRecording() -> (samples: [Float], sampleRate: Double)? {
+        guard !carriedRecordingSegments.isEmpty else { return nil }
+        micSwitchRestartWorkItem?.cancel(); micSwitchRestartWorkItem = nil
+        let segments = carriedRecordingSegments
+        carriedRecordingSegments = []
+        return AudioResampler.combine(segments: segments)
+    }
+
     func handleSessionError(_ error: AudioSessionError) {
         // Salvage a meaningful partial dictation instead of discarding it:
         // a capture failure ten minutes in should deliver ten minutes of
-        // transcript, not an error toast. The ~1s threshold keeps Bluetooth
-        // warmup timeouts (silence-only buffers, same error path) out.
-        if case .captureFailure = error,
-           state.phase.isRecording,
-           case .singleShot = hotkeyRoute,
-           let helper = recordingHelper {
-            let (samples, sampleRate) = takeCombinedRecording(finishing: helper)
-            recordingHelper = nil
-            if sampleRate > 0, Double(samples.count) / sampleRate > 1.0 {
+        // transcript, not an error toast. The error KIND is irrelevant —
+        // .deviceUnavailable (only mic died), .configurationFailed, and
+        // .captureFailure all leave the same salvageable samples behind.
+        // The ~1s threshold is the real filter: it keeps Bluetooth warmup
+        // timeouts (silence-only buffers, same error path) out.
+        if state.phase.isRecording, case .singleShot = hotkeyRoute {
+            let salvage: (samples: [Float], sampleRate: Double)?
+            if let helper = recordingHelper {
+                salvage = takeCombinedRecording(finishing: helper)
+                recordingHelper = nil
+            } else {
+                // A failed mic-switch restart: the helper died but the audio
+                // recorded before the switch is carried — it must survive.
+                salvage = takeCarriedRecording()
+            }
+            if let (samples, sampleRate) = salvage,
+               sampleRate > 0, Double(samples.count) / sampleRate > 1.0 {
                 state.audioLevel = 0; state.isWaitingForSignal = false
                 state.phase = .transcribing
                 state.activeCaptureDevice = nil

@@ -270,7 +270,11 @@ final class ModeFeature: Feature, ModeDismissControlling {
     func stopAndPreserve() {
         if let handler = meetingHandler, handler.hasLiveCapture {
             stopMeeting(saveToHistory: true)
-        } else if state.phase.isRecording, recordingHelper != nil {
+        } else if state.phase.isRecording,
+                  recordingHelper != nil || !carriedRecordingSegments.isEmpty {
+            // The carried check matters: inside the 0.1s mic-switch restart
+            // gap there is no helper, but the audio so far is carried and
+            // must be delivered, not cancelled.
             if multiTurnProcessor != nil { stopAndProcessMultiTurn() }
             else { stopSimpleRecording() }
         } else if state.phase == .transcribing || state.phase == .processing {

@@ -42,12 +42,20 @@ final class RecordingSessionHelper {
     private var warmupTimeoutTask: Task<Void, Never>?
     private var warmupWasStarted = false       // True once warmup phase began
     private var initialWarmupComplete = false  // Track if initial Bluetooth warmup finished
+    // Bumped by start/stop. session.start can suspend for seconds (permission
+    // prompt, device spin-up) and a stop() issued during that suspension is a
+    // no-op on the not-yet-running AVCaptureSession — the resumed start must
+    // detect it was superseded and stop the session it just brought up, or a
+    // microphone runs with no owner.
+    private var startEpoch = 0
 
     // Timeout for Bluetooth warmup (seconds)
     private let warmupTimeout: TimeInterval = 20.0
 
     /// Start recording from the specified source.
     func start(source: AudioSource) async throws {
+        startEpoch += 1
+        let epoch = startEpoch
         // Reset state
         samples = []
         warmupWasStarted = false
@@ -89,6 +97,15 @@ final class RecordingSessionHelper {
             onDeviceDisconnect: .fallbackToDefault
         ))
 
+        // stop()/cancel() arrived while the start was suspended (permission
+        // prompt, device spin-up): their session.stop() no-ops on a session
+        // that is not running yet, so the teardown must happen HERE, where
+        // the session is fully started and stop() works.
+        guard startEpoch == epoch else {
+            session.stop()
+            throw CancellationError()
+        }
+
         // If Bluetooth, start in waiting-for-signal state with timeout
         if currentDevice?.isBluetooth == true {
             warmupWasStarted = true
@@ -116,6 +133,7 @@ final class RecordingSessionHelper {
 
     /// Stop recording and return accumulated samples.
     func stop() -> (samples: [Float], sampleRate: Double) {
+        startEpoch += 1
         chunkTask?.cancel()
         eventTask?.cancel()
         warmupTimeoutTask?.cancel()
