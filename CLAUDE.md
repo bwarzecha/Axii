@@ -22,9 +22,9 @@ Axii/
 └── UI/                       # FloatingPanel, History, Settings views
 ```
 
-`Features/Dictation` and `Features/Meeting` also contain LEGACY feature
-classes that are not part of the active execution path (marked in their
-headers); the meeting audio/transcript managers there are still used.
+`Features/Meeting` contains only the LIVE `MeetingAudioManager` and
+`MeetingTranscriptManager` (used by `MeetingCaptureSession`); the legacy
+per-feature classes that once lived beside them were removed.
 
 ### Key Runtime Components (Features/Mode/Runtime)
 
@@ -59,10 +59,24 @@ xcodebuild -project Axii.xcodeproj -scheme Axii -configuration Debug build
 
 ## Development Workflow
 
-### After Each Feature
-1. **Test manually** - Run the app and verify the feature works
-2. **Check for regressions** - Ensure existing features still work
-3. **Commit** - Use descriptive commit messages
+The reliability bar for this app is: a meeting recorded with Axii survives
+crashes, kills, mistaken discards, device switches, and long durations —
+and the test tiers below PROVE it on every change. Regression testing is
+not optional and not manual.
+
+### After Each Change
+1. **Fast gate before every commit**: `Scripts/reliability-suite.sh --pr`
+   (unit + integration + in-suite fuzzers, ~5 min).
+2. **Real-UI E2E before every push — and FIRST when a change touches UI,
+   capture, hotkeys, or the meeting runtime**:
+   `xcodebuild test -project Axii.xcodeproj -scheme AxiiUITests -destination 'platform=macOS'`
+   Drives the REAL app: synthetic hotkeys, real BlackHole audio, real
+   Parakeet, history/artifact assertions. Machine prerequisites and the
+   UI-driving rules live in `AxiiUITests/README.md` — read it before
+   touching or running the suite. Requirements in one line: BlackHole 2ch
+   installed, runner Accessibility granted, screen UNLOCKED, machine
+   input-idle, no other xcodebuild running.
+3. **Commit** with a descriptive message (format below).
 
 ### Commit Message Format
 ```
@@ -72,14 +86,6 @@ xcodebuild -project Axii.xcodeproj -scheme Axii -configuration Debug build
 ```
 
 Types: `feat`, `fix`, `refactor`, `docs`, `test`
-
-### Test Checklist (Floating Panel)
-- [ ] Menu bar icon visible
-- [ ] Control+Shift+Space shows panel
-- [ ] Panel stays on top when switching apps
-- [ ] Same hotkey hides panel
-- [ ] Escape key hides panel
-- [ ] Panel can be dragged to reposition
 
 ## Code Style
 - Max 300 lines per file
@@ -102,6 +108,28 @@ Registration is handled by `HotkeyService`/`AdvancedHotkeyService` via
 - `Services/History/` - Persisted dictations, conversations, meetings
 
 ## Testing
-- `AxiiTests` - Unit tests; `AxiiIntegrationTests` - integration tests
-- Run: `xcodebuild test -project Axii.xcodeproj -scheme Axii -destination 'platform=macOS'`
+
+Layered suites — each catches what the previous can't. The full map of
+harness layers and invariants is in `docs/meeting-reliability-model.md`.
+
+| Tier | What / catches | Command |
+|---|---|---|
+| Fast gate (pre-commit) | unit + integration + 500-seed capture fuzz + 2×300-seed interaction fuzz | `Scripts/reliability-suite.sh --pr` |
+| Real-UI E2E (pre-push; FIRST for UI/capture changes) | real app, real hotkeys, real audio, real ASR — 8 scenarios incl. kill -9 recovery and dual-source attribution | `xcodebuild test -project Axii.xcodeproj -scheme AxiiUITests -destination 'platform=macOS'` |
+| Nightly | everything + TSan sweep + 10k-seed deep fuzzes + real-ASR quirks + E2E | `Scripts/reliability-suite.sh` |
+| Release | deep fuzzes at 50k seeds | `Scripts/reliability-suite.sh --release` |
+| Memory soak (opt-in) | 60-min meeting stop-time spike (budget 2 GB, measured 0.28 GB) | `TEST_RUNNER_AXII_SOAK=1 xcodebuild test … -only-testing:AxiiIntegrationTests/MeetingMemorySoakTests` |
+| Real ASR (opt-in) | actual Parakeet models, hang detection | `TEST_RUNNER_AXII_REAL_ASR=1 … -only-testing:AxiiIntegrationTests/RealTranscriptionQuirkTests` |
+
+Operational rules (violating these produces confusing failures, not errors):
+- **One xcodebuild at a time** — runs share DerivedData and the test host.
+- Plain `xcodebuild build` strips the .xctest plugins from Axii.app;
+  after it, `test-without-building` fails — rerun `build-for-testing`.
+- Env vars reach tests via the shell as `TEST_RUNNER_<NAME>=...` (never as
+  xcodebuild arguments).
+- A failing fuzz seed is a reproducible bug report — replay exactly one
+  with `TEST_RUNNER_AXII_FUZZ_SEED_START=<seed> TEST_RUNNER_AXII_FUZZ_ITERATIONS=1`,
+  and get a per-action state timeline with `TEST_RUNNER_AXII_FUZZ_TRACE_FILE=<path>`.
+- E2E fixtures are real recordings with known transcripts
+  (`AxiiUITests/Fixtures/`); assert ANCHOR WORDS, never exact text.
 - Refactor phase briefs and the execution plan live in `docs/`

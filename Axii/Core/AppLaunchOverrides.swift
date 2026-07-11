@@ -21,7 +21,22 @@ struct AppLaunchOverrides {
         static let historyDirectory = "AXII_HISTORY_DIR"
         static let modesDirectory = "AXII_MODES_DIR"
         static let recoveryDirectory = "AXII_RECOVERY_DIR"
+        static let defaultsSuite = "AXII_DEFAULTS_SUITE"
     }
+
+    /// The UserDefaults store for runtime-persisted state (per-mode mic
+    /// selections). Tests point this at a scratch suite so UI-driven
+    /// selections never touch the real plist — a picker E2E test once left
+    /// the user's real meeting mode bound to the silent BlackHole device.
+    /// The Axii scheme's TestAction sets this for every unit-test run too,
+    /// so fuzz-created modes cannot pollute real preferences.
+    static let runtimeDefaults: UserDefaults = {
+        if let suite = ProcessInfo.processInfo.environment[Key.defaultsSuite],
+           let defaults = UserDefaults(suiteName: suite) {
+            return defaults
+        }
+        return .standard
+    }()
 
     let historyDirectory: URL?
     let modesDirectory: URL?

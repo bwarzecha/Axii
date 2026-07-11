@@ -90,5 +90,5 @@ final class ModeRuntimeState {
         activeCaptureDevice = nil
     }
 }
-// Note: Reuses DisplayMessage from ConversationState.swift (internal scope)
+// Note: Reuses DisplayMessage from Models/DisplayMessage.swift (internal scope)
 #endif

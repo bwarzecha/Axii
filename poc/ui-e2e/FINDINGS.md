@@ -1,5 +1,14 @@
 # POC: Real-UI End-to-End Testing (2026-07-11)
 
+> **SUPERSEDED** by the production `AxiiUITests` suite (see
+> `AxiiUITests/README.md`) — 8 scenarios, wired into
+> `Scripts/reliability-suite.sh`. The Decision below ("skip XCUITest")
+> was REVERSED once XCUITest proved viable for clicking and AX-value
+> assertions; the per-link facts and gotchas remain historically valid.
+> The scripts here are kept as the POC record; `e2e_dictation_v2.sh`
+> hardcodes this machine's DerivedData path and drives the REAL user
+> history — do not run it, use the suite.
+
 **Goal:** prove every link of an automated E2E chain for Axii — synthetic
 global hotkey → real app → real audio through a virtual device → real
 Parakeet → history assertion — before designing the actual suite.

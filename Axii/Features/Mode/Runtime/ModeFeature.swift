@@ -3,8 +3,8 @@
 //  Axii
 //
 //  The active shipping runtime for all modes (dictation, conversation, meeting, custom).
-//  Config-driven via ModeConfig; replaces the legacy per-feature classes
-//  (DictationFeature, ConversationFeature, MeetingFeature) which are transitional.
+//  Config-driven via ModeConfig; the legacy per-feature classes it replaced
+//  have been removed.
 //
 //  Recording logic: ModeFeatureRecording.swift
 //  Meeting logic:   ModeFeatureMeeting.swift
@@ -139,8 +139,8 @@ final class ModeFeature: Feature, ModeDismissControlling {
 
     var deviceUIDKey: String { "mode_\(config.id)_selectedMic" }
     var selectedDeviceUID: String? {
-        get { UserDefaults.standard.string(forKey: deviceUIDKey) }
-        set { UserDefaults.standard.set(newValue, forKey: deviceUIDKey) }
+        get { AppLaunchOverrides.runtimeDefaults.string(forKey: deviceUIDKey) }
+        set { AppLaunchOverrides.runtimeDefaults.set(newValue, forKey: deviceUIDKey) }
     }
 
     init(

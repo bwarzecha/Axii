@@ -1,5 +1,5 @@
 //
-//  VoiceRingsIndicator.swift
+//  RadialBarIndicator.swift
 //  Axii
 //
 //  Radial bar voice visualization - macOS dictation style.

@@ -13,11 +13,19 @@
 #      device events/errors/config edits/timer fires); the no-cancel
 #      profile enforces strict audio conservation
 #   5. real-transcription quirk suite (requires downloaded Parakeet models)
+#   6. real-UI E2E suite (AxiiUITests) — real app + synthetic hotkeys +
+#      BlackHole audio + real ASR; self-skips when the machine lacks
+#      BlackHole, the runner Accessibility grant, or an unlocked screen
+#      (see AxiiUITests/README.md)
 #
 # Tiers:
 #   Scripts/reliability-suite.sh --pr        layer 1 only (pre-commit sized)
+#   Scripts/reliability-suite.sh --fast      same as --pr
 #   Scripts/reliability-suite.sh             all layers (nightly)
 #   Scripts/reliability-suite.sh --release   all layers, 50,000-seed fuzzes
+#
+# Run exclusively: no other xcodebuild may touch this DerivedData during a
+# tier, and the E2E layer additionally needs an input-idle, unlocked machine.
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -26,6 +34,11 @@ DEST='platform=macOS'
 PROJ=Axii.xcodeproj
 SCHEME=Axii
 TIER=${1:-}
+
+# Runtime writes from tests (fuzz-created mode mic selections) land in an
+# ISOLATED defaults suite (AXII_DEFAULTS_SUITE, set by the Axii scheme's
+# TestAction) — purge it so it never grows unboundedly.
+defaults delete com.warzechalabs.axii.tests 2>/dev/null || true
 
 CAPTURE_SEEDS=10000
 INTERACTION_SEEDS=10000
@@ -68,12 +81,12 @@ if [[ "$TIER" != "--pr" && "$TIER" != "--fast" ]]; then
         -only-testing:AxiiIntegrationTests/ModeInteractionFuzzTests
 fi
 
-run "Real-transcription quirks (skips if models absent)" \
-    env TEST_RUNNER_AXII_REAL_ASR=1 \
-    xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST" \
-    -only-testing:AxiiIntegrationTests/RealTranscriptionQuirkTests
-
 if [[ "$TIER" != "--pr" && "$TIER" != "--fast" ]]; then
+    run "Real-transcription quirks (skips if models absent)" \
+        env TEST_RUNNER_AXII_REAL_ASR=1 \
+        xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST" \
+        -only-testing:AxiiIntegrationTests/RealTranscriptionQuirkTests
+
     # Real-UI E2E: real app + synthetic hotkeys + BlackHole + real Parakeet.
     # Individual tests self-skip (not fail) when the machine lacks BlackHole
     # or the runner's Accessibility grant — see AxiiUITests/README.md.

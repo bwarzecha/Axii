@@ -34,7 +34,8 @@ xcuserdata/
 # Swift Package Manager
 .build/
 .swiftpm/
-Package.resolved
+# Package.resolved IS committed: an app target needs pinned dependency
+# versions for reproducible CI builds.
 
 # CocoaPods (if used)
 Pods/
@@ -64,3 +65,4 @@ signing-secrets.txt
 
 # Test result bundles
 *.xcresult
+*.profraw

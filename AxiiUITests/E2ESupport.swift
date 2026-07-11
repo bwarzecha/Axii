@@ -26,6 +26,7 @@ enum E2EContract {
     static let historyDirKey = "AXII_HISTORY_DIR"
     static let modesDirKey = "AXII_MODES_DIR"
     static let recoveryDirKey = "AXII_RECOVERY_DIR"
+    static let defaultsSuiteKey = "AXII_DEFAULTS_SUITE"
     static let dictationModeID = "00000000-0000-0000-0000-000000000001"
     static let meetingModeID = "00000000-0000-0000-0000-000000000003"
     static let blackHoleUID = "BlackHole2ch_UID"
@@ -36,16 +37,13 @@ enum E2EContract {
     static let meetingKeyCode = CGKeyCode(kVK_ANSI_M)
     static let meetingFlags: CGEventFlags = [.maskControl, .maskAlternate]
     static let panelPhaseID = "panel.phase"
-    static let panelDurationID = "panel.duration"
     static let panelAudioLevelID = "panel.audioLevel"
     static let panelStopID = "panel.stop"
     static let panelActionID = "panel.action"
     static let historyTrashToggleID = "history.trashToggle"
     static let historyRestoreID = "history.restore"
     static let panelMicPickerID = "panel.micPicker"
-    static let panelAppPickerID = "panel.appPicker"
     static let panelCloseID = "panel.close"
-    static let builtInMicUID = "BuiltInMicrophoneDevice"
 }
 
 // MARK: - Fixtures
@@ -61,11 +59,6 @@ struct Fixture {
         filename: "testing_one_two_three.wav",
         anchors: ["testing", "three", "four"],
         duration: 2.38
-    )
-    static let runTestsParallel = Fixture(
-        filename: "run_tests_parallel.m4a",
-        anchors: ["test", "parallel"],
-        duration: 2.36
     )
     static let hopeItWorks = Fixture(
         filename: "hope_it_works.m4a",
@@ -95,6 +88,11 @@ final class E2ESession {
     let historyDir: URL
     let modesDir: URL
     let recoveryDir: URL
+    /// Scratch UserDefaults suite for the app under test: suites are
+    /// per-user domains shared across processes, so the runner seeds mic
+    /// selections here and UI-driven writes (mic picker!) land here too —
+    /// never in the real com.warzechalabs.axii plist.
+    let defaultsSuite: String
 
     /// UI tests synthesize events; a locked/asleep display swallows them
     /// all and every scenario fails with confusing timeouts. Skip with the
@@ -110,11 +108,13 @@ final class E2ESession {
     }
 
     init() throws {
+        let id = UUID().uuidString
         root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AxiiUITests-\(UUID().uuidString)")
+            .appendingPathComponent("AxiiUITests-\(id)")
         historyDir = root.appendingPathComponent("history")
         modesDir = root.appendingPathComponent("modes")
         recoveryDir = root.appendingPathComponent("recovery")
+        defaultsSuite = "com.warzechalabs.axii.e2e.\(id)"
         for dir in [historyDir, modesDir, recoveryDir] {
             try FileManager.default.createDirectory(
                 at: dir, withIntermediateDirectories: true
@@ -124,12 +124,15 @@ final class E2ESession {
 
     func cleanup() {
         try? FileManager.default.removeItem(at: root)
+        UserDefaults(suiteName: defaultsSuite)?
+            .removePersistentDomain(forName: defaultsSuite)
     }
 
     /// Build the app pointed at scratch storage, with the mic pre-seeded
-    /// via the NSArgumentDomain (shadows every UserDefaults READ for the
-    /// process; writes nothing to the real plist). Pass micUID nil to leave
-    /// selection unseeded (tests that drive the picker UI).
+    /// into the scratch defaults SUITE (the app reads and — crucially —
+    /// WRITES runtime state there, so picker-driven selections can never
+    /// pollute the real preferences). Pass micUID nil to leave selection
+    /// unseeded (tests that drive the picker UI).
     func makeApp(
         micUID: String? = E2EContract.blackHoleUID
     ) -> XCUIApplication {
@@ -137,12 +140,17 @@ final class E2ESession {
         app.launchEnvironment[E2EContract.historyDirKey] = historyDir.path
         app.launchEnvironment[E2EContract.modesDirKey] = modesDir.path
         app.launchEnvironment[E2EContract.recoveryDirKey] = recoveryDir.path
+        app.launchEnvironment[E2EContract.defaultsSuiteKey] = defaultsSuite
         app.launchArguments += ["-SUEnableAutomaticChecks", "NO"]
-        if let micUID {
-            app.launchArguments += [
-                "-mode_\(E2EContract.dictationModeID)_selectedMic", micUID,
-                "-mode_\(E2EContract.meetingModeID)_selectedMic", micUID,
-            ]
+        if let micUID, let seeds = UserDefaults(suiteName: defaultsSuite) {
+            seeds.set(
+                micUID,
+                forKey: "mode_\(E2EContract.dictationModeID)_selectedMic"
+            )
+            seeds.set(
+                micUID,
+                forKey: "mode_\(E2EContract.meetingModeID)_selectedMic"
+            )
         }
         return app
     }

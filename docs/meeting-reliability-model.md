@@ -145,7 +145,16 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   capture, no stuck phase, all audio accounted for). In-suite 300 seeds per
   profile; `AXII_FUZZ_ITERATIONS` scales the deep tiers. Found a real bug
   on its first run (stale error arming a dismiss timer that fired into the
-  recording a resumed start later published).
+  recording a resumed start later published) and the era-coalescing zombie
+  at deep seed 34311. Replay one failing seed with
+  `AXII_FUZZ_SEED_START=<seed>` + `AXII_FUZZ_ITERATIONS=1`; get a
+  per-action state timeline with `AXII_FUZZ_TRACE_FILE=<path>` (sidecar
+  file — xcodebuild logs swallow test-host stdout).
+- **Memory soak** (`MeetingMemorySoakTests`, opt-in `AXII_SOAK=1`,
+  minutes via `AXII_SOAK_MINUTES`): a long dual-track meeting through the
+  REAL finalize + AAC persist path with a footprint sampler. Measured
+  2026-07-11 (60 min x2 tracks): 0.28 GB stop spike, 0.75 GB peak;
+  budget-guarded at 2 GB as a regression tripwire.
 - **Real-UI E2E suite** (`AxiiUITests`, scheme `AxiiUITests`): drives the
   REAL app — synthetic global hotkeys (CGEventPost to the HID tap), real
   capture from the BlackHole 2ch virtual device, real Parakeet, and
