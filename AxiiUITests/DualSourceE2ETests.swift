@@ -3,41 +3,32 @@
 //  AxiiUITests
 //
 //  Scenario 4: a meeting captures the MICROPHONE and APPLICATION audio
-//  simultaneously, and attributes each to the right side.
+//  simultaneously and attributes each to the right side.
 //
-//  Isolation design (probed empirically): ScreenCaptureKit in All-Apps
-//  mode captures ANY process's audio regardless of its output device — so
-//  the runner's own playback always lands in the system track. The mic
-//  track is isolated by giving it its OWN loopback device:
-//    - mic fixture A -> BlackHole 16ch (the meeting's selected mic)
-//    - system fixture B -> BlackHole 2ch (no one records its input side;
-//      it reaches the meeting ONLY through ScreenCaptureKit)
-//  Assertions: mic segments carry A's anchors and none of B's; system
-//  segments carry B's anchors. (A also appearing in the system track is
-//  expected — the runner plays both — and asserted-irrelevant.)
+//  Isolation design: the two fixtures take DIFFERENT paths into the app.
+//    - mic fixture A -> BlackHole 2ch (the meeting's mic) — loopback in
+//    - app fixture B -> the default output — its ONLY path into the
+//      meeting is ScreenCaptureKit (All-Apps mode hears the runner play
+//      it, regardless of output device); it must NOT play into BlackHole
+//      or it would loop into the mic track
+//  Assertions: mic track carries A and none of B (device isolation);
+//  system track carries B (the app-audio path works). A also appearing
+//  in the system track is expected — the runner plays both.
+//  (A specific-app picker filter was tried and dropped: windowless
+//  processes like the test runner don't appear in SCShareableContent.)
 //
-//  Prerequisite beyond the suite's usual two:
-//    brew install --cask blackhole-16ch && sudo killall coreaudiod
+//  Cost: fixture B is briefly AUDIBLE through the default output.
 //
 
 import XCTest
 
 final class DualSourceE2ETests: XCTestCase {
 
-    private static let mic16UID = "BlackHole16ch_UID"
-
     private var session: E2ESession!
     private var app: XCUIApplication!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        try XCTSkipUnless(
-            AudioDriver.deviceExists(uid: Self.mic16UID),
-            """
-            Dual-source needs a SECOND loopback device:
-            brew install --cask blackhole-16ch && sudo killall coreaudiod
-            """
-        )
         try XCTSkipUnless(
             AudioDriver.deviceExists(uid: E2EContract.blackHoleUID),
             "BlackHole 2ch not installed"
@@ -56,15 +47,17 @@ final class DualSourceE2ETests: XCTestCase {
     }
 
     func testMeetingAttributesMicAndAppAudioToTheRightSides() throws {
-        let micFixture = Fixture.hopeItWorks          // side A
+        let micFixture = Fixture.hopeItWorks           // side A
         let systemFixture = Fixture.testingOneTwoThree // side B
 
-        app = session.makeApp(micUID: Self.mic16UID)
+        app = session.makeApp()
         app.launch()
         XCTAssertTrue(app.statusItems.firstMatch.waitForExistence(timeout: 15))
         sleep(3)
 
         let entriesBefore = session.historyEntryCount()
+
+        // Open the meeting panel idle; default All-Apps system capture.
         HotkeyDriver.press(
             E2EContract.meetingKeyCode, flags: E2EContract.meetingFlags
         )
@@ -75,14 +68,13 @@ final class DualSourceE2ETests: XCTestCase {
         sleep(1)
 
         // Sequential playback keeps the transcripts unambiguous.
-        try AudioDriver.play(micFixture.url, toDeviceUID: Self.mic16UID)
-        sleep(1)
         try AudioDriver.play(
-            systemFixture.url, toDeviceUID: E2EContract.blackHoleUID
+            micFixture.url, toDeviceUID: E2EContract.blackHoleUID
         )
         sleep(1)
+        try AudioDriver.playToDefaultOutput(systemFixture.url) // audible
+        sleep(1)
 
-        // Stop and let finalization persist.
         let action = app.descendants(matching: .any)
             .matching(identifier: E2EContract.panelActionID).firstMatch
         XCTAssertTrue(action.waitForExistence(timeout: 5))
@@ -101,10 +93,11 @@ final class DualSourceE2ETests: XCTestCase {
                 "mic track lost its anchor '\(anchor)': \"\(micText)\""
             )
         }
-        for anchor in systemFixture.anchors where !micFixture.anchors.contains(anchor) {
+        for anchor in systemFixture.anchors
+        where !micFixture.anchors.contains(anchor) {
             XCTAssertFalse(
                 micText.contains(anchor),
-                "system audio bled into the MIC track: '\(anchor)'"
+                "app audio bled into the MIC track: '\(anchor)'"
             )
             XCTAssertTrue(
                 systemText.contains(anchor),

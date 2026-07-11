@@ -33,6 +33,15 @@ on a fresh machine.
 No other instance of Axii may be running (the suite terminates strays —
 an Xcode-attached instance survives kill and must be stopped in Xcode).
 
+**One xcodebuild consumer at a time.** Never run this suite while another
+xcodebuild test run (or reliability-suite.sh) is active: they share
+DerivedData and the Axii test host, and killing/rebuilding one corrupts
+the other. The machine must also be input-idle — user mouse/keyboard
+activity fights the synthetic pointer and is the #1 flake source.
+
+The dual-source test plays one fixture AUDIBLY through the default
+output (its only legal path into the app is ScreenCaptureKit).
+
 ## UI-driving rules (learned from real failures — keep following them)
 
 - Click status items by COORDINATE (`coordinate(...).click()`); a plain

@@ -43,6 +43,7 @@ enum E2EContract {
     static let historyTrashToggleID = "history.trashToggle"
     static let historyRestoreID = "history.restore"
     static let panelMicPickerID = "panel.micPicker"
+    static let panelAppPickerID = "panel.appPicker"
     static let panelCloseID = "panel.close"
     static let builtInMicUID = "BuiltInMicrophoneDevice"
 }
@@ -412,6 +413,13 @@ enum AudioDriver {
         return false
     }
 
+    /// Play a file AUDIBLY through the default output — for fixtures whose
+    /// only allowed path into the app is ScreenCaptureKit (playing them
+    /// into BlackHole would loop them into the mic track).
+    static func playToDefaultOutput(_ url: URL) throws {
+        try run(AVPlayer(playerItem: AVPlayerItem(url: url)), url: url)
+    }
+
     /// Play a file to a specific output device by UID and block until done.
     /// A missing device fails loudly on item.error (never falls back to the
     /// system default output).
@@ -419,6 +427,13 @@ enum AudioDriver {
         let item = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: item)
         player.audioOutputDeviceUniqueID = uid
+        try run(player, url: url)
+    }
+
+    private static func run(_ player: AVPlayer, url: URL) throws {
+        guard let item = player.currentItem else {
+            throw E2EError.playbackFailed("no player item")
+        }
         let duration = CMTimeGetSeconds(AVURLAsset(url: url).duration)
         player.play()
         let deadline = Date().addingTimeInterval(duration + 5)
