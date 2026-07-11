@@ -134,8 +134,8 @@ final class MeetingTranscriptManager {
         Self.liveSessionIDs.insert(sessionID)
         recordingStartTime = Date()
         // .common run-loop mode: a timer in .default silently stops firing
-        // while any modal alert sits open, and a stall longer than the 1h
-        // expiry would make the whole meeting unrecoverable at relaunch.
+        // while any modal alert sits open, and a long stall would leave the
+        // recovery file stale.
         let timer = Timer(
             timeInterval: Self.autoSaveIntervalSeconds,
             repeats: true
@@ -146,6 +146,10 @@ final class MeetingTranscriptManager {
         }
         autoSaveTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+        // Write the recovery file NOW, not at the first 60s tick: a crash
+        // in the first minute of a meeting used to leave the spool audio
+        // unindexed — recoverable data with nothing pointing at it.
+        performAutoSave()
     }
 
     /// Stop the auto-save timer.
@@ -208,12 +212,14 @@ final class MeetingTranscriptManager {
         do {
             // Expiry is keyed to when the file was last WRITTEN, not when
             // the recording started: a 3-hour meeting autosaved seconds
-            // before a crash is fresh, not expired.
+            // before a crash is fresh, not expired. The lifetime is DAYS,
+            // not an hour — a machine that dies overnight (or over a
+            // weekend) must still recover its meeting at the next launch.
             let attributes = try FileManager.default.attributesOfItem(
                 atPath: autoSavePath.path
             )
             if let modified = attributes[.modificationDate] as? Date,
-               Date().timeIntervalSince(modified) > 3600 {
+               Date().timeIntervalSince(modified) > MeetingRecoveryPolicy.artifactLifetime {
                 removeAutoSaveFile()
                 return nil
             }
@@ -236,7 +242,8 @@ final class MeetingTranscriptManager {
                 appName: data.selectedAppName,
                 sessionID: data.sessionID,
                 autosaveFileURL: autosaveFileURL,
-                audioFiles: data.audioFiles
+                audioFiles: data.audioFiles,
+                startedAt: data.startTime
             )
         } catch {
             print("MeetingTranscriptManager: Failed to read recovery data: \(error)")

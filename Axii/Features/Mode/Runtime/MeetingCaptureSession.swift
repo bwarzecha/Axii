@@ -32,6 +32,9 @@ final class MeetingCaptureSession {
     private var chunkTranscriptionTasks: [Task<Void, Never>] = []
     private var selectedApp: AudioApp?
     private var selectedMicrophone: AudioDevice?
+    // One-shot per capture: re-flush the autosave when the first chunk's
+    // sample rates land (see wireCallbacks).
+    private var didFlushOnFirstAudio = false
     private let switches = MeetingSwitchSerializer()
     private let durationTicker = MeetingDurationTicker()
     private let powerMonitor = MeetingPowerMonitor()
@@ -91,6 +94,7 @@ final class MeetingCaptureSession {
         }
         epoch += 1
         let startEpoch = epoch
+        didFlushOnFirstAudio = false
         durationTicker.reset()
 
         selectedApp = configuration.selectedApp
@@ -317,8 +321,18 @@ final class MeetingCaptureSession {
         transcript: any MeetingTranscriptManaging,
         streamingEnabled: Bool
     ) {
-        audio.onAudioLevel = { [weak self] level in
-            self?.onAudioLevel?(level)
+        audio.onAudioLevel = { [weak self, weak transcript] level in
+            guard let self else { return }
+            // The initial autosave at start indexes the spool files before
+            // the sample rates are known (they arrive with the first chunk).
+            // Re-flush once on the first audio activity so a crash after
+            // second one carries real rates, not zeros.
+            if !self.didFlushOnFirstAudio, let transcript,
+               self.transcriptManager === transcript {
+                self.didFlushOnFirstAudio = true
+                transcript.flushAutoSave()
+            }
+            self.onAudioLevel?(level)
         }
         audio.onError = { [weak self] message in
             self?.onError?(message)

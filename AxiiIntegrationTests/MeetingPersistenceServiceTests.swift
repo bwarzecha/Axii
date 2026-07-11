@@ -200,6 +200,25 @@ final class MeetingPersistenceServiceTests: XCTestCase {
         XCTAssertNil(reloaded.systemRecording)
     }
 
+    // MARK: - Recovered Start Time
+
+    /// A meeting recovered days after its crash must appear in history under
+    /// its real date, not the relaunch time.
+    func testPersistUsesRecoveredStartTimeAsCreatedAt() async throws {
+        var payload = makeBothTracksPayload()
+        let crashedAt = Date().addingTimeInterval(-2 * 24 * 3_600)
+        payload.startedAt = crashedAt
+
+        let persisted = try await service.persist(payload: payload, audioFormat: .aac)
+        let meeting = try XCTUnwrap(persisted)
+
+        XCTAssertEqual(
+            meeting.createdAt.timeIntervalSince1970,
+            crashedAt.timeIntervalSince1970,
+            accuracy: 1.0
+        )
+    }
+
     // MARK: - History Disabled
 
     /// A disabled history writes nothing. The service must say so rather than

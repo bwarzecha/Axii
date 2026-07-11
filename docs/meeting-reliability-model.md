@@ -55,6 +55,16 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   readable autosave file; only corrupt or expired files are removed. Expiry
   is keyed to the file's modification time (last autosave write), not the
   recording start time.
+- **The first minute is covered.** `startAutoSave` writes the recovery file
+  immediately (indexing the spool audio from second zero), and the capture
+  session re-flushes once when the first chunk's sample rates land — the
+  60 s timer cadence is steady-state, not the start of coverage.
+- **Artifacts live for days, not an hour** (`MeetingRecoveryPolicy
+  .artifactLifetime`, currently 7 days, shared by the autosave expiry and
+  the spool sweep): a machine dying overnight or over a weekend still
+  recovers its meeting at the next launch. Recovered meetings carry their
+  ORIGINAL start date into history (`AutoSaveData.startTime` →
+  `MeetingCrashRecovery.startedAt` → `Meeting.createdAt`).
 - **A final flush** writes the freshest transcript to the autosave file at
   stop, before the (potentially minutes-long) finalize/persist window; the
   steady-state autosave cadence is 60 s.

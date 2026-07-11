@@ -64,11 +64,14 @@ final class MeetingPersistenceService: MeetingPersisting {
         payload: MeetingPersistencePayload,
         audioFormat: AudioStorageFormat
     ) async throws -> Meeting? {
-        // 1. Create base meeting
+        // 1. Create base meeting. Crash recoveries carry the recording's
+        // original start time — a meeting recovered days later must appear
+        // in history under its real date, not the relaunch time.
         let meeting = Meeting(
             segments: payload.segments,
             duration: payload.duration,
-            appName: payload.appName
+            appName: payload.appName,
+            createdAt: payload.startedAt ?? Date()
         )
 
         // 2. Initial save — establishes history folder and metadata cache entry.

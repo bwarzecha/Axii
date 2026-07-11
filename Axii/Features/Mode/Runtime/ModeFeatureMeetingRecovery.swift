@@ -77,7 +77,8 @@ extension ModeFeature {
                         systemSampleRate: recovery.audioFiles?.systemSampleRate ?? 0,
                         segments: segments,
                         duration: recovery.duration,
-                        appName: recovery.appName
+                        appName: recovery.appName,
+                        startedAt: recovery.startedAt
                     ),
                     audioFormat: settings.audioStorageFormat
                 )

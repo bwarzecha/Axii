@@ -255,7 +255,9 @@ final class MeetingAudioManager {
     /// Remove spool files whose last write is older than the recovery
     /// window. Run at launch, before any capture starts, so it can never
     /// touch a live recording.
-    static func cleanExpiredSpoolFiles(olderThan age: TimeInterval = 3_600) {
+    static func cleanExpiredSpoolFiles(
+        olderThan age: TimeInterval = MeetingRecoveryPolicy.artifactLifetime
+    ) {
         let fileManager = FileManager.default
         guard let files = try? fileManager.contentsOfDirectory(
             at: recordingSpoolDirectory,

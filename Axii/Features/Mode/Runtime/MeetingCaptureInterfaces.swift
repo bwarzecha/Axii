@@ -9,6 +9,14 @@
 #if os(macOS)
 import Foundation
 
+/// How long crash-recovery artifacts (autosave + spool audio) survive
+/// without a relaunch. Long enough that a machine dying overnight — or over
+/// a weekend — still recovers its meeting. Recovery persists and clears the
+/// artifacts at the next launch, so healthy installs never accumulate them.
+enum MeetingRecoveryPolicy {
+    static let artifactLifetime: TimeInterval = 7 * 24 * 3_600
+}
+
 /// Where the in-progress recording lives on disk, recorded into the autosave
 /// file so a crash can recover the AUDIO as well as the transcript.
 struct MeetingAudioFileReferences: Codable, Sendable {
@@ -78,6 +86,9 @@ struct MeetingCrashRecovery {
     let autosaveFileURL: URL
     /// Audio spool locations, when the autosave recorded them.
     let audioFiles: MeetingAudioFileReferences?
+    /// When the crashed recording STARTED — a meeting recovered days later
+    /// must carry its real date into history, not the relaunch time.
+    var startedAt: Date? = nil
 }
 
 struct MeetingCaptureStartConfiguration {

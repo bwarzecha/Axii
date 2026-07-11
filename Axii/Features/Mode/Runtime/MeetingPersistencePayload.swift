@@ -26,5 +26,9 @@ struct MeetingPersistencePayload {
     /// The persistence caller clears it after a successful save (or when
     /// persistence is disabled); it stays on disk after a persist failure.
     var recoveryArtifacts: MeetingRecoveryArtifacts?
+    /// The recording's original start time when known (crash recovery) —
+    /// nil means "now" (a live stop). A meeting recovered days after the
+    /// crash must not masquerade as new in history.
+    var startedAt: Date? = nil
 }
 #endif

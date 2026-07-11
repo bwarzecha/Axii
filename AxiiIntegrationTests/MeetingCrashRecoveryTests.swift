@@ -96,13 +96,33 @@ final class MeetingCrashRecoveryTests: XCTestCase {
 
     // MARK: - Expiry Uses Last Write, Not Recording Start
 
+    /// The machine dying overnight — or over a weekend — must not cost the
+    /// meeting: recovery data lives for DAYS, not an hour.
+    func testOvernightCrashIsStillRecoverable() async throws {
+        _ = await makeCrashedSession()
+
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-36 * 3_600)],
+            ofItemAtPath: autosaveURL.path
+        )
+
+        let relaunched = MeetingTranscriptManager(
+            transcriptionService: FixedTranscriber(),
+            autosaveFileURL: autosaveURL
+        )
+        XCTAssertNotNil(relaunched.checkForCrashRecovery(),
+                        "A crash 36 hours ago is squarely inside the recovery window")
+    }
+
     func testExpiryKeyedToFileModificationTime() async throws {
         _ = await makeCrashedSession()
 
-        // Age the FILE two hours; a fresh write time would keep it alive
-        // regardless of when the recording started.
+        // Age the FILE past the whole artifact lifetime; a fresh write time
+        // would keep it alive regardless of when the recording started.
         try FileManager.default.setAttributes(
-            [.modificationDate: Date().addingTimeInterval(-7_200)],
+            [.modificationDate: Date().addingTimeInterval(
+                -MeetingRecoveryPolicy.artifactLifetime - 3_600
+            )],
             ofItemAtPath: autosaveURL.path
         )
 
@@ -114,6 +134,51 @@ final class MeetingCrashRecoveryTests: XCTestCase {
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: autosaveURL.path),
             "Expired recovery data is deleted"
+        )
+    }
+
+    // MARK: - The First Minute Is Covered
+
+    /// The autosave timer first ticks at +60s; without an immediate write a
+    /// crash in the first minute left the spool audio unindexed on disk.
+    func testRecoveryFileExistsImmediatelyAtCaptureStart() {
+        let manager = MeetingTranscriptManager(
+            transcriptionService: FixedTranscriber(),
+            autosaveFileURL: autosaveURL
+        )
+        manager.reset()
+        manager.audioFileReferenceProvider = {
+            MeetingAudioFileReferences(
+                micFileURL: URL(fileURLWithPath: "/spool/mic.raw"),
+                micSampleRate: 48_000,
+                systemFileURL: nil,
+                systemSampleRate: 0
+            )
+        }
+
+        manager.startAutoSave()
+        defer { manager.stopAutoSave() }
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: autosaveURL.path),
+            "The recovery file must exist from second zero, not from the first 60s tick"
+        )
+    }
+
+    // MARK: - Recovered Meetings Keep Their Real Date
+
+    func testRecoveryCarriesOriginalStartTime() async throws {
+        _ = await makeCrashedSession()
+
+        let relaunched = MeetingTranscriptManager(
+            transcriptionService: FixedTranscriber(),
+            autosaveFileURL: autosaveURL
+        )
+        let recovery = try XCTUnwrap(relaunched.checkForCrashRecovery())
+        let startedAt = try XCTUnwrap(recovery.startedAt)
+        XCTAssertEqual(
+            startedAt.timeIntervalSinceNow, 0, accuracy: 60,
+            "The crashed session started moments ago; recovery must say so"
         )
     }
 
