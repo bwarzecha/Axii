@@ -85,4 +85,13 @@ struct InteractionMetadata: Identifiable, Codable, Equatable {
         self.preview = String(preview.prefix(100))
         self.details = details
     }
+
+    /// When this interaction was discarded to "Recently Deleted", if ever.
+    /// Only meetings support the trash today; others are always nil.
+    var discardedAt: Date? {
+        if case .meeting(let m) = details { return m.discardedAt }
+        return nil
+    }
+
+    var isDiscarded: Bool { discardedAt != nil }
 }

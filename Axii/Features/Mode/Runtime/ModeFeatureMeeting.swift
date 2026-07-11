@@ -84,14 +84,27 @@ extension ModeFeature {
 
     @discardableResult
     func stopMeeting(saveToHistory: Bool) -> Task<Void, Never>? {
+        stopMeeting(disposition: saveToHistory ? .save : .discard)
+    }
+
+    /// How a stop treats the recorded audio.
+    /// - save: finalize + persist into the main history list (the Stop button)
+    /// - discard: finalize + persist into "Recently Deleted", data intact, so
+    ///   a mistaken Escape/close is recoverable for the retention window
+    /// - drop: destroy immediately, no persistence (a deliberate hard delete)
+    enum MeetingStopDisposition { case save, discard, drop }
+
+    @discardableResult
+    func stopMeeting(disposition: MeetingStopDisposition) -> Task<Void, Never>? {
         guard let handler = meetingHandler else { return nil }
-        if saveToHistory, let inFlight = meetingStopTask {
-            // Coalesce: a double-tap joins the running save instead of
-            // issuing a second stop against an already-detached capture.
+        // Both save AND discard persist; a second such stop must join the
+        // running one rather than race the already-detached capture.
+        if disposition != .drop, let inFlight = meetingStopTask {
             return inFlight
         }
         meetingStopGeneration += 1
         let gen = meetingStopGeneration
+        let persists = disposition != .drop
         // Snapshot the streamed transcript SYNCHRONOUSLY: when this stop is
         // teardown's error-salvage, state.reset() runs before the task below
         // does, and the handler's own fallback would read empty segments —
@@ -103,21 +116,29 @@ extension ModeFeature {
             // finalize + persist can run for minutes after the user walked
             // away — idle sleep here would freeze a save-locked panel until
             // wake. Held to the end of the save, success or failure.
-            let saveActivity = saveToHistory
+            let saveActivity = persists
                 ? ProcessInfo.processInfo.beginActivity(
                     options: [.idleSystemSleepDisabled, .userInitiated],
                     reason: "Saving meeting"
                 )
                 : nil
             defer { saveActivity.map { ProcessInfo.processInfo.endActivity($0) } }
-            var result = await handler.stop(saveToHistory: saveToHistory)
-            if saveToHistory, var payload = result,
+            // A discard is headless — its panel is being torn down, so it
+            // must not publish a visible .processing that no one can resolve.
+            var result = await handler.stop(
+                saveToHistory: persists,
+                showsProgress: disposition == .save
+            )
+            if persists, var payload = result,
                payload.segments.isEmpty, !streamedSegments.isEmpty {
                 payload.segments = streamedSegments
                 result = payload
             }
-            if let result, saveToHistory {
-                guard await persistMeeting(result, generation: gen) else { return }
+            if let result, persists {
+                let discardedAt = disposition == .discard ? Date() : nil
+                guard await persistMeeting(
+                    result, generation: gen, discardedAt: discardedAt
+                ) else { return }
             }
             // Resolve .processing to idle only when BOTH hold: the phase is
             // still processing AND no newer stop was issued — a newer stop
@@ -131,7 +152,7 @@ extension ModeFeature {
             // session that is already recording again).
             self.applyPendingConfigIfIdle()
         }
-        if saveToHistory { meetingStopTask = task }
+        if persists { meetingStopTask = task }
         return task
     }
 
@@ -139,24 +160,31 @@ extension ModeFeature {
     /// the phase alone (an error or an export state was published instead).
     private func persistMeeting(
         _ result: MeetingPersistencePayload,
-        generation gen: Int
+        generation gen: Int,
+        discardedAt: Date?
     ) async -> Bool {
         // Honor the contract this meeting was recorded under, not whatever
-        // the toggle says now.
+        // the toggle says now. A history-off DISCARD has nowhere durable to
+        // go and no export makes sense — drop it.
         guard meetingHistoryEnabledAtStart else {
-            offerExport(of: result, generation: gen)
+            if discardedAt == nil { offerExport(of: result, generation: gen) }
+            else { result.recoveryArtifacts?.clear() }
             return false
         }
         do {
+            var payload = result
+            payload.discardedAt = discardedAt
             let persisted = try await meetingPersistence.persist(
-                payload: result,
+                payload: payload,
                 audioFormat: settings.audioStorageFormat
             )
             guard persisted != nil else {
                 // History was switched off between start and this write.
                 // Nothing reached disk — keep the artifacts and hand the
-                // user the transcript rather than pretending it was saved.
-                offerExport(of: result, generation: gen)
+                // user the transcript rather than pretending it was saved
+                // (a discard has nothing to offer, so just release).
+                if discardedAt == nil { offerExport(of: result, generation: gen) }
+                else { result.recoveryArtifacts?.clear() }
                 return false
             }
         } catch {

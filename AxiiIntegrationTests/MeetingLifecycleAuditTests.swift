@@ -243,6 +243,54 @@ final class MeetingLifecycleAuditTests: XCTestCase {
         // data-safety core of this contract.
     }
 
+    // MARK: - Discard Keeps A Recoverable Copy
+
+    /// Tearing down a LIVE meeting (Escape/close/takeover) discards it — but
+    /// a mistaken discard must be recoverable, so the audio and transcript
+    /// are persisted flagged, not destroyed.
+    func testTeardownOfLiveMeetingPersistsAsDiscarded() async throws {
+        let handler = StubMeetingHandler(
+            stopResult: makePayload(segments: [makeSegment("keep me")])
+        )
+        handler.hasLiveCapture = true
+        let spy = SpyPersistence()
+        let feature = makeFeature(handler: handler, persistence: spy)
+        feature.meetingHistoryEnabledAtStart = true
+        feature.isActive = true
+        feature.state.phase = .recording
+
+        feature.cancel() // teardown of a live, non-errored meeting
+        let save = try XCTUnwrap(feature.meetingStopTask)
+        await save.value
+
+        XCTAssertEqual(spy.callCount, 1,
+                       "A discarded live meeting is persisted, not destroyed")
+        XCTAssertNotNil(spy.lastPayload?.discardedAt,
+                        "It lands in Recently Deleted, not the main list")
+        XCTAssertEqual(spy.lastPayload?.segments.map(\.text), ["keep me"])
+    }
+
+    /// An ERRORED meeting torn down is a save (salvage), not a discard.
+    func testTeardownOfErroredMeetingSavesNotDiscards() async throws {
+        let handler = StubMeetingHandler(
+            stopResult: makePayload(segments: [makeSegment("salvaged")])
+        )
+        handler.hasLiveCapture = true
+        let spy = SpyPersistence()
+        let feature = makeFeature(handler: handler, persistence: spy)
+        feature.meetingHistoryEnabledAtStart = true
+        feature.isActive = true
+        feature.state.phase = .error("audio died")
+
+        feature.cancel()
+        let save = try XCTUnwrap(feature.meetingStopTask)
+        await save.value
+
+        XCTAssertEqual(spy.callCount, 1)
+        XCTAssertNil(spy.lastPayload?.discardedAt,
+                     "An error salvage saves to the main list, not the trash")
+    }
+
     // MARK: - Stale Starts Cannot Fire
 
     /// startMeeting re-validates after its confirm dialog: with the panel

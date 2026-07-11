@@ -98,12 +98,37 @@ struct HistoryDetailView: View {
                             Label(showCopied ? "Copied" : "Copy", systemImage: showCopied ? "checkmark" : "doc.on.doc")
                         }
 
-                        Button(role: .destructive) {
-                            deleteInteraction()
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+                        if metadata.isDiscarded {
+                            // A discarded meeting lives in Recently Deleted:
+                            // Restore brings it back, Delete Now is the real
+                            // permanent delete.
+                            Button {
+                                restoreMeeting()
+                            } label: {
+                                Label("Restore", systemImage: "arrow.uturn.backward")
+                            }
+                            Button(role: .destructive) {
+                                deleteInteraction()
+                            } label: {
+                                Label("Delete Now", systemImage: "trash")
+                            }
+                        } else {
+                            Button(role: .destructive) {
+                                deleteInteraction()
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                         }
                     }
+                }
+
+                if metadata.isDiscarded, let discardedAt = metadata.discardedAt {
+                    Label(
+                        "Deleted \(discardedAt.formatted(.relative(presentation: .named))) · kept 7 days",
+                        systemImage: "trash"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
                 // Meeting audio track picker (below header, still fixed)
@@ -407,6 +432,20 @@ struct HistoryDetailView: View {
                 onDelete()
             } catch {
                 print("Failed to delete: \(error)")
+            }
+        }
+    }
+
+    private func restoreMeeting() {
+        Task {
+            do {
+                try await historyService.restoreDiscarded(id: metadata.id)
+                // The row leaves the Recently Deleted list; clearing the
+                // selection is the same "this entry left this view" signal
+                // as a delete.
+                onDelete()
+            } catch {
+                print("Failed to restore: \(error)")
             }
         }
     }

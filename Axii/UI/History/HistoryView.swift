@@ -16,6 +16,7 @@ struct HistoryView: View {
     @State private var selectedId: UUID?
     @State private var searchText = ""
     @State private var filterType: InteractionType?
+    @State private var showTrash = false
 
     var body: some View {
         NavigationSplitView {
@@ -50,6 +51,9 @@ struct HistoryView: View {
                 }
                 .pickerStyle(.menu)
                 .frame(width: 130)
+                .disabled(showTrash)
+
+                trashToggle
             }
             .padding(8)
             .background(.bar)
@@ -59,10 +63,10 @@ struct HistoryView: View {
             // List content
             if !historyService.isLoaded {
                 loadingView
-            } else if filteredItems.isEmpty {
-                emptyStateView
+            } else if displayedItems.isEmpty {
+                if showTrash { emptyTrashView } else { emptyStateView }
             } else {
-                List(filteredItems, selection: $selectedId) { item in
+                List(displayedItems, selection: $selectedId) { item in
                     HistoryRowView(metadata: item) {
                         copyInteraction(id: item.id)
                     }
@@ -118,15 +122,62 @@ struct HistoryView: View {
         .padding()
     }
 
-    private var filteredItems: [InteractionMetadata] {
-        var items = historyService.listMetadata()
+    private var trashCount: Int { historyService.discardedMetadata().count }
 
-        // Filter by type
-        if let filterType {
+    @ViewBuilder
+    private var trashToggle: some View {
+        if showTrash || trashCount > 0 {
+            Button {
+                showTrash.toggle()
+                selectedId = nil
+            } label: {
+                Label(
+                    showTrash ? "Back" : "Recently Deleted",
+                    systemImage: showTrash ? "chevron.left" : "trash"
+                )
+                .labelStyle(.iconOnly)
+                .overlay(alignment: .topTrailing) {
+                    if !showTrash, trashCount > 0 {
+                        Text("\(trashCount)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(3)
+                            .background(Circle().fill(.red))
+                            .offset(x: 6, y: -6)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .help(showTrash ? "Back to history" : "Recently Deleted meetings")
+        }
+    }
+
+    private var emptyTrashView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "trash")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text("Nothing recently deleted")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            Text("Discarded meetings stay here for 7 days so you can restore them.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+
+    private var displayedItems: [InteractionMetadata] {
+        var items = showTrash
+            ? historyService.discardedMetadata()
+            : historyService.activeMetadata()
+
+        if !showTrash, let filterType {
             items = items.filter { $0.type == filterType }
         }
 
-        // Filter by search text
         if !searchText.isEmpty {
             items = items.filter { $0.preview.localizedCaseInsensitiveContains(searchText) }
         }

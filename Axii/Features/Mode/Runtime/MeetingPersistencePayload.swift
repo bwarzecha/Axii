@@ -30,5 +30,8 @@ struct MeetingPersistencePayload {
     /// nil means "now" (a live stop). A meeting recovered days after the
     /// crash must not masquerade as new in history.
     var startedAt: Date? = nil
+    /// When set, the meeting is persisted straight into "Recently Deleted"
+    /// (a discard that kept the data) rather than the main history list.
+    var discardedAt: Date? = nil
 }
 #endif

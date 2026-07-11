@@ -42,6 +42,9 @@ typealias MeetingStopResult = MeetingPersistencePayload
 protocol MeetingPipelineHandling: AnyObject {
     func start() async
     func stop(saveToHistory: Bool) async -> MeetingStopResult?
+    /// showsProgress=false runs the stop HEADLESS (no visible `.processing`):
+    /// used by teardown discards, whose panel is already gone.
+    func stop(saveToHistory: Bool, showsProgress: Bool) async -> MeetingStopResult?
     func cancel()
     func selectApp(_ app: AudioApp?)
     func switchMicrophone(
@@ -54,6 +57,14 @@ protocol MeetingPipelineHandling: AnyObject {
     /// True while audio is actively being captured — exits that would
     /// destroy a live capture consult this to salvage instead.
     var hasLiveCapture: Bool { get }
+}
+
+extension MeetingPipelineHandling {
+    /// Default: a headless stop behaves like the visible one for conformers
+    /// (test fakes) that do not distinguish the two.
+    func stop(saveToHistory: Bool, showsProgress: Bool) async -> MeetingStopResult? {
+        await stop(saveToHistory: saveToHistory)
+    }
 }
 
 // MARK: - MeetingPipelineHandler
@@ -142,10 +153,19 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
     // MARK: - Stop
 
     func stop(saveToHistory: Bool) async -> MeetingStopResult? {
+        await stop(saveToHistory: saveToHistory, showsProgress: saveToHistory)
+    }
+
+    /// - Parameter showsProgress: whether this stop drives the visible
+    ///   `.processing` state. A user Stop shows "Saving…"; a teardown
+    ///   discard (Escape/close) runs HEADLESS — the panel is already gone,
+    ///   so publishing `.processing` into it would strand a phase no one
+    ///   can resolve.
+    func stop(saveToHistory: Bool, showsProgress: Bool) async -> MeetingStopResult? {
         generation += 1
         let gen = generation
 
-        if saveToHistory && captureSession.isRecording {
+        if saveToHistory && captureSession.isRecording && showsProgress {
             state.phase = .processing
         } else if !saveToHistory {
             // Discard is immediate from the user's perspective; do not hold

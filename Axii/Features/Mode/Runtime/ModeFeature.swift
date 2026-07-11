@@ -257,12 +257,19 @@ final class ModeFeature: Feature, ModeDismissControlling {
         micSwitchRestartWorkItem?.cancel(); micSwitchRestartWorkItem = nil
         carriedRecordingSegments = []
         recordingHelper?.cancel(); recordingHelper = nil
-        if let handler = meetingHandler, handler.hasLiveCapture,
-           case .error = state.phase {
-            // An errored meeting still holds a live capture: every exit
-            // salvages it to history (UX-2); the detached stop survives the
-            // reset below. Discard stays available via history delete.
-            stopMeeting(saveToHistory: true)
+        if let handler = meetingHandler, handler.hasLiveCapture {
+            if case .error = state.phase {
+                // An errored meeting still holds a live capture: salvage it
+                // straight to history (UX-2) — an error is not a discard.
+                stopMeeting(disposition: .save)
+            } else {
+                // A live meeting torn down by Escape/close/takeover is a
+                // DISCARD, but a mistaken one must be recoverable: keep the
+                // audio and transcript in "Recently Deleted" rather than
+                // destroying them. Deliberate permanent deletion is a
+                // separate action from the trash.
+                stopMeeting(disposition: .discard)
+            }
         } else {
             meetingHandler?.cancel()
         }

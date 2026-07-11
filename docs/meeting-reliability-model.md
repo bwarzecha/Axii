@@ -49,8 +49,18 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   disabled, or the user discards). They ride `MeetingPersistencePayload
   .recoveryArtifacts`; the persistence caller clears them after a successful
   save. On persist failure they are deliberately left on disk.
-- **Discard clears immediately** (stop-without-save, cancel) so a discarded
-  meeting cannot resurface as phantom "crash recovery".
+- **Discard keeps a recoverable copy** ("Recently Deleted"). Tearing down a
+  LIVE meeting (Escape/close/takeover) persists it to history flagged
+  `discardedAt` — audio and transcript intact — rather than destroying it,
+  so a mistaken discard is recoverable. It is hidden from the main list,
+  shown in the History window's Recently Deleted section with Restore /
+  Delete Now, and swept for good only after `MeetingRecoveryPolicy
+  .artifactLifetime` (same window as crash artifacts). The discard stop
+  runs HEADLESS (`stop(saveToHistory:showsProgress:false)`) — its panel is
+  gone, so it never publishes a `.processing` no one can resolve. An error
+  teardown still SAVES (salvage), not discards. Quit-and-discard of a live
+  meeting leaves the artifacts for next-launch recovery rather than a slow
+  in-line finalize.
 - **Reads do not destroy.** `checkForCrashRecovery()` never deletes a
   readable autosave file; only corrupt or expired files are removed. Expiry
   is keyed to the file's modification time (last autosave write), not the

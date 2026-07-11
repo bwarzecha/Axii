@@ -190,6 +190,9 @@ final class AppController {
     private func startHistoryLoad() {
         Task {
             await historyService.loadAllMetadata()
+            // Purge meetings whose "Recently Deleted" window has passed —
+            // same retention as crash-recovery artifacts.
+            await historyService.sweepExpiredDiscards()
         }
     }
 

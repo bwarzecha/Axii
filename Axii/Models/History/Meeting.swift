@@ -16,8 +16,14 @@ struct Meeting: Identifiable, Codable, Equatable {
     let systemRecording: AudioRecording?
     let appName: String?
     let createdAt: Date
+    /// When the user discarded this meeting. A discarded meeting is a real
+    /// history row (audio and transcript intact) but is hidden from the main
+    /// list and shown in "Recently Deleted" — so a mistaken Escape/discard
+    /// is recoverable. Swept for good after the recovery window. nil = kept.
+    var discardedAt: Date?
 
     var interactionType: InteractionType { .meeting }
+    var isDiscarded: Bool { discardedAt != nil }
 
     /// Full transcript text (all segments concatenated)
     var fullText: String {
@@ -36,7 +42,8 @@ struct Meeting: Identifiable, Codable, Equatable {
         micRecording: AudioRecording? = nil,
         systemRecording: AudioRecording? = nil,
         appName: String? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        discardedAt: Date? = nil
     ) {
         self.id = id
         self.segments = segments
@@ -45,6 +52,16 @@ struct Meeting: Identifiable, Codable, Equatable {
         self.systemRecording = systemRecording
         self.appName = appName
         self.createdAt = createdAt
+        self.discardedAt = discardedAt
+    }
+
+    /// A copy with the discard flag set/cleared, preserving everything else.
+    func withDiscarded(_ date: Date?) -> Meeting {
+        Meeting(
+            id: id, segments: segments, duration: duration,
+            micRecording: micRecording, systemRecording: systemRecording,
+            appName: appName, createdAt: createdAt, discardedAt: date
+        )
     }
 
     /// Generate metadata for this meeting
@@ -57,7 +74,8 @@ struct Meeting: Identifiable, Codable, Equatable {
                 wordCount: wordCount,
                 appName: appName,
                 hasMicAudio: micRecording != nil,
-                hasSystemAudio: systemRecording != nil
+                hasSystemAudio: systemRecording != nil,
+                discardedAt: discardedAt
             )
         )
         return InteractionMetadata(

@@ -71,7 +71,8 @@ final class MeetingPersistenceService: MeetingPersisting {
             segments: payload.segments,
             duration: payload.duration,
             appName: payload.appName,
-            createdAt: payload.startedAt ?? Date()
+            createdAt: payload.startedAt ?? Date(),
+            discardedAt: payload.discardedAt
         )
 
         // 2. Initial save — establishes history folder and metadata cache entry.
@@ -112,7 +113,8 @@ final class MeetingPersistenceService: MeetingPersisting {
                 micRecording: micRecording,
                 systemRecording: systemRecording,
                 appName: payload.appName,
-                createdAt: meeting.createdAt
+                createdAt: meeting.createdAt,
+                discardedAt: payload.discardedAt
             )
             try await historyService.save(.meeting(updated))
             return updated

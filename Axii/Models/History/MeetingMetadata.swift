@@ -15,6 +15,11 @@ struct MeetingMetadata: Codable, Equatable {
     let appName: String?
     let hasMicAudio: Bool
     let hasSystemAudio: Bool
+    /// Set while this meeting sits in "Recently Deleted". Optional so older
+    /// metadata.json files (no key) decode as kept.
+    var discardedAt: Date?
+
+    var isDiscarded: Bool { discardedAt != nil }
 
     /// Formatted duration string (e.g., "1:23:45" or "5:30")
     var formattedDuration: String {

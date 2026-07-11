@@ -35,17 +35,14 @@ final class AxiiAppDelegate: NSObject, NSApplicationDelegate {
             case .alertFirstButtonReturn:
                 busy.stopAndPreserve()
             case .alertSecondButtonReturn:
-                // Discard means DISCARD: without the explicit cancel, the
-                // autosave and spool files survive the exit and launch
-                // recovery resurrects the meeting the user chose to destroy.
-                // The artifact cleanup can defer one MainActor hop behind
-                // the switch serializer — give it that hop before dying.
-                busy.cancel()
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    sender.reply(toApplicationShouldTerminate: true)
-                }
-                return .terminateLater
+                // Quit and discard. A full finalize is too slow for the quit
+                // deadline, so we do NOT run one — but we also do not destroy
+                // the artifacts. Leaving them on disk lets next-launch crash
+                // recovery restore the meeting, so a mistaken "discard on
+                // quit" is still recoverable. (A discard of a NON-recording
+                // meeting — one already stopped — has no live artifacts and
+                // its trashed copy already survives in Recently Deleted.)
+                return .terminateNow
             default:
                 return .terminateCancel
             }
