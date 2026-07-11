@@ -37,6 +37,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      # AxiiDiarization is a LOCAL sibling package (../AxiiDiarization in
+      # the project); the release build must materialize it too.
+      - name: Checkout AxiiDiarization (local sibling package)
+        run: git clone --depth 1 https://github.com/bwarzecha/AxiiDiarization.git ../AxiiDiarization
+
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
