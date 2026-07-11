@@ -107,11 +107,13 @@ struct HistoryDetailView: View {
                             } label: {
                                 Label("Restore", systemImage: "arrow.uturn.backward")
                             }
+                            .accessibilityIdentifier(AccessibilityID.historyRestoreButton)
                             Button(role: .destructive) {
                                 deleteInteraction()
                             } label: {
                                 Label("Delete Now", systemImage: "trash")
                             }
+                            .accessibilityIdentifier(AccessibilityID.historyDeleteNowButton)
                         } else {
                             Button(role: .destructive) {
                                 deleteInteraction()

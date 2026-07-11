@@ -138,9 +138,27 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   profile; `AXII_FUZZ_ITERATIONS` scales the deep tiers. Found a real bug
   on its first run (stale error arming a dismiss timer that fired into the
   recording a resumed start later published).
+- **Real-UI E2E suite** (`AxiiUITests`, scheme `AxiiUITests`): drives the
+  REAL app — synthetic global hotkeys (CGEventPost to the HID tap), real
+  capture from the BlackHole 2ch virtual device, real Parakeet, and
+  assertions on all three planes: history data, panel accessibility
+  values (`panel.phase`/`panel.duration`/`panel.audioLevel`), and stored-
+  audio artifacts (RMS + duration-vs-capture-window — the channel-layout
+  corruption detector). Scratch isolation via env overrides
+  (`AXII_HISTORY_DIR`/`AXII_MODES_DIR`/`AXII_RECOVERY_DIR`; the recovery
+  override keeps kill-9 tests from swallowing or leaking REAL recovery
+  artifacts) plus NSArgumentDomain launch arguments for defaults reads.
+  Machine prerequisites (dev Mac or self-hosted runner): BlackHole 2ch
+  installed and a one-time Accessibility grant for AxiiUITests-Runner —
+  tests self-skip with instructions otherwise. Hard-won UI-driving rules:
+  status-item clicks by coordinate, menu selection by keyboard type-ahead
+  (menu-item AX frames can be stale/offscreen and a cursor move dismisses
+  the menu), existence-based waits only (isHittable lies for
+  non-activating panels), and never F-keys for synthetic hotkeys.
 - **Tiers** (`Scripts/reliability-suite.sh`): `--pr` = fast suite only;
   default (nightly) adds TSan + 10k-seed deep fuzzes; `--release` runs the
-  deep fuzzes at 50k seeds.
+  deep fuzzes at 50k seeds. The E2E suite is its own opt-in tier, run
+  where the two machine prerequisites exist.
 - **Crash matrix** (`MeetingCrashRecoveryTests`): the real transcript manager
   against temp-dir autosave files, simulating crashes at each lifecycle point.
 - **Commit-point tests** (`MeetingSaveRegressionTests`): recovery artifacts

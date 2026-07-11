@@ -64,11 +64,16 @@ final class MeetingTranscriptManager {
     /// The production autosave location. Injectable per instance so tests
     /// never read or write a real user's recovery file.
     static var defaultAutosaveFileURL: URL {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first!
-        let axiiDir = appSupport.appendingPathComponent("Axii")
+        let axiiDir: URL
+        if let override = AppLaunchOverrides.recoveryDirectoryOverride() {
+            axiiDir = override
+        } else {
+            let appSupport = FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first!
+            axiiDir = appSupport.appendingPathComponent("Axii")
+        }
 
         // Ensure directory exists
         try? FileManager.default.createDirectory(

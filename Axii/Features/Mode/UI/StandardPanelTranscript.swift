@@ -26,6 +26,7 @@ extension StandardPanelView {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 4)
+                .accessibilityIdentifier(AccessibilityID.panelTranscript)
         default:
             EmptyView()
         }
@@ -66,6 +67,7 @@ extension StandardPanelView {
                         }
                     }
                 }
+                .accessibilityIdentifier(AccessibilityID.panelTranscript)
             }
         }
     }

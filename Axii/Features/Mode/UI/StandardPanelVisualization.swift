@@ -25,6 +25,9 @@ extension StandardPanelView {
                     size: 120
                 )
                 .opacity(indicatorOpacity)
+                .accessibilityElement()
+                .accessibilityIdentifier(AccessibilityID.panelAudioLevel)
+                .accessibilityValue(String(format: "%.3f", state.audioLevel))
 
                 visualizationOverlay
             }

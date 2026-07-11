@@ -42,6 +42,7 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
                 TextField("Search", text: $searchText)
                     .textFieldStyle(.plain)
+                    .accessibilityIdentifier(AccessibilityID.historySearchField)
 
                 Picker("Filter", selection: $filterType) {
                     Text("All").tag(nil as InteractionType?)
@@ -73,6 +74,7 @@ struct HistoryView: View {
                     .tag(item.id)
                 }
                 .listStyle(.plain)
+                .accessibilityIdentifier(AccessibilityID.historyList)
             }
         }
     }
@@ -149,6 +151,7 @@ struct HistoryView: View {
             }
             .buttonStyle(.plain)
             .help(showTrash ? "Back to history" : "Recently Deleted meetings")
+            .accessibilityIdentifier(AccessibilityID.historyTrashToggle)
         }
     }
 

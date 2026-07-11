@@ -25,6 +25,8 @@ extension StandardPanelView {
                             Text(headerStatusTitle)
                                 .font(.headline)
                                 .foregroundStyle(.primary)
+                                .accessibilityIdentifier(AccessibilityID.panelPhase)
+                                .accessibilityValue(String(describing: state.phase))
 
                             if config.panel.preferences.showDurationTimer
                                 && state.phase.isRecording
@@ -33,6 +35,8 @@ extension StandardPanelView {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
+                                    .accessibilityIdentifier(AccessibilityID.panelDuration)
+                                    .accessibilityValue(String(Int(state.duration)))
                             }
                         }
                     }
@@ -49,6 +53,7 @@ extension StandardPanelView {
                         }
                         .buttonStyle(.plain)
                         .help("Collapse to compact view")
+                        .accessibilityIdentifier(AccessibilityID.panelCollapseButton)
                     }
 
                     if !state.phase.isRecording, state.phase != .processing {
@@ -61,6 +66,7 @@ extension StandardPanelView {
                         }
                         .buttonStyle(.plain)
                         .help("Close")
+                        .accessibilityIdentifier(AccessibilityID.panelCloseButton)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -182,6 +188,7 @@ extension StandardPanelView {
             Button("Copy Transcript") { onCopy?(state.manualCopyText) }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+                .accessibilityIdentifier(AccessibilityID.panelCopyButton)
         } else {
             Button(action: {
                 if state.phase.isRecording { onStop?() } else { onStart?() }
@@ -200,6 +207,7 @@ extension StandardPanelView {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier(AccessibilityID.panelActionButton)
         }
     }
 }

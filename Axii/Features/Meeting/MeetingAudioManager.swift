@@ -242,10 +242,15 @@ final class MeetingAudioManager {
     /// Files are deleted at the persistence commit point, on discard, or by
     /// the expiry sweep at launch.
     static var recordingSpoolDirectory: URL {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
-        let dir = appSupport.appendingPathComponent("Axii/InProgressRecordings")
+        let dir: URL
+        if let override = AppLaunchOverrides.recoveryDirectoryOverride() {
+            dir = override.appendingPathComponent("InProgressRecordings")
+        } else {
+            let appSupport = FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            ).first!
+            dir = appSupport.appendingPathComponent("Axii/InProgressRecordings")
+        }
         try? FileManager.default.createDirectory(
             at: dir, withIntermediateDirectories: true
         )

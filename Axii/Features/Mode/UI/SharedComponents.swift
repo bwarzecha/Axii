@@ -99,6 +99,7 @@ struct ModeMicrophonePicker: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .accessibilityIdentifier(AccessibilityID.panelMicPicker)
     }
 
     /// Non-nil when capture runs on a different device than the selection
@@ -184,6 +185,7 @@ struct ModeAppPicker: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .accessibilityIdentifier(AccessibilityID.panelAppPicker)
 
             Button(action: onRefresh) {
                 Image(systemName: "arrow.clockwise")

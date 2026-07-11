@@ -37,7 +37,7 @@ final class AppController {
     let mediaControlService: MediaControlService
 
     // Mode runtime — the sole feature system.
-    let modeService = ModeService()
+    let modeService: ModeService
 
     /// Re-runs transcription over stored meeting audio; used by the history
     /// UI to build transcripts for auto-saved meetings that never got one.
@@ -56,9 +56,11 @@ final class AppController {
             || !accessibilityPermission.isTrusted
     }
 
-    init() {
+    init(overrides: AppLaunchOverrides = .fromEnvironment()) {
         // Create services (order matters due to dependencies)
         settings = SettingsService()
+        modeService = overrides.modesDirectory
+            .map { ModeService(modesDirectory: $0) } ?? ModeService()
         hotkeyService = HotkeyService()
         inputMonitoringPermission = InputMonitoringPermissionService()
         advancedHotkeyService = AdvancedHotkeyService(permission: inputMonitoringPermission)
@@ -76,7 +78,8 @@ final class AppController {
         screenPermission = ScreenRecordingPermissionService()
         llmSettings = LLMSettingsService()
         llmService = LLMService(settings: llmSettings)
-        historyService = HistoryService()
+        historyService = overrides.historyDirectory
+            .map { HistoryService(historyDirectory: $0) } ?? HistoryService()
         modelDownloadService = ModelDownloadService()
         mediaControlService = MediaControlService()
         pasteService = PasteService(

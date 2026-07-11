@@ -31,12 +31,20 @@
 			remoteGlobalIDString = 4E023D542F1853FF00284984;
 			remoteInfo = Axii;
 		};
+		AA000002UITESTS00000070 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4E023D4D2F1853FF00284984 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4E023D542F1853FF00284984;
+			remoteInfo = Axii;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		4E023D552F1853FF00284984 /* Axii.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Axii.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA000001PHASE0TESTS00010 /* AxiiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AxiiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA000001PHASE0TESTS00020 /* AxiiIntegrationTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AxiiIntegrationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA000002UITESTS00000010 /* AxiiUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AxiiUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -53,6 +61,11 @@
 		AA000001PHASE0TESTS00040 /* AxiiIntegrationTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = AxiiIntegrationTests;
+			sourceTree = "<group>";
+		};
+		AA000002UITESTS00000020 /* AxiiUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AxiiUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -86,6 +99,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA000002UITESTS00000050 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -95,6 +115,7 @@
 				4E023D572F1853FF00284984 /* Axii */,
 				AA000001PHASE0TESTS00030 /* AxiiTests */,
 				AA000001PHASE0TESTS00040 /* AxiiIntegrationTests */,
+				AA000002UITESTS00000020 /* AxiiUITests */,
 				4E023D562F1853FF00284984 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -105,6 +126,7 @@
 				4E023D552F1853FF00284984 /* Axii.app */,
 				AA000001PHASE0TESTS00010 /* AxiiTests.xctest */,
 				AA000001PHASE0TESTS00020 /* AxiiIntegrationTests.xctest */,
+				AA000002UITESTS00000010 /* AxiiUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -183,6 +205,27 @@
 			productReference = AA000001PHASE0TESTS00020 /* AxiiIntegrationTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		AA000002UITESTS00000030 /* AxiiUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA000002UITESTS00000090 /* Build configuration list for PBXNativeTarget "AxiiUITests" */;
+			buildPhases = (
+				AA000002UITESTS00000040 /* Sources */,
+				AA000002UITESTS00000050 /* Frameworks */,
+				AA000002UITESTS00000060 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AA000002UITESTS00000080 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AA000002UITESTS00000020 /* AxiiUITests */,
+			);
+			name = AxiiUITests;
+			productName = AxiiUITests;
+			productReference = AA000002UITESTS00000010 /* AxiiUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -201,6 +244,10 @@
 						TestTargetID = 4E023D542F1853FF00284984;
 					};
 					AA000001PHASE0TESTS00100 = {
+						CreatedOnToolsVersion = 26.1.1;
+						TestTargetID = 4E023D542F1853FF00284984;
+					};
+					AA000002UITESTS00000030 = {
 						CreatedOnToolsVersion = 26.1.1;
 						TestTargetID = 4E023D542F1853FF00284984;
 					};
@@ -230,6 +277,7 @@
 				4E023D542F1853FF00284984 /* Axii */,
 				AA000001PHASE0TESTS00070 /* AxiiTests */,
 				AA000001PHASE0TESTS00100 /* AxiiIntegrationTests */,
+				AA000002UITESTS00000030 /* AxiiUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -250,6 +298,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AA000001PHASE0TESTS00120 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA000002UITESTS00000060 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -280,6 +335,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA000002UITESTS00000040 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -292,6 +354,11 @@
 			isa = PBXTargetDependency;
 			target = 4E023D542F1853FF00284984 /* Axii */;
 			targetProxy = AA000001PHASE0TESTS00002 /* PBXContainerItemProxy */;
+		};
+		AA000002UITESTS00000080 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4E023D542F1853FF00284984 /* Axii */;
+			targetProxy = AA000002UITESTS00000070 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -598,6 +665,50 @@
 			};
 			name = Release;
 		};
+		AA000002UITESTS000000A0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9VG3P9SC9G;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.warzechalabs.axii.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = Axii;
+			};
+			name = Debug;
+		};
+		AA000002UITESTS000000B0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9VG3P9SC9G;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.warzechalabs.axii.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = Axii;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -633,6 +744,15 @@
 			buildConfigurations = (
 				AA000001PHASE0TESTS00170 /* Debug */,
 				AA000001PHASE0TESTS00180 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA000002UITESTS00000090 /* Build configuration list for PBXNativeTarget "AxiiUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA000002UITESTS000000A0 /* Debug */,
+				AA000002UITESTS000000B0 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -61,3 +61,6 @@ signing-secrets.txt
 *.p12
 .claude/
 .sparkle_private_key
+
+# Test result bundles
+*.xcresult

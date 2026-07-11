@@ -67,9 +67,14 @@ struct StandardPanelView: View {
                     audioLevel: state.audioLevel,
                     isRecording: state.phase.isRecording
                 )
+                .accessibilityElement()
+                .accessibilityIdentifier(AccessibilityID.panelAudioLevel)
+                .accessibilityValue(String(format: "%.3f", state.audioLevel))
                 Text(formatDuration(state.duration))
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(.primary)
+                    .accessibilityIdentifier(AccessibilityID.panelDuration)
+                    .accessibilityValue(String(Int(state.duration)))
                 Spacer()
                 Button(action: { onModeChange?(.expanded) }) {
                     Image(systemName: "chevron.down")
@@ -78,6 +83,7 @@ struct StandardPanelView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Expand panel")
+                .accessibilityIdentifier(AccessibilityID.panelExpandButton)
                 Button(action: { onStop?() }) {
                     HStack(spacing: 4) {
                         Image(systemName: "stop.fill").font(.caption)
@@ -92,6 +98,7 @@ struct StandardPanelView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier(AccessibilityID.panelStopButton)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -154,6 +161,8 @@ struct StandardPanelView: View {
                 }
             }
             .frame(height: 20)
+            .accessibilityIdentifier(AccessibilityID.panelPhase)
+            .accessibilityValue(String(describing: state.phase))
         }
     }
 
@@ -201,6 +210,7 @@ struct StandardPanelView: View {
                         Button("Copy") { onCopy?(state.manualCopyText) }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
+                            .accessibilityIdentifier(AccessibilityID.panelCopyButton)
                         HStack(spacing: 4) {
                             ModeKeyCap(text: "esc")
                             Text("Dismiss").font(.caption).foregroundStyle(.secondary)
