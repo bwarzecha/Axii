@@ -1,0 +1,12 @@
+# Compiled POC binaries — rebuild with swiftc from the sources here
+hotkey_listener
+hotkey_poster
+fire_hotkey
+play_to_device
+record_from_device
+ax_prompt
+# Run outputs
+*.txt
+!*.md
+captured.wav
+*.xcresult
