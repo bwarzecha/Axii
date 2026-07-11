@@ -96,6 +96,19 @@ final class E2ESession {
     let modesDir: URL
     let recoveryDir: URL
 
+    /// UI tests synthesize events; a locked/asleep display swallows them
+    /// all and every scenario fails with confusing timeouts. Skip with the
+    /// real reason instead (bitten by a 75-minute gate run ending after
+    /// the display locked).
+    static func skipIfScreenLocked() throws {
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        let locked = (session?["CGSSessionScreenIsLocked"] as? Int) == 1
+        try XCTSkipIf(
+            locked,
+            "Screen is locked — UI event synthesis cannot reach the session"
+        )
+    }
+
     init() throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("AxiiUITests-\(UUID().uuidString)")

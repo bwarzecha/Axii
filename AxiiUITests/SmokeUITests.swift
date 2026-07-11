@@ -17,6 +17,7 @@ final class SmokeUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        try E2ESession.skipIfScreenLocked()
         session = try E2ESession()
         E2ESession.terminateOtherAxiiInstances()
     }

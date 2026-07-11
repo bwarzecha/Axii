@@ -29,6 +29,7 @@ final class DualSourceE2ETests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        try E2ESession.skipIfScreenLocked()
         try XCTSkipUnless(
             AudioDriver.deviceExists(uid: E2EContract.blackHoleUID),
             "BlackHole 2ch not installed"

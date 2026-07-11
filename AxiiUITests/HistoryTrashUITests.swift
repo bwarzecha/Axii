@@ -18,6 +18,7 @@ final class HistoryTrashUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        try E2ESession.skipIfScreenLocked()
         session = try E2ESession()
         try session.seedDiscardedMeeting(text: seededText)
         E2ESession.terminateOtherAxiiInstances()

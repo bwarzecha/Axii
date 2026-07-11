@@ -37,7 +37,16 @@ fi
 run() {
     echo "== $1 =="
     shift
-    "$@" 2>&1 | tail -3
+    local output
+    if output=$("$@" 2>&1); then
+        echo "$output" | tail -3
+    else
+        local status=$?
+        # On failure, keep enough context to diagnose without a rerun.
+        echo "$output" | grep -E "error:|failed" | tail -20
+        echo "$output" | tail -20
+        return "$status"
+    fi
 }
 
 run "Fast suite (both fuzzers at in-suite size)" \
