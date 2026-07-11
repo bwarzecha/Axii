@@ -53,6 +53,13 @@ final class ModeInteractionFuzzTests: XCTestCase {
             .flatMap(Int.init) ?? 300
     }
 
+    /// Replay a specific failing seed: AXII_FUZZ_SEED_START=<seed> together
+    /// with AXII_FUZZ_ITERATIONS=1 pins the run to exactly that schedule.
+    private var seedOffset: UInt64 {
+        ProcessInfo.processInfo.environment["AXII_FUZZ_SEED_START"]
+            .flatMap(UInt64.init).map { $0 &- 30_000 } ?? 0
+    }
+
     func testNoCancelProfile_RecordedAudioAlwaysReachesTranscriber() async throws {
         try await runFuzz(profile: .noCancel, seedBase: 10_000)
     }
@@ -66,7 +73,7 @@ final class ModeInteractionFuzzTests: XCTestCase {
     /// (success / failure / history-off no-write) seeded per call.
     func testMeetingSurface_StructuralInvariantsHold() async throws {
         for i in 0..<iterations {
-            let seed: UInt64 = 30_000 &+ UInt64(i)
+            let seed: UInt64 = 30_000 &+ seedOffset &+ UInt64(i)
             let driver = MeetingModeFuzzDriver(
                 seed: seed,
                 settings: settings,

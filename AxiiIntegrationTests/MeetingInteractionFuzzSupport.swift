@@ -209,8 +209,30 @@ final class MeetingModeFuzzDriver {
         for _ in 0..<steps {
             perform(pick())
             for _ in 0..<3 { await Task.yield() }
+            trace("POST[\(actionLog.count - 1)] \(actionLog.last ?? "")")
         }
         await drain()
+    }
+
+    /// Sidecar state timeline for single-seed debugging (xcodebuild logs
+    /// swallow test-host stdout). AXII_FUZZ_TRACE_FILE=<path> to enable.
+    private func trace(_ label: String) {
+        guard let tracePath = ProcessInfo.processInfo
+            .environment["AXII_FUZZ_TRACE_FILE"] else { return }
+        let live = registry.audios.filter(\.live).map(\.id)
+        let line = "\(label) phase=\(feature.state.phase) live=\(live) "
+            + "hasLive=\(handler.hasLiveCapture) "
+            + "active=\(feature.isActive) "
+            + "stopTask=\(feature.meetingStopTask != nil)\n"
+        if let handle = FileHandle(forWritingAtPath: tracePath) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            handle.closeFile()
+        } else {
+            FileManager.default.createFile(
+                atPath: tracePath, contents: Data(line.utf8)
+            )
+        }
     }
 
     private func perform(_ action: Action) {
@@ -251,13 +273,14 @@ final class MeetingModeFuzzDriver {
     }
 
     private func drain() async {
-        for _ in 0..<300 {
+        for step in 0..<300 {
             gates.releaseAll()
             pendingDelayed.removeAll { $0.isCancelled }
             if let item = pendingDelayed.popLast() {
                 item.perform()
             }
             for _ in 0..<10 { await Task.yield() }
+            trace("DRAIN[\(step)]")
             if gates.pendingCount == 0, pendingDelayed.isEmpty {
                 if let stop = feature.meetingStopTask { await stop.value }
                 for _ in 0..<10 { await Task.yield() }
@@ -290,7 +313,9 @@ final class MeetingModeFuzzDriver {
                 violations.add(
                     "audio[\(audio.id)] live without ownership "
                     + "(hasLiveCapture \(handler.hasLiveCapture), "
-                    + "phase \(feature.state.phase))"
+                    + "phase \(feature.state.phase), "
+                    + "isActive \(feature.isActive), "
+                    + "stopTaskInFlight \(feature.meetingStopTask != nil))"
                 )
             }
         }

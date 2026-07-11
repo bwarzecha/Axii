@@ -45,6 +45,7 @@ extension ModeFeature {
                 // closed panel with no way to reach it.
                 guard self.isActive, self.state.phase == .idle,
                       !handler.hasLiveCapture else { return }
+                self.meetingCaptureEra += 1
                 await handler.start()
             }
             return
@@ -62,6 +63,7 @@ extension ModeFeature {
         // audio ends up — least of all silently.
         meetingHistoryEnabledAtStart = historyService.isEnabled
         pendingMeetingExport = nil
+        meetingCaptureEra += 1
         Task { await handler.start() }
     }
 
@@ -98,12 +100,18 @@ extension ModeFeature {
     func stopMeeting(disposition: MeetingStopDisposition) -> Task<Void, Never>? {
         guard let handler = meetingHandler else { return nil }
         // Both save AND discard persist; a second such stop must join the
-        // running one rather than race the already-detached capture.
-        if disposition != .drop, let inFlight = meetingStopTask {
+        // running one rather than race the already-detached capture — but
+        // ONLY a stop for the SAME capture era. A stop task still draining
+        // a PREVIOUS meeting must not swallow this capture's stop: the
+        // live recording would never be detached and would keep running
+        // unowned behind a closed panel (fuzzer seed 34311).
+        if disposition != .drop, let inFlight = meetingStopTask,
+           meetingStopTaskEra == meetingCaptureEra {
             return inFlight
         }
         meetingStopGeneration += 1
         let gen = meetingStopGeneration
+        let era = meetingCaptureEra
         let persists = disposition != .drop
         // Snapshot the streamed transcript SYNCHRONOUSLY: when this stop is
         // teardown's error-salvage, state.reset() runs before the task below
@@ -111,7 +119,13 @@ extension ModeFeature {
         // losing the only transcript in existence if finalization also fails.
         let streamedSegments = state.segments
         let task = Task { @MainActor in
-            defer { self.meetingStopTask = nil }
+            // Clear only OUR registration: a newer era's stop may have
+            // replaced it while this one drained.
+            defer {
+                if self.meetingStopTaskEra == era {
+                    self.meetingStopTask = nil
+                }
+            }
             // The capture's own idle-sleep suppression ends at detach, but
             // finalize + persist can run for minutes after the user walked
             // away — idle sleep here would freeze a save-locked panel until
@@ -152,7 +166,10 @@ extension ModeFeature {
             // session that is already recording again).
             self.applyPendingConfigIfIdle()
         }
-        if persists { meetingStopTask = task }
+        if persists {
+            meetingStopTask = task
+            meetingStopTaskEra = era
+        }
         return task
     }
 

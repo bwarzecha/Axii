@@ -70,6 +70,13 @@ final class ModeFeature: Feature, ModeDismissControlling {
     /// race it (a second handler.stop would flip the UI to idle mid-save and
     /// generation-suppress the first stop's error reporting).
     var meetingStopTask: Task<Void, Never>?
+    /// Which capture era `meetingStopTask` stops. A stop may only coalesce
+    /// with a stop of the SAME era: a task still persisting a PREVIOUS
+    /// meeting must never swallow the stop of a capture it does not own —
+    /// the new recording would sail on unowned behind a closed panel.
+    /// (Found by the interaction fuzzer, seed 34311.)
+    var meetingCaptureEra = 0
+    var meetingStopTaskEra = -1
     /// History-enabled as it was when this meeting STARTED. The user may flip
     /// the setting mid-meeting; the contract they recorded under is the one
     /// that governs the save, and a mid-meeting flip must never silently

@@ -41,6 +41,14 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
 - `ModeFeatureMeeting.stopMeeting` resolves phase to `.idle` only from
   `.processing`; a newer session's phase is never stomped. A persistence
   failure surfaces as `.error("Failed to save meeting")` — never silent.
+- **Stop coalescing is scoped to the capture ERA** (`meetingCaptureEra`,
+  bumped at every capture start). A second stop joins the in-flight stop
+  ONLY when both belong to the same era: a stop task still persisting a
+  PREVIOUS meeting must never swallow the stop of a newer capture it does
+  not own — the new recording would keep running unowned behind a closed
+  panel. (Deep interaction fuzzer, seed 34311: close a long meeting mid-
+  persist, start a new one, stop it — the stop joined the stale task and
+  audio was never detached.)
 
 ## Crash recovery / artifact lifecycle
 
