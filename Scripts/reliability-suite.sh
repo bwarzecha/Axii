@@ -64,4 +64,12 @@ run "Real-transcription quirks (skips if models absent)" \
     xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST" \
     -only-testing:AxiiIntegrationTests/RealTranscriptionQuirkTests
 
+if [[ "$TIER" != "--pr" && "$TIER" != "--fast" ]]; then
+    # Real-UI E2E: real app + synthetic hotkeys + BlackHole + real Parakeet.
+    # Individual tests self-skip (not fail) when the machine lacks BlackHole
+    # or the runner's Accessibility grant — see AxiiUITests/README.md.
+    run "Real-UI E2E suite (self-skips without BlackHole/Accessibility)" \
+        xcodebuild test -project "$PROJ" -scheme AxiiUITests -destination "$DEST"
+fi
+
 echo "ALL RELIABILITY GATES PASSED"

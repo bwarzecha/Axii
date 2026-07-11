@@ -42,6 +42,8 @@ enum E2EContract {
     static let panelActionID = "panel.action"
     static let historyTrashToggleID = "history.trashToggle"
     static let historyRestoreID = "history.restore"
+    static let panelMicPickerID = "panel.micPicker"
+    static let builtInMicUID = "BuiltInMicrophoneDevice"
 }
 
 // MARK: - Fixtures
