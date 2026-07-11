@@ -197,35 +197,15 @@ extension MicrophoneCapture: AVCaptureAudioDataOutputSampleBufferDelegate {
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        // Get format description for sample rate
-        if let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
-           let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) {
-            let rate = asbd.pointee.mSampleRate
-            if rate > 0 {
-                sampleRate = rate
-            }
+        // Honor the delivered format: stereo/planar/int inputs (BlackHole,
+        // USB audio interfaces) corrupt when read as raw mono float32.
+        guard let extracted = AudioSampleExtraction.monoFloatSamples(
+            from: sampleBuffer
+        ) else { return }
+        if extracted.sampleRate > 0 {
+            sampleRate = extracted.sampleRate
         }
-
-        // Extract audio samples
-        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
-
-        var length = 0
-        var dataPointer: UnsafeMutablePointer<Int8>?
-
-        let status = CMBlockBufferGetDataPointer(
-            blockBuffer,
-            atOffset: 0,
-            lengthAtOffsetOut: nil,
-            totalLengthOut: &length,
-            dataPointerOut: &dataPointer
-        )
-
-        guard status == kCMBlockBufferNoErr, let data = dataPointer else { return }
-
-        // Convert to float samples (assuming 32-bit float PCM)
-        let floatCount = length / MemoryLayout<Float>.size
-        let floatPointer = UnsafeRawPointer(data).bindMemory(to: Float.self, capacity: floatCount)
-        let samples = Array(UnsafeBufferPointer(start: floatPointer, count: floatCount))
+        let samples = extracted.samples
 
         // Detect signal state
         let maxAmplitude = samples.lazy.map { abs($0) }.max() ?? 0
