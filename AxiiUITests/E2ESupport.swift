@@ -43,6 +43,7 @@ enum E2EContract {
     static let historyTrashToggleID = "history.trashToggle"
     static let historyRestoreID = "history.restore"
     static let panelMicPickerID = "panel.micPicker"
+    static let panelCloseID = "panel.close"
     static let builtInMicUID = "BuiltInMicrophoneDevice"
 }
 
@@ -111,20 +112,41 @@ final class E2ESession {
         try? FileManager.default.removeItem(at: root)
     }
 
-    /// Build the app pointed at scratch storage, with the dictation mic
-    /// pre-seeded to BlackHole via the NSArgumentDomain (shadows every
-    /// UserDefaults READ for the process; writes nothing to the real plist).
-    func makeApp(micUID: String = E2EContract.blackHoleUID) -> XCUIApplication {
+    /// Build the app pointed at scratch storage, with the mic pre-seeded
+    /// via the NSArgumentDomain (shadows every UserDefaults READ for the
+    /// process; writes nothing to the real plist). Pass micUID nil to leave
+    /// selection unseeded (tests that drive the picker UI).
+    func makeApp(
+        micUID: String? = E2EContract.blackHoleUID
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment[E2EContract.historyDirKey] = historyDir.path
         app.launchEnvironment[E2EContract.modesDirKey] = modesDir.path
         app.launchEnvironment[E2EContract.recoveryDirKey] = recoveryDir.path
-        app.launchArguments += [
-            "-mode_\(E2EContract.dictationModeID)_selectedMic", micUID,
-            "-mode_\(E2EContract.meetingModeID)_selectedMic", micUID,
-            "-SUEnableAutomaticChecks", "NO",
-        ]
+        app.launchArguments += ["-SUEnableAutomaticChecks", "NO"]
+        if let micUID {
+            app.launchArguments += [
+                "-mode_\(E2EContract.dictationModeID)_selectedMic", micUID,
+                "-mode_\(E2EContract.meetingModeID)_selectedMic", micUID,
+            ]
+        }
         return app
+    }
+
+    /// Click the panel's footer action button and verify the press TOOK
+    /// (phase leaves idle); one retry covers a click eaten by transient
+    /// focus/pointer contention.
+    static func pressPanelStart(_ app: XCUIApplication) -> Bool {
+        let action = app.descendants(matching: .any)
+            .matching(identifier: E2EContract.panelActionID).firstMatch
+        guard action.waitForExistence(timeout: 8) else { return false }
+        for _ in 0..<2 {
+            action.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+            ).click()
+            if waitForPanelPhase(app, "recording", timeout: 20) { return true }
+        }
+        return false
     }
 
     /// A second instance of the same bundle id must not be running: it owns

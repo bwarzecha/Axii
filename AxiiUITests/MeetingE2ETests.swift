@@ -118,16 +118,15 @@ final class MeetingE2ETests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Meeting hotkey shows the panel idle; Start is a real button press.
-    /// Blocks until the phase reports recording — audio played into
-    /// BlackHole while the capture is still preparing is dropped unheard.
+    /// Meeting hotkey shows the panel idle; Start is a real button press
+    /// with a phase-verified retry. Blocks until recording — audio played
+    /// into BlackHole while the capture is preparing is dropped unheard.
     private func openMeetingPanelAndStart() {
         HotkeyDriver.press(
             E2EContract.meetingKeyCode, flags: E2EContract.meetingFlags
         )
-        clickPanelAction()
         XCTAssertTrue(
-            E2ESession.waitForPanelPhase(app, "recording", timeout: 25),
+            E2ESession.pressPanelStart(app),
             "meeting never reached the recording phase"
         )
     }

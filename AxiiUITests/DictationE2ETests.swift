@@ -44,6 +44,19 @@ final class DictationE2ETests: XCTestCase {
     }
 
     func testDictationHappyPathLandsFixtureInHistory() throws {
+        // Park keyboard focus on a scratch TextEdit document: dictation's
+        // output pastes at the cursor, and the paste must land somewhere
+        // harmless and deterministic.
+        let target = FileManager.default.temporaryDirectory
+            .appendingPathComponent("axii-e2e-paste-\(UUID().uuidString).txt")
+        FileManager.default.createFile(atPath: target.path, contents: Data())
+        let open = Process()
+        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        open.arguments = ["-a", "TextEdit", target.path]
+        try open.run()
+        open.waitUntilExit()
+        sleep(2)
+
         app = session.makeApp()
         app.launch()
 
