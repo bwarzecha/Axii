@@ -128,11 +128,16 @@ final class E2ESession {
             .removePersistentDomain(forName: defaultsSuite)
     }
 
-    /// Build the app pointed at scratch storage, with the mic pre-seeded
-    /// into the scratch defaults SUITE (the app reads and — crucially —
-    /// WRITES runtime state there, so picker-driven selections can never
-    /// pollute the real preferences). Pass micUID nil to leave selection
-    /// unseeded (tests that drive the picker UI).
+    /// Build the app pointed at scratch storage. The mic is seeded via
+    /// LAUNCH ARGUMENTS (NSArgumentDomain — in-process to the launched app,
+    /// reliable, no cross-process disk flush) which every UserDefaults
+    /// instance consults first, INCLUDING the scratch suite the app routes
+    /// through. WRITES still land in the isolated suite (via
+    /// AXII_DEFAULTS_SUITE), so a UI-driven mic switch can never pollute
+    /// real preferences. Pass micUID nil to leave selection unseeded
+    /// (tests that drive the picker UI). A cross-process suite pre-write
+    /// was tried and reverted: it hadn't flushed before the app read it,
+    /// so capture fell back to the system-default mic and recorded silence.
     func makeApp(
         micUID: String? = E2EContract.blackHoleUID
     ) -> XCUIApplication {
@@ -142,15 +147,11 @@ final class E2ESession {
         app.launchEnvironment[E2EContract.recoveryDirKey] = recoveryDir.path
         app.launchEnvironment[E2EContract.defaultsSuiteKey] = defaultsSuite
         app.launchArguments += ["-SUEnableAutomaticChecks", "NO"]
-        if let micUID, let seeds = UserDefaults(suiteName: defaultsSuite) {
-            seeds.set(
-                micUID,
-                forKey: "mode_\(E2EContract.dictationModeID)_selectedMic"
-            )
-            seeds.set(
-                micUID,
-                forKey: "mode_\(E2EContract.meetingModeID)_selectedMic"
-            )
+        if let micUID {
+            app.launchArguments += [
+                "-mode_\(E2EContract.dictationModeID)_selectedMic", micUID,
+                "-mode_\(E2EContract.meetingModeID)_selectedMic", micUID,
+            ]
         }
         return app
     }
