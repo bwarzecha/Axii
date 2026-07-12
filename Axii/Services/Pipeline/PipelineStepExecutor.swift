@@ -65,7 +65,7 @@ final class DiarizeStepExecutor: PipelineStepExecutor {
             context.segments = timedSegments.map { timed in
                 MeetingSegment(
                     text: "",
-                    speakerId: timed.speakerId ?? "Unknown",
+                    speakerId: timed.speakerId,
                     isFromMicrophone: true,
                     startTime: Double(timed.startTimeSeconds),
                     endTime: Double(timed.endTimeSeconds)
