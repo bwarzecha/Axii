@@ -147,7 +147,11 @@ final class ModeService {
             let fileURL = modeFileURL(for: mode.id)
             if !FileManager.default.fileExists(atPath: fileURL.path) {
                 do {
-                    try save(mode)
+                    // A missing built-in file means first launch — either a
+                    // fresh install (no legacy keys; seeding is a no-op) or
+                    // an upgrade from the pre-mode-runtime app, whose custom
+                    // hotkeys/mics/toggles must carry over.
+                    try save(LegacyModeMigration.seeded(mode))
                 } catch {
                     logger.error("Failed to write built-in mode \(mode.name): \(error.localizedDescription)")
                 }

@@ -326,7 +326,7 @@ jobs:
           ET.SubElement(item, 'pubDate').text = pub_date
           ET.SubElement(item, '{http://www.andymatuschak.org/xml-namespaces/sparkle}version').text = build
           ET.SubElement(item, '{http://www.andymatuschak.org/xml-namespaces/sparkle}shortVersionString').text = version
-          ET.SubElement(item, '{http://www.andymatuschak.org/xml-namespaces/sparkle}minimumSystemVersion').text = '15.0'
+          ET.SubElement(item, '{http://www.andymatuschak.org/xml-namespaces/sparkle}minimumSystemVersion').text = '15.6'
 
           desc = ET.SubElement(item, 'description')
           desc.text = f'See release notes at https://github.com/bwarzecha/Axii/releases/tag/{tag}'
@@ -399,7 +399,7 @@ jobs:
             3. Launch Axii from Applications
             4. Grant microphone and accessibility permissions when prompted
 
-            **Requirements:** macOS 15.0+ (Sequoia), Apple Silicon (M1/M2/M3/M4)
+            **Requirements:** macOS 15.6+ (Sequoia), Apple Silicon (M1/M2/M3/M4)
 
             ---
           files: |
