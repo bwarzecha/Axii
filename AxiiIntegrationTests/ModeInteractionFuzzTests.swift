@@ -15,6 +15,10 @@
 //
 //  A failing seed is a reproducible bug report:
 //    AXII_FUZZ_ITERATIONS=10000 for deep runs (see Scripts/reliability-suite.sh)
+//    AXII_FUZZ_SEED_START=<seed> is the ABSOLUTE first seed for every test
+//    in this class (overrides the per-test seed base) — release shards use
+//    it for disjoint ranges (release-fuzz.yml), and together with
+//    AXII_FUZZ_ITERATIONS=1 it replays exactly one failing seed.
 //
 
 import XCTest
@@ -53,11 +57,14 @@ final class ModeInteractionFuzzTests: XCTestCase {
             .flatMap(Int.init) ?? 300
     }
 
-    /// Replay a specific failing seed: AXII_FUZZ_SEED_START=<seed> together
-    /// with AXII_FUZZ_ITERATIONS=1 pins the run to exactly that schedule.
-    private var seedOffset: UInt64 {
+    /// When set, the ABSOLUTE first seed for every test in this class —
+    /// the per-test seed base is ignored, matching the capture fuzzer's
+    /// semantics. AXII_FUZZ_SEED_START=<seed> + AXII_FUZZ_ITERATIONS=1
+    /// pins a replay to exactly that schedule; release-fuzz.yml shards
+    /// use it to cover disjoint seed ranges.
+    private var seedStart: UInt64? {
         ProcessInfo.processInfo.environment["AXII_FUZZ_SEED_START"]
-            .flatMap(UInt64.init).map { $0 &- 30_000 } ?? 0
+            .flatMap(UInt64.init)
     }
 
     func testNoCancelProfile_RecordedAudioAlwaysReachesTranscriber() async throws {
@@ -73,7 +80,7 @@ final class ModeInteractionFuzzTests: XCTestCase {
     /// (success / failure / history-off no-write) seeded per call.
     func testMeetingSurface_StructuralInvariantsHold() async throws {
         for i in 0..<iterations {
-            let seed: UInt64 = 30_000 &+ seedOffset &+ UInt64(i)
+            let seed: UInt64 = (seedStart ?? 30_000) &+ UInt64(i)
             let driver = MeetingModeFuzzDriver(
                 seed: seed,
                 settings: settings,
@@ -100,7 +107,7 @@ final class ModeInteractionFuzzTests: XCTestCase {
         seedBase: UInt64
     ) async throws {
         for i in 0..<iterations {
-            let seed = seedBase &+ UInt64(i)
+            let seed = (seedStart ?? seedBase) &+ UInt64(i)
             let driver = ModeFuzzDriver(
                 seed: seed,
                 profile: profile,
