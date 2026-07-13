@@ -17,8 +17,9 @@ struct Transcription: Identifiable, Codable, Equatable {
     var interactionType: InteractionType { .transcription }
 
     /// List/search preview for a discarded capture whose transcript hasn't
-    /// been produced yet (salvage persists audio first, text best-effort).
-    static let discardedPreviewPlaceholder = "Canceled dictation (audio saved)"
+    /// been produced yet. Makes no claim about audio: some salvage configs
+    /// (saveAudio off) keep only the transcript.
+    static let discardedPreviewPlaceholder = "Canceled recording"
 
     init(
         id: UUID = UUID(),

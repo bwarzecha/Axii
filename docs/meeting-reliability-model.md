@@ -76,12 +76,18 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   cancel during `.transcribing`/`.processing`, an errored turn's dismiss,
   and Quit-and-Discard — routes ≥1 s of captured audio to "Recently
   Deleted" instead (`ModeFeatureDiscardSalvage` takes the capture;
-  `DiscardedCaptureArchiver` persists entry → audio → best-effort
-  transcript, in that durability order). The in-flight turn's capture is
-  held on the feature until the turn DELIVERS (`.done`); an `.error` turn
-  keeps it so the eventual teardown can still salvage. Quit-and-Discard
-  holds termination (via `isDataBearing`/pending writes) until the audio
-  write lands. Sub-second captures and history-off stay out of the trash.
+  `DiscardedCaptureArchiver` persists entry → PAYLOAD → best-effort
+  enrichment). The payload is what durability, the quit gate, and crash-
+  spool custody all key on: the audio when the mode stores audio, else
+  the TRANSCRIPT (Conversation ships `saveAudio: false` — releasing on
+  the husk entry alone was a confirmed loss bug). The in-flight turn's
+  capture is held on the feature until the turn DELIVERS (`.done`); an
+  `.error` turn keeps it so the eventual teardown can still salvage.
+  Quit-and-Discard holds termination (via `isDataBearing`/pending writes)
+  until the payload lands; a failed or empty payload keeps the crash
+  spool for next-launch retry (`DiscardArchiverPayloadTests` pins all
+  four corners). Sub-second captures and history-off stay out of the
+  trash.
   The interaction fuzzer enforces this as conservation: a cancel may
   over-deliver (salvage re-transcribes a mid-turn capture), never lose.
 - **Simple captures are crash-spooled from second zero.** Every

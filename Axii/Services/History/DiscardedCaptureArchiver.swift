@@ -50,15 +50,18 @@ final class DiscardedCaptureArchiver {
     /// Archive a capture as a DISCARDED transcription entry. `config`
     /// shapes the persistence (audio on/off, format); nil uses defaults.
     /// `createdAt` backdates the entry (crash recovery restores a capture
-    /// under its original date). `onAudioDurable` fires on the main actor
-    /// once entry + audio are on disk — the point where any crash spool
-    /// backing this capture may be deleted; it is NOT called on failure,
-    /// so a failed archive leaves the spool for the next launch to retry.
+    /// under its original date). `onPayloadDurable` fires on the main
+    /// actor once the capture's PAYLOAD is on disk — the audio when the
+    /// config stores audio, otherwise the transcript (with audio storage
+    /// opted out, the transcript is the only thing worth keeping). That
+    /// is the point where any crash spool backing this capture may be
+    /// deleted; it is NOT called on failure or an empty transcript, so
+    /// the spool survives for the next launch to retry.
     /// Detached: must outlive the panel teardown that triggered it.
     func archive(
         samples: [Float], sampleRate: Double, config: HistoryConfig?,
         createdAt: Date = Date(),
-        onAudioDurable: (@MainActor @Sendable () -> Void)? = nil
+        onPayloadDurable: (@MainActor @Sendable () -> Void)? = nil
     ) {
         guard history.isEnabled else { return }
         let config = config ?? HistoryConfig()
@@ -74,9 +77,9 @@ final class DiscardedCaptureArchiver {
                 samples: samples, sampleRate: sampleRate, config: config,
                 createdAt: createdAt,
                 history: history, transcriber: transcriber,
-                onAudioDurable: onAudioDurable
+                onPayloadDurable: onPayloadDurable
             ) {
-                // Audio durable (or failed-and-logged) either way: release
+                // Payload resolved (durable, or failed-and-logged): release
                 // the quit gate — nothing more can be waited for.
                 Task { @MainActor in self?.pendingWrites -= 1 }
             }
@@ -91,50 +94,87 @@ final class DiscardedCaptureArchiver {
         samples: [Float], sampleRate: Double, config: HistoryConfig,
         createdAt: Date,
         history: HistoryService, transcriber: any TranscriptionProviding,
-        onAudioDurable: (@MainActor @Sendable () -> Void)?,
-        onAudioSettled: () -> Void
+        onPayloadDurable: (@MainActor @Sendable () -> Void)?,
+        onSettled: () -> Void
     ) async {
         let discarded = Transcription(
             text: "", createdAt: createdAt, discardedAt: Date()
         )
-        var audio: AudioRecording?
-        do {
-            defer { onAudioSettled() }
-            try await history.save(.transcription(discarded))
-            if config.saveAudio {
+        if config.saveAudio {
+            // Payload = audio. Durable (and the quit gate released) after
+            // the audio write; the transcript is best-effort enrichment.
+            var audio: AudioRecording?
+            do {
+                defer { onSettled() }
+                guard try await history.save(.transcription(discarded))
+                    != .skippedDisabled else { return }
                 audio = try await history.saveAudioCompressed(
                     samples: samples, sampleRate: sampleRate,
                     format: config.audioFormat, for: discarded.id
                 )
-                try await history.save(.transcription(
+                guard try await history.save(.transcription(
                     discarded.with(audio: audio)
+                )) != .skippedDisabled else { return }
+                if let onPayloadDurable {
+                    await MainActor.run { onPayloadDurable() }
+                }
+            } catch {
+                logger.error(
+                    "Discard archive failed: \(error.localizedDescription)"
+                )
+                return
+            }
+            do {
+                let text = try await transcript(
+                    of: samples, sampleRate: sampleRate, using: transcriber
+                )
+                guard !text.isEmpty else { return }
+                try await history.save(.transcription(
+                    discarded.with(audio: audio, text: text)
                 ))
+            } catch {
+                // Audio is already durable; a failed transcript costs
+                // nothing the user can't recover later.
+                logger.warning(
+                    "Discard archive kept audio without transcript: \(error.localizedDescription)"
+                )
             }
-            if let onAudioDurable {
-                await MainActor.run { onAudioDurable() }
+        } else {
+            // Audio storage opted out: the TRANSCRIPT is the payload, so
+            // durability — and the quit gate — must wait for it. On any
+            // failure (or an empty transcript) nothing worth keeping is
+            // durable and the crash spool must survive for retry.
+            do {
+                defer { onSettled() }
+                guard try await history.save(.transcription(discarded))
+                    != .skippedDisabled else { return }
+                let text = try await transcript(
+                    of: samples, sampleRate: sampleRate, using: transcriber
+                )
+                guard !text.isEmpty else { return }
+                guard try await history.save(.transcription(
+                    discarded.with(audio: nil, text: text)
+                )) != .skippedDisabled else { return }
+                if let onPayloadDurable {
+                    await MainActor.run { onPayloadDurable() }
+                }
+            } catch {
+                logger.error(
+                    "Discard archive (transcript payload) failed; spool kept for retry: \(error.localizedDescription)"
+                )
+                return
             }
-        } catch {
-            logger.error(
-                "Discard archive failed: \(error.localizedDescription)"
-            )
-            return
         }
-        do {
-            if await !transcriber.isReady { try await transcriber.prepare() }
-            let text = try await transcriber.transcribe(
-                samples: samples, sampleRate: sampleRate
-            )
-            guard !text.isEmpty else { return }
-            try await history.save(.transcription(
-                discarded.with(audio: audio, text: text)
-            ))
-        } catch {
-            // Audio is already durable; a failed transcript costs
-            // nothing the user can't recover later.
-            logger.warning(
-                "Discard archive kept audio without transcript: \(error.localizedDescription)"
-            )
-        }
+    }
+
+    private static func transcript(
+        of samples: [Float], sampleRate: Double,
+        using transcriber: any TranscriptionProviding
+    ) async throws -> String {
+        if await !transcriber.isReady { try await transcriber.prepare() }
+        return try await transcriber.transcribe(
+            samples: samples, sampleRate: sampleRate
+        )
     }
 }
 

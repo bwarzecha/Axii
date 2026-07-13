@@ -40,27 +40,13 @@ final class SimpleCaptureSpoolTests: XCTestCase {
         historyService = nil
     }
 
-    // MARK: - Fakes
-
-    private actor StubTranscriber: TranscriptionProviding {
-        var isReady: Bool { true }
-        func prepare() async throws {}
-        func transcribe(samples: [Float], sampleRate: Double) async throws -> String {
-            "recovered words"
-        }
-    }
-
-    private func tone(seconds: Double, rate: Double) -> [Float] {
-        (0..<Int(seconds * rate)).map { i in
-            Float(sin(Double(i) * 2.0 * .pi * 440.0 / rate) * 0.5)
-        }
-    }
+    // MARK: - Fixtures
 
     private func writeSpool(
         seconds: Double, createdAt: Date? = nil
     ) throws -> SimpleCaptureSpool {
         let spool = SimpleCaptureSpool(directory: spoolDir)!
-        spool.append(samples: tone(seconds: seconds, rate: 16_000),
+        spool.append(samples: testTone(seconds: seconds),
                      sampleRate: 16_000)
         // Rewrite the sidecar when a test needs a specific recording date.
         if let createdAt {
@@ -84,7 +70,7 @@ final class SimpleCaptureSpoolTests: XCTestCase {
 
     func testAppendStreamsResampledSamplesToDisk() throws {
         let spool = SimpleCaptureSpool(directory: spoolDir)!
-        spool.append(samples: tone(seconds: 2, rate: 48_000),
+        spool.append(samples: testTone(seconds: 2, sampleRate: 48_000),
                      sampleRate: 48_000)
 
         let bytes = try Data(contentsOf: spool.dataURL)
@@ -119,7 +105,7 @@ final class SimpleCaptureSpoolTests: XCTestCase {
         _ = try writeSpool(seconds: 2, createdAt: recordedAt)
 
         await SimpleCaptureRecovery.run(
-            history: historyService, transcriber: StubTranscriber(),
+            history: historyService, transcriber: CannedTranscriber("recovered words"),
             directory: spoolDir
         )
 
@@ -142,7 +128,7 @@ final class SimpleCaptureSpoolTests: XCTestCase {
         )
 
         await SimpleCaptureRecovery.run(
-            history: historyService, transcriber: StubTranscriber(),
+            history: historyService, transcriber: CannedTranscriber("recovered words"),
             directory: spoolDir
         )
 
@@ -155,7 +141,7 @@ final class SimpleCaptureSpoolTests: XCTestCase {
         try Data("not json".utf8).write(to: spool.sidecarURL)
 
         await SimpleCaptureRecovery.run(
-            history: historyService, transcriber: StubTranscriber(),
+            history: historyService, transcriber: CannedTranscriber("recovered words"),
             directory: spoolDir
         )
 
@@ -164,10 +150,14 @@ final class SimpleCaptureSpoolTests: XCTestCase {
     }
 
     func testSubSecondSpoolIsSwept() async throws {
-        _ = try writeSpool(seconds: 0.3)
+        // Backdated past the live-spool youth guard so the duration check
+        // is what's exercised.
+        _ = try writeSpool(
+            seconds: 0.3, createdAt: Date().addingTimeInterval(-60)
+        )
 
         await SimpleCaptureRecovery.run(
-            history: historyService, transcriber: StubTranscriber(),
+            history: historyService, transcriber: CannedTranscriber("recovered words"),
             directory: spoolDir
         )
 
@@ -180,11 +170,67 @@ final class SimpleCaptureSpoolTests: XCTestCase {
         _ = try writeSpool(seconds: 2)
 
         await SimpleCaptureRecovery.run(
-            history: historyService, transcriber: StubTranscriber(),
+            history: historyService, transcriber: CannedTranscriber("recovered words"),
             directory: spoolDir
         )
 
         XCTAssertEqual(spoolFileCount(), 2,
                        "history off must not consume — the user may re-enable")
+    }
+
+    func testYoungSpoolIsPresumedLiveAndLeftAlone() async throws {
+        // Sidecar createdAt = now: exactly what a capture started during
+        // the launch window looks like when recovery enumerates.
+        _ = try writeSpool(seconds: 2)
+
+        await SimpleCaptureRecovery.run(
+            history: historyService, transcriber: CannedTranscriber("recovered words"),
+            directory: spoolDir
+        )
+
+        XCTAssertTrue(historyService.discardedMetadata().isEmpty)
+        XCTAssertEqual(spoolFileCount(), 2,
+                       "recovery must never consume a possibly-live spool")
+    }
+
+    func testSidecarWithoutPCMIsSwept() async throws {
+        let spool = try writeSpool(
+            seconds: 2, createdAt: Date().addingTimeInterval(-60)
+        )
+        try FileManager.default.removeItem(at: spool.dataURL)
+
+        await SimpleCaptureRecovery.run(
+            history: historyService, transcriber: CannedTranscriber("recovered words"),
+            directory: spoolDir
+        )
+
+        XCTAssertTrue(historyService.discardedMetadata().isEmpty)
+        XCTAssertEqual(spoolFileCount(), 0,
+                       "an unreadable spool is unrecoverable — swept, not looped")
+    }
+
+    // MARK: - Sidecar-less sweep
+
+    func testSweepExpiredRemovesOldOrphansButNeverFreshFiles() throws {
+        // A sidecar-less .pcm (aborted start that crashed) — the sweep is
+        // its ONLY cleanup path. A fresh file, by contrast, may be a LIVE
+        // capture's spool: an inverted age comparison here would destroy a
+        // recording in progress at every launch.
+        let old = spoolDir.appendingPathComponent("old.pcm")
+        let fresh = spoolDir.appendingPathComponent("fresh.pcm")
+        for url in [old, fresh] {
+            try Data([0, 0, 0, 0]).write(to: url)
+        }
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-8 * 24 * 3_600)],
+            ofItemAtPath: old.path
+        )
+
+        SimpleCaptureRecovery.sweepExpired(directory: spoolDir)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path),
+                       "expired orphan must be swept")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fresh.path),
+                      "a fresh file may be a live spool — never swept")
     }
 }

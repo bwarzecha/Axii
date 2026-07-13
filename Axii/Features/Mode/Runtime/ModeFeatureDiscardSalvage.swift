@@ -30,8 +30,9 @@ extension ModeFeature {
     func salvageDiscardedSimpleCapture() {
         // Custody of the crash spool moves here with the capture: it dies
         // with a sub-threshold/opted-out discard, or once the archive's
-        // audio write is durable — a crash in between leaves it on disk
-        // for next-launch recovery.
+        // PAYLOAD (audio — or the transcript when audio storage is off)
+        // is durable — a crash or archive failure in between leaves it on
+        // disk for next-launch recovery.
         let spool = activeCaptureSpool
         activeCaptureSpool = nil
         let capture = takeDiscardedCapture()
@@ -47,7 +48,7 @@ extension ModeFeature {
         discardArchiver.archive(
             samples: samples, sampleRate: sampleRate,
             config: historyOutputConfig(),
-            onAudioDurable: { spool?.discard() }
+            onPayloadDurable: { spool?.discard() }
         )
     }
 

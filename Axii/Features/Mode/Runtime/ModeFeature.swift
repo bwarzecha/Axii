@@ -220,30 +220,6 @@ final class ModeFeature: Feature, ModeDismissControlling {
 
     // MARK: - Feature Protocol
 
-    var panelContent: AnyView {
-        switch config.panel.layout {
-        case .standard:
-            AnyView(StandardPanelView(
-                state: state, config: config, hotkeyHint: hotkeyHint,
-                onStart: { [weak self] in self?.handleStartButton() },
-                onStop: { [weak self] in self?.handleStopButton() },
-                onClose: { [weak self] in self?.handleCloseButton() },
-                onMicrophoneSwitch: { [weak self] in self?.switchMicrophone(to: $0) },
-                onAppSelect: { [weak self] in self?.meetingHandler?.selectApp($0) },
-                onRefreshApps: { [weak self] in Task { await self?.meetingHandler?.refreshAppList() } },
-                onModeChange: { [weak self] in self?.state.panelMode = $0 },
-                onCopy: { [weak self] in self?.copyAndDismiss($0) },
-                onCopyLive: { [weak self] in self?.copyLiveTranscript() }
-            ))
-        case .conversation:
-            AnyView(ModeConversationView(
-                state: state, config: config, hotkeyHint: hotkeyHint,
-                onMicrophoneSwitch: { [weak self] in self?.switchMicrophone(to: $0) },
-                onCopy: { [weak self] in self?.copyAndDismiss($0) }
-            ))
-        }
-    }
-
     func register(with context: FeatureContext) {
         self.context = context
         registerHotkey()
@@ -312,53 +288,6 @@ final class ModeFeature: Feature, ModeDismissControlling {
         state.reset()
         isActive = false
         mediaControlService.resetState()
-    }
-
-    // MARK: - Data-Bearing Takeover Protection
-
-    var isDataBearing: Bool {
-        if meetingHandler?.hasLiveCapture == true { return true }
-        // An unsaved (history-off) meeting awaiting export exists ONLY in
-        // this panel and its on-disk artifacts — displacement must not
-        // silently destroy it.
-        if pendingMeetingExport != nil { return true }
-        // A discarded capture whose trash write is still in flight: the
-        // quit gate must not let the process die under it.
-        if discardArchiver.pendingWrites > 0 { return true }
-        switch state.phase {
-        case .recording, .transcribing, .processing: return true
-        default: return false
-        }
-    }
-
-    /// Stop-and-deliver whatever is in flight, releasing the UI without
-    /// destroying data: meetings save to history, dictation/conversation
-    /// turns finish in the background (their stale-write guards keep them
-    /// from touching the successor's UI).
-    func stopAndPreserve() {
-        if let handler = meetingHandler, handler.hasLiveCapture {
-            stopMeeting(saveToHistory: true)
-        } else if let export = pendingMeetingExport {
-            // History-off meeting awaiting export: copy the transcript out
-            // (the only delivery possible without history) and leave the
-            // recovery artifacts ON DISK — recoverable if history returns,
-            // expired otherwise. Only cancel() destroys them deliberately.
-            clipboardService.copy(Self.transcriptText(from: export.segments))
-            pendingMeetingExport = nil
-        } else if state.phase.isRecording,
-                  recordingHelper != nil || !carriedRecordingSegments.isEmpty {
-            // The carried check matters: inside the 0.1s mic-switch restart
-            // gap there is no helper, but the audio so far is carried and
-            // must be delivered, not cancelled.
-            if multiTurnProcessor != nil { stopAndProcessMultiTurn() }
-            else { stopSimpleRecording() }
-        } else if state.phase == .transcribing || state.phase == .processing {
-            // A turn or save is already in flight — let it finish detached.
-        } else {
-            cancel()
-            return
-        }
-        isActive = false
     }
 
     // MARK: - Helpers

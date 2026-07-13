@@ -23,7 +23,8 @@ private let logger = Logger(subsystem: "com.axii", category: "CaptureSpool")
 protocol CaptureSpooling: AnyObject {
     func append(samples: [Float], sampleRate: Double)
     /// Capture-device provenance for the sidecar — which mic actually
-    /// fed this spool (diagnosable after a crash, shown on recovery).
+    /// fed this spool. Crash forensics: read the .json beside an orphaned
+    /// .pcm to know what recorded it (nothing in-app consumes it).
     func noteDevice(_ device: AudioDevice?)
     /// Terminal state reached elsewhere: remove the spool from disk.
     func discard()
@@ -48,15 +49,17 @@ final class SimpleCaptureSpool: CaptureSpooling {
         var deviceUID: String?
     }
 
+    nonisolated static let directoryName = "InProgressDictations"
+
     nonisolated static var spoolDirectory: URL {
         let dir: URL
         if let override = AppLaunchOverrides.recoveryDirectoryOverride() {
-            dir = override.appendingPathComponent("InProgressDictations")
+            dir = override.appendingPathComponent(directoryName)
         } else {
             let appSupport = FileManager.default.urls(
                 for: .applicationSupportDirectory, in: .userDomainMask
             ).first!
-            dir = appSupport.appendingPathComponent("Axii/InProgressDictations")
+            dir = appSupport.appendingPathComponent("Axii/\(directoryName)")
         }
         try? FileManager.default.createDirectory(
             at: dir, withIntermediateDirectories: true
@@ -125,9 +128,17 @@ final class SimpleCaptureSpool: CaptureSpooling {
 
 // MARK: - Launch Recovery
 
-/// Archives orphaned capture spools into "Recently Deleted" at launch —
-/// runs before any capture starts, so it can never touch a live spool.
+/// Archives orphaned capture spools into "Recently Deleted" at launch.
 enum SimpleCaptureRecovery {
+
+    /// Spools younger than this are NEVER touched: launch recovery runs on
+    /// an unstructured task, so a hotkey seconds after startup can have a
+    /// LIVE spool on disk before recovery enumerates the directory. A
+    /// crashed capture's spool is minutes-to-days old by the time the
+    /// relaunch reaches recovery; anything younger is presumed live and
+    /// left for the next launch. This is the enforcement of "recovery
+    /// never touches a live spool" — not the comment.
+    static let minimumSpoolAge: TimeInterval = 5
 
     @MainActor
     static func run(
@@ -169,6 +180,10 @@ enum SimpleCaptureRecovery {
                 removeBoth() // same retention window as every artifact
                 continue
             }
+            guard now.timeIntervalSince(sidecar.createdAt)
+                >= Self.minimumSpoolAge else {
+                continue // presumed live — see minimumSpoolAge
+            }
             let samples = pcm.withUnsafeBytes {
                 Array($0.bindMemory(to: Float.self))
             }
@@ -181,7 +196,7 @@ enum SimpleCaptureRecovery {
             archiver.archive(
                 samples: samples, sampleRate: sidecar.sampleRate,
                 config: nil, createdAt: sidecar.createdAt,
-                onAudioDurable: { removeBoth() }
+                onPayloadDurable: { removeBoth() }
             )
         }
         // The recovered entries must be durable before this launch task

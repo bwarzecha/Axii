@@ -14,6 +14,21 @@ import Foundation
 /// Internal component for microphone capture via AVCaptureSession.
 /// Emits audio chunks and signal state changes via callbacks.
 final class MicrophoneCapture: NSObject, @unchecked Sendable {
+    /// Delivery format PINNED to float32 interleaved LPCM. Unpinned,
+    /// AVFoundation delivers whatever the environment negotiates
+    /// (observed: an arm-time race against coreaudiod client teardown
+    /// yields a misconverted stream — every recording becomes
+    /// constant-power noise). Deterministic delivery beats trusting
+    /// per-buffer descriptors alone. Regression-pinned by
+    /// MicrophoneCaptureFormatTests.
+    static let pinnedOutputSettings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVLinearPCMBitDepthKey: 32,
+        AVLinearPCMIsFloatKey: true,
+        AVLinearPCMIsNonInterleaved: false,
+        AVLinearPCMIsBigEndianKey: false,
+    ]
+
     private var captureSession: AVCaptureSession?
     private var audioOutput: AVCaptureAudioDataOutput?
     private let captureQueue = DispatchQueue(label: "audio.capture", qos: .userInteractive)
@@ -84,20 +99,9 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
         }
         session.addInput(audioInput)
 
-        // Add audio output. The delivery format is PINNED to float32 LPCM:
-        // unpinned, AVFoundation delivers whatever the environment
-        // negotiates (observed: an integer PCM variant under the XCUITest
-        // runner), and a format the extraction misreads turns every
-        // recording into constant-power noise. Deterministic delivery
-        // beats trusting per-buffer descriptors alone.
+        // Add audio output with the PINNED delivery format.
         let output = AVCaptureAudioDataOutput()
-        output.audioSettings = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVLinearPCMBitDepthKey: 32,
-            AVLinearPCMIsFloatKey: true,
-            AVLinearPCMIsNonInterleaved: false,
-            AVLinearPCMIsBigEndianKey: false,
-        ]
+        output.audioSettings = Self.pinnedOutputSettings
         output.setSampleBufferDelegate(self, queue: captureQueue)
 
         guard session.canAddOutput(output) else {

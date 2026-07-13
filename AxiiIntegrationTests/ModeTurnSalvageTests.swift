@@ -42,40 +42,17 @@ final class ModeTurnSalvageTests: XCTestCase {
 
     // MARK: - Fakes
 
-    private actor StubTranscriber: TranscriptionProviding {
-        var isReady: Bool { true }
-        func prepare() async throws {}
-        func transcribe(samples: [Float], sampleRate: Double) async throws -> String {
-            "salvaged"
-        }
-    }
-
-    private final class StubPasteProvider: PasteProviding {
-        func paste(
-            text: String,
-            focusSnapshot: FocusSnapshot?,
-            finishBehavior: FinishBehavior,
-            failureBehavior: InsertionFailureBehavior
-        ) async -> PasteService.Outcome { .skipped }
-    }
-
     private func makeFeature() -> ModeFeature {
         ModeFeature(
             config: DefaultModes.dictation(),
-            transcriptionService: StubTranscriber(),
+            transcriptionService: CannedTranscriber("salvaged"),
             micPermission: MicrophonePermissionService(),
-            pasteService: StubPasteProvider(),
+            pasteService: NoopPasteProvider(),
             clipboardService: ClipboardService(),
             settings: settings,
             historyService: historyService,
             mediaControlService: MediaControlService()
         )
-    }
-
-    private func tone(seconds: Double, sampleRate: Double = 16_000) -> [Float] {
-        (0..<Int(seconds * sampleRate)).map { i in
-            Float(sin(Double(i) * 2.0 * .pi * 440.0 / sampleRate) * 0.5)
-        }
     }
 
     /// A recording mid mic-switch: no live helper, audio carried, restart armed.
@@ -86,7 +63,7 @@ final class ModeTurnSalvageTests: XCTestCase {
         feature.state.phase = .recording
         feature.isActive = true
         feature.recordingHelper = nil
-        feature.carriedRecordingSegments = [(tone(seconds: carriedSeconds), 16_000)]
+        feature.carriedRecordingSegments = [(testTone(seconds: carriedSeconds), 16_000)]
         let restart = DispatchWorkItem {}
         feature.micSwitchRestartWorkItem = restart
         return restart

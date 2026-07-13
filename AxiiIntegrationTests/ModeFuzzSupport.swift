@@ -109,6 +109,18 @@ final class ChaosRecordingHelper: RecordingSessionProviding {
     }
 }
 
+// MARK: - Fuzz Spool
+
+/// Custody-tracked crash-spool fake: records whether the runtime resolved
+/// it (discarded after its payload landed) or leaked it.
+@MainActor
+final class FuzzSpool: CaptureSpooling {
+    private(set) var discarded = false
+    func append(samples: [Float], sampleRate: Double) {}
+    func noteDevice(_ device: AudioDevice?) {}
+    func discard() { discarded = true }
+}
+
 // MARK: - Accounting Transcriber
 
 /// Suspends on the gate hub and counts every sample it receives — the
@@ -152,6 +164,7 @@ final class ModeFuzzDriver {
     let profile: Profile
 
     private(set) var helpers: [ChaosRecordingHelper] = []
+    private(set) var spools: [FuzzSpool] = []
     private(set) var pendingDelayed: [DispatchWorkItem] = []
     private(set) var actionLog: [String] = []
     private var rng: SplitMix64
@@ -210,6 +223,11 @@ final class ModeFuzzDriver {
         }
         feature.scheduleDelayed = { [unowned self] _, item in
             self.pendingDelayed.append(item)
+        }
+        feature.makeCaptureSpool = { [unowned self] in
+            let spool = FuzzSpool()
+            self.spools.append(spool)
+            return spool
         }
     }
 
@@ -422,7 +440,30 @@ final class ModeFuzzDriver {
             violations.add("carried audio leaked in phase \(feature.state.phase)")
         }
 
-        // 4. Conservation — the invariant the Escape-loses-dictation bug
+        // 4. Spool custody: outside a live recording or an errored turn
+        //    still awaiting salvage, every crash spool must be resolved
+        //    (discarded once its payload landed) — anything else is a
+        //    disk leak accumulating across sessions.
+        let liveSpools = spools.filter { !$0.discarded }
+        switch feature.state.phase {
+        case .recording, .error:
+            // Exactly the CURRENT capture's spool may be live here.
+            if liveSpools.count > 1 {
+                violations.add(
+                    "\(liveSpools.count) crash spools live at once in phase "
+                    + "\(feature.state.phase) — predecessors leaked"
+                )
+            }
+        default:
+            if !liveSpools.isEmpty {
+                violations.add(
+                    "\(liveSpools.count) crash spool(s) leaked in phase "
+                    + "\(feature.state.phase)"
+                )
+            }
+        }
+
+        // 5. Conservation — the invariant the Escape-loses-dictation bug
         //    hid behind when cancels were "legal destruction". Every fuzz
         //    audio quantum (2s) is above the discard-salvage threshold, so
         //    with history on NO entry point may destroy samples anymore:

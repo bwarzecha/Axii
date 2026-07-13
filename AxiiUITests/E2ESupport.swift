@@ -27,6 +27,8 @@ enum E2EContract {
     static let modesDirKey = "AXII_MODES_DIR"
     static let recoveryDirKey = "AXII_RECOVERY_DIR"
     static let defaultsSuiteKey = "AXII_DEFAULTS_SUITE"
+    /// Mirrors SimpleCaptureSpool.directoryName (E2E cannot import the app).
+    static let dictationSpoolDirectory = "InProgressDictations"
     static let dictationModeID = "00000000-0000-0000-0000-000000000001"
     static let meetingModeID = "00000000-0000-0000-0000-000000000003"
     static let blackHoleUID = "BlackHole2ch_UID"

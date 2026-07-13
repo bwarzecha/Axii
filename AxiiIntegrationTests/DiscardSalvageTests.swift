@@ -44,31 +44,6 @@ final class DiscardSalvageTests: XCTestCase {
 
     // MARK: - Fakes
 
-    private actor StubTranscriber: TranscriptionProviding {
-        var isReady: Bool { true }
-        func prepare() async throws {}
-        func transcribe(samples: [Float], sampleRate: Double) async throws -> String {
-            "salvaged words"
-        }
-    }
-
-    private actor FailingTranscriber: TranscriptionProviding {
-        var isReady: Bool { true }
-        func prepare() async throws {}
-        func transcribe(samples: [Float], sampleRate: Double) async throws -> String {
-            throw TranscriptionError.notReady
-        }
-    }
-
-    private final class StubPasteProvider: PasteProviding {
-        func paste(
-            text: String,
-            focusSnapshot: FocusSnapshot?,
-            finishBehavior: FinishBehavior,
-            failureBehavior: InsertionFailureBehavior
-        ) async -> PasteService.Outcome { .skipped }
-    }
-
     /// A live capture holding a fixed number of seconds of audio.
     @MainActor
     private final class StubRecordingHelper: RecordingSessionProviding {
@@ -82,10 +57,8 @@ final class DiscardSalvageTests: XCTestCase {
         private var samples: [Float]
         private(set) var cancelled = false
 
-        init(seconds: Double, sampleRate: Double = 16_000) {
-            samples = (0..<Int(seconds * sampleRate)).map { i in
-                Float(sin(Double(i) * 2.0 * .pi * 440.0 / sampleRate) * 0.5)
-            }
+        init(seconds: Double) {
+            samples = testTone(seconds: seconds)
         }
 
         func start(source: AudioSource) async throws {}
@@ -101,13 +74,13 @@ final class DiscardSalvageTests: XCTestCase {
 
     private func makeFeature(
         config: ModeConfig = DefaultModes.dictation(),
-        transcriber: any TranscriptionProviding = StubTranscriber()
+        transcriber: any TranscriptionProviding = CannedTranscriber("salvaged words")
     ) -> ModeFeature {
         ModeFeature(
             config: config,
             transcriptionService: transcriber,
             micPermission: MicrophonePermissionService(),
-            pasteService: StubPasteProvider(),
+            pasteService: NoopPasteProvider(),
             clipboardService: ClipboardService(),
             settings: settings,
             historyService: historyService,
@@ -188,7 +161,7 @@ final class DiscardSalvageTests: XCTestCase {
     // MARK: - Errored turns
 
     func testErroredTurnIsSalvagedOnTeardown() async {
-        let feature = makeFeature(transcriber: FailingTranscriber())
+        let feature = makeFeature(transcriber: ThrowingTranscriber())
         _ = putFeatureInRecording(feature, seconds: 2)
 
         feature.stopSimpleRecording()
@@ -329,7 +302,7 @@ final class DiscardSalvageTests: XCTestCase {
     }
 
     func testErroredTurnKeepsSpoolForRecovery() async {
-        let feature = makeFeature(transcriber: FailingTranscriber())
+        let feature = makeFeature(transcriber: ThrowingTranscriber())
         let spool = FakeSpool()
         feature.activeCaptureSpool = spool
         _ = putFeatureInRecording(feature, seconds: 2)

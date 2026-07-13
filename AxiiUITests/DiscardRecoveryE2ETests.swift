@@ -10,6 +10,7 @@
 //  and Restore through the real History window must bring it back.
 //
 
+import Carbon.HIToolbox
 import XCTest
 
 final class DiscardRecoveryE2ETests: XCTestCase {
@@ -17,7 +18,7 @@ final class DiscardRecoveryE2ETests: XCTestCase {
     private var session: E2ESession!
     private var app: XCUIApplication!
 
-    private static let escapeKeyCode: CGKeyCode = 53 // kVK_Escape
+    private static let escapeKeyCode = CGKeyCode(kVK_Escape)
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -234,7 +235,7 @@ final class DiscardRecoveryE2ETests: XCTestCase {
 
     private func spoolFiles() -> [URL] {
         let dir = session.recoveryDir
-            .appendingPathComponent("InProgressDictations")
+            .appendingPathComponent(E2EContract.dictationSpoolDirectory)
         return (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil
         )) ?? []

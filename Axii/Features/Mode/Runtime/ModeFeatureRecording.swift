@@ -274,7 +274,9 @@ extension ModeFeature {
                 salvage = takeCarriedRecording()
             }
             if let (samples, sampleRate) = salvage,
-               sampleRate > 0, Double(samples.count) / sampleRate > 1.0 {
+               sampleRate > 0,
+               Double(samples.count) / sampleRate
+                   >= Self.discardSalvageMinimumSeconds {
                 state.audioLevel = 0; state.isWaitingForSignal = false
                 state.phase = .transcribing
                 state.activeCaptureDevice = nil
