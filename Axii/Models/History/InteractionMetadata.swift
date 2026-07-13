@@ -87,10 +87,13 @@ struct InteractionMetadata: Identifiable, Codable, Equatable {
     }
 
     /// When this interaction was discarded to "Recently Deleted", if ever.
-    /// Only meetings support the trash today; others are always nil.
+    /// Meetings and dictations support the trash; conversations are always nil.
     var discardedAt: Date? {
-        if case .meeting(let m) = details { return m.discardedAt }
-        return nil
+        switch details {
+        case .meeting(let m): return m.discardedAt
+        case .transcription(let t): return t.discardedAt
+        case .conversation: return nil
+        }
     }
 
     var isDiscarded: Bool { discardedAt != nil }

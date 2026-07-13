@@ -2,10 +2,11 @@
 //  HistoryServiceTrash.swift
 //  Axii
 //
-//  "Recently Deleted" for meetings: a discarded meeting is a real history
-//  row (audio + transcript intact) flagged `discardedAt`, hidden from the
-//  main list until the user restores it or the retention window sweeps it.
-//  So a mistaken Escape/close/discard is always recoverable.
+//  "Recently Deleted" for meetings and dictations: a discarded capture is
+//  a real history row (audio + transcript intact) flagged `discardedAt`,
+//  hidden from the main list until the user restores it or the retention
+//  window sweeps it. So a mistaken Escape/close/discard is always
+//  recoverable.
 //
 
 #if os(macOS)
@@ -15,7 +16,7 @@ extension HistoryService {
 
     // MARK: - Trash Queries
 
-    /// Meetings currently in "Recently Deleted", newest discard first.
+    /// Entries currently in "Recently Deleted", newest discard first.
     func discardedMetadata() -> [InteractionMetadata] {
         cache.values
             .filter { $0.isDiscarded }
@@ -37,22 +38,27 @@ extension HistoryService {
 
     // MARK: - Restore
 
-    /// Bring a discarded meeting back into the main history list. Rewrites
+    /// Bring a discarded entry back into the main history list. Rewrites
     /// the same folder (folderName is derived from createdAt+id, so it is
     /// stable across the flag change) with `discardedAt` cleared.
     @discardableResult
     func restoreDiscarded(id: UUID) async throws -> Bool {
         guard let metadata = cache[id], metadata.isDiscarded else { return false }
-        guard case .meeting(let meeting) = try await loadInteraction(id: id) else {
+        switch try await loadInteraction(id: id) {
+        case .meeting(let meeting):
+            try await save(.meeting(meeting.withDiscarded(nil)))
+            return true
+        case .transcription(let transcription):
+            try await save(.transcription(transcription.withDiscarded(nil)))
+            return true
+        case .conversation:
             return false
         }
-        try await save(.meeting(meeting.withDiscarded(nil)))
-        return true
     }
 
     // MARK: - Sweep
 
-    /// Permanently delete meetings discarded longer ago than the retention
+    /// Permanently delete entries discarded longer ago than the retention
     /// window. Runs at launch, before any capture — same lifetime as crash
     /// recovery so the whole reliability surface expires consistently.
     func sweepExpiredDiscards(

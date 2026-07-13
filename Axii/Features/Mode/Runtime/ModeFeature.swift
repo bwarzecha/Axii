@@ -66,6 +66,16 @@ final class ModeFeature: Feature, ModeDismissControlling {
     var turnGeneration = 0
     /// The in-flight post-capture turn, cancelled on teardown.
     var turnTask: Task<Void, Never>?
+    /// The audio behind the in-flight simple turn. Held from stop until the
+    /// turn DELIVERS (.done) so a cancel during .transcribing/.processing —
+    /// or a turn that dies in .error — can salvage the capture to
+    /// "Recently Deleted" instead of losing it with the cancelled task.
+    var inFlightTurnCapture: (samples: [Float], sampleRate: Double)?
+    /// Persists discarded simple captures into "Recently Deleted" —
+    /// see ModeFeatureDiscardSalvage.swift for what gets salvaged when.
+    private(set) lazy var discardArchiver = DiscardedCaptureArchiver(
+        history: historyService, transcriber: transcriptionService
+    )
     /// The in-flight meeting save-stop: a second Stop tap must join it, not
     /// race it (a second handler.stop would flip the UI to idle mid-save and
     /// generation-suppress the first stop's error reporting).
@@ -212,7 +222,8 @@ final class ModeFeature: Feature, ModeDismissControlling {
                 onAppSelect: { [weak self] in self?.meetingHandler?.selectApp($0) },
                 onRefreshApps: { [weak self] in Task { await self?.meetingHandler?.refreshAppList() } },
                 onModeChange: { [weak self] in self?.state.panelMode = $0 },
-                onCopy: { [weak self] in self?.copyAndDismiss($0) }
+                onCopy: { [weak self] in self?.copyAndDismiss($0) },
+                onCopyLive: { [weak self] in self?.copyLiveTranscript() }
             ))
         case .conversation:
             AnyView(ModeConversationView(
@@ -258,6 +269,11 @@ final class ModeFeature: Feature, ModeDismissControlling {
 
     /// Shared teardown for cancel and cancelAndDeactivate.
     private func teardownRuntime() {
+        // Before anything is destroyed: a simple capture this teardown
+        // would lose (live recording, in-flight turn, errored turn) goes
+        // to "Recently Deleted" instead — the dictation counterpart of
+        // the meeting discard below.
+        salvageDiscardedSimpleCapture()
         turnGeneration += 1
         turnTask?.cancel(); turnTask = nil
         cancelScheduledDismiss()
@@ -296,6 +312,9 @@ final class ModeFeature: Feature, ModeDismissControlling {
         // this panel and its on-disk artifacts — displacement must not
         // silently destroy it.
         if pendingMeetingExport != nil { return true }
+        // A discarded capture whose trash write is still in flight: the
+        // quit gate must not let the process die under it.
+        if discardArchiver.pendingWrites > 0 { return true }
         switch state.phase {
         case .recording, .transcribing, .processing: return true
         default: return false

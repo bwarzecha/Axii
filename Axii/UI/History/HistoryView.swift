@@ -150,7 +150,7 @@ struct HistoryView: View {
                 }
             }
             .buttonStyle(.plain)
-            .help(showTrash ? "Back to history" : "Recently Deleted meetings")
+            .help(showTrash ? "Back to history" : "Recently Deleted")
             .accessibilityIdentifier(AccessibilityID.historyTrashToggle)
         }
     }
@@ -163,7 +163,7 @@ struct HistoryView: View {
             Text("Nothing recently deleted")
                 .font(.headline)
                 .foregroundStyle(.secondary)
-            Text("Discarded meetings stay here for 7 days so you can restore them.")
+            Text("Discarded recordings stay here for 7 days so you can restore them.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

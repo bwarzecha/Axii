@@ -8,8 +8,17 @@ struct Transcription: Identifiable, Codable, Equatable {
     let pastedTo: String?       // App bundle ID where text was pasted
     let focusContext: FocusContext?  // Rich context for LLM corrections
     let createdAt: Date
+    /// When this dictation was discarded to "Recently Deleted", if ever.
+    /// A canceled capture is salvaged here rather than destroyed, so a
+    /// mistaken Escape is recoverable. Optional: entries from versions
+    /// before the trash decode as nil (never discarded).
+    var discardedAt: Date?
 
     var interactionType: InteractionType { .transcription }
+
+    /// List/search preview for a discarded capture whose transcript hasn't
+    /// been produced yet (salvage persists audio first, text best-effort).
+    static let discardedPreviewPlaceholder = "Canceled dictation (audio saved)"
 
     init(
         id: UUID = UUID(),
@@ -17,7 +26,8 @@ struct Transcription: Identifiable, Codable, Equatable {
         audioRecording: AudioRecording? = nil,
         pastedTo: String? = nil,
         focusContext: FocusContext? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        discardedAt: Date? = nil
     ) {
         self.id = id
         self.text = text
@@ -25,6 +35,15 @@ struct Transcription: Identifiable, Codable, Equatable {
         self.pastedTo = pastedTo
         self.focusContext = focusContext
         self.createdAt = createdAt
+        self.discardedAt = discardedAt
+    }
+
+    func withDiscarded(_ date: Date?) -> Transcription {
+        Transcription(
+            id: id, text: text, audioRecording: audioRecording,
+            pastedTo: pastedTo, focusContext: focusContext,
+            createdAt: createdAt, discardedAt: date
+        )
     }
 
     /// Generate metadata for this transcription
@@ -37,7 +56,8 @@ struct Transcription: Identifiable, Codable, Equatable {
                 hasAudio: audioRecording != nil,
                 hasContext: focusContext != nil,
                 appName: focusContext?.appName,
-                windowTitle: focusContext?.windowTitle
+                windowTitle: focusContext?.windowTitle,
+                discardedAt: discardedAt
             )
         )
         return InteractionMetadata(
@@ -45,7 +65,8 @@ struct Transcription: Identifiable, Codable, Equatable {
             type: .transcription,
             createdAt: createdAt,
             updatedAt: createdAt,
-            preview: text,
+            preview: text.isEmpty && discardedAt != nil
+                ? Self.discardedPreviewPlaceholder : text,
             details: details
         )
     }

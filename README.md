@@ -39,9 +39,11 @@ means in practice:
   original date.
 - **Recoverable for a week.** Crash artifacts survive for 7 days, so a
   laptop that dies on Friday still hands you the meeting on Monday.
-- **Mistakes are reversible.** Discarding a live meeting (Escape, close,
-  or switching modes) moves it to *Recently Deleted* — audio and
-  transcript intact, restorable with one click for 7 days.
+- **Mistakes are reversible.** Discarding a live recording — meeting OR
+  dictation — by Escape, close, switching modes, or quitting moves it to
+  *Recently Deleted*: audio and transcript intact, restorable with one
+  click for 7 days. An accidental Escape can no longer cost you a
+  recording.
 - **Protected while it matters.** During a live meeting, a stray Escape
   is ignored and the close button isn't offered; a save in progress
   refuses exits until your data is durably on disk. Sleep/wake, device
@@ -55,8 +57,8 @@ means in practice:
 
 Every change to Axii must pass a layered reliability gate:
 
-- **286 unit and integration tests**, including a crash-recovery matrix
-  that simulates dying at every lifecycle point
+- **Nearly 300 unit and integration tests**, including a crash-recovery
+  matrix that simulates dying at every lifecycle point
 - **Schedule fuzzers** that explore tens of thousands of seeded
   async-interleaving schedules per nightly run — every hotkey press,
   cancel, device switch, and error timing — checking that no audio is

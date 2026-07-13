@@ -8,6 +8,7 @@ struct TranscriptionMetadata: Codable, Equatable {
     let hasContext: Bool     // Whether focus context was captured
     let appName: String?     // App name for display
     let windowTitle: String? // Window title for display
+    let discardedAt: Date?   // In "Recently Deleted" since (nil = active)
 
     init(
         wordCount: Int,
@@ -15,7 +16,8 @@ struct TranscriptionMetadata: Codable, Equatable {
         hasAudio: Bool = false,
         hasContext: Bool = false,
         appName: String? = nil,
-        windowTitle: String? = nil
+        windowTitle: String? = nil,
+        discardedAt: Date? = nil
     ) {
         self.wordCount = wordCount
         self.pastedTo = pastedTo
@@ -23,6 +25,7 @@ struct TranscriptionMetadata: Codable, Equatable {
         self.hasContext = hasContext
         self.appName = appName
         self.windowTitle = windowTitle
+        self.discardedAt = discardedAt
     }
 
     // Custom decoder for backward compatibility with old history entries
@@ -34,9 +37,11 @@ struct TranscriptionMetadata: Codable, Equatable {
         hasContext = try container.decodeIfPresent(Bool.self, forKey: .hasContext) ?? false
         appName = try container.decodeIfPresent(String.self, forKey: .appName)
         windowTitle = try container.decodeIfPresent(String.self, forKey: .windowTitle)
+        discardedAt = try container.decodeIfPresent(Date.self, forKey: .discardedAt)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case wordCount, pastedTo, hasAudio, hasContext, appName, windowTitle
+        case wordCount, pastedTo, hasAudio, hasContext, appName, windowTitle,
+             discardedAt
     }
 }

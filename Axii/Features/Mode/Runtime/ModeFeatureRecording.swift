@@ -21,6 +21,9 @@ extension ModeFeature {
         // detected" timeout) must never fire into this new recording.
         cancelScheduledDismiss()
         turnGeneration += 1
+        // An errored turn's capture may still be held (kept for teardown
+        // salvage); a new turn is about to overwrite it — trash it now.
+        salvageDiscardedSimpleCapture()
         // Idempotency: a leftover helper (double-start) must be released,
         // and a NEW recording never inherits a previous one's audio.
         recordingHelper?.cancel(); recordingHelper = nil
@@ -138,15 +141,26 @@ extension ModeFeature {
 
         turnGeneration += 1
         let gen = turnGeneration
+        inFlightTurnCapture = (samples, sampleRate)
         turnTask = Task { [weak self] in
             await self?.singleShotProcessor.process(
                 capture: capture, config: turnConfig, state: state,
                 isCurrent: { [weak self] in self?.turnGeneration == gen }
             )
             guard let self, self.turnGeneration == gen else { return }
+            self.releaseTurnCaptureIfDelivered()
             self.state.focusSnapshot = nil
             self.resumeMediaIfNeeded()
         }
+    }
+
+    /// A delivered turn (.done — pasted, saved, or genuinely empty) no
+    /// longer needs its capture held. An ERRORED turn keeps it: the audio
+    /// was never delivered anywhere, so the eventual dismiss/teardown must
+    /// still be able to salvage it to "Recently Deleted".
+    func releaseTurnCaptureIfDelivered() {
+        if case .error = state.phase { return }
+        inFlightTurnCapture = nil
     }
 
     // MARK: - Multi Turn (Conversation)
@@ -184,6 +198,7 @@ extension ModeFeature {
 
         turnGeneration += 1
         let gen = turnGeneration
+        inFlightTurnCapture = (taken.samples, taken.sampleRate)
         turnTask = Task { [weak self] in
             await processor.process(
                 capture: capture, config: turnConfig, state: state,
@@ -192,6 +207,7 @@ extension ModeFeature {
             // Pause/resume must pair in BOTH turn families, or a paused
             // podcast stays paused forever after a successful conversation.
             guard let self, self.turnGeneration == gen else { return }
+            self.releaseTurnCaptureIfDelivered()
             self.resumeMediaIfNeeded()
         }
     }
@@ -209,7 +225,7 @@ extension ModeFeature {
 
     /// Stop the live helper and merge its audio with anything carried
     /// across mic switches. Clears the carried buffer.
-    private func takeCombinedRecording(
+    func takeCombinedRecording(
         finishing helper: any RecordingSessionProviding
     ) -> (samples: [Float], sampleRate: Double) {
         let current = helper.stop()
@@ -223,7 +239,7 @@ extension ModeFeature {
     /// Take the audio carried across a mic switch when no helper is live
     /// (the 0.1s restart gap, or a restart that failed). Cancels the pending
     /// restart so the microphone cannot re-arm after this capture is taken.
-    private func takeCarriedRecording() -> (samples: [Float], sampleRate: Double)? {
+    func takeCarriedRecording() -> (samples: [Float], sampleRate: Double)? {
         guard !carriedRecordingSegments.isEmpty else { return nil }
         micSwitchRestartWorkItem?.cancel(); micSwitchRestartWorkItem = nil
         let segments = carriedRecordingSegments
@@ -264,6 +280,11 @@ extension ModeFeature {
         // recording behind the dismiss timer armed below.
         state.activeCaptureDevice = nil
         turnGeneration += 1
+        // Multi-turn captures get no transcript salvage (their turn needs a
+        // conversation session, not a paste) — but an errored conversation
+        // recording is still the user's words: trash it, don't destroy it.
+        // Same ~1s bar; a singleShot capture reaching here is under it.
+        salvageDiscardedSimpleCapture()
         recordingHelper?.cancel()
         recordingHelper = nil
         switch error {

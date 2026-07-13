@@ -42,7 +42,13 @@ final class AxiiAppDelegate: NSObject, NSApplicationDelegate {
                 // quit" is still recoverable. (A discard of a NON-recording
                 // meeting — one already stopped — has no live artifacts and
                 // its trashed copy already survives in Recently Deleted.)
-                return .terminateNow
+                if mode.meetingHandler != nil { return .terminateNow }
+                // A simple-mode recording is MEMORY-only — terminating now
+                // is the one discard the trash can't catch. Cancel routes
+                // it to "Recently Deleted"; the drain loop below then holds
+                // termination until the audio write lands (the archiver's
+                // pending write keeps the mode data-bearing).
+                mode.cancel()
             default:
                 return .terminateCancel
             }

@@ -155,9 +155,6 @@ final class ModeFuzzDriver {
     private(set) var actionLog: [String] = []
     private var rng: SplitMix64
     private var explicitCancels = 0
-    /// Carried audio destroyed by cancel-family entry points (teardown
-    /// clears the carried buffer directly, invisibly to the helper fakes).
-    private var driverDiscarded = 0
 
     private let devices = [
         AudioDevice(id: 1, uid: "mic-a", name: "Mic A", transportType: .usb),
@@ -301,9 +298,7 @@ final class ModeFuzzDriver {
         case .emitAudio:
             helpers.last { $0.live }?.emitAudio()
         case .fireDelayed:
-            // A fired timer may be a dismiss -> teardown, which destroys
-            // carried audio directly; account it as a discard.
-            measuringCarriedDiscard { fireRandomDelayed() }
+            fireRandomDelayed()
         case .micSwitch:
             let device = randomDevice()
             feature.switchMicrophone(to: device)
@@ -324,29 +319,14 @@ final class ModeFuzzDriver {
             feature.stopAndPreserve()
         case .escape:
             explicitCancels += 1
-            measuringCarriedDiscard { feature.handleEscape() }
+            feature.handleEscape()
         case .closeButton:
             explicitCancels += 1
-            measuringCarriedDiscard { feature.handleCloseButton() }
+            feature.handleCloseButton()
         case .cancel:
             explicitCancels += 1
-            measuringCarriedDiscard { feature.cancel() }
+            feature.cancel()
         }
-    }
-
-    /// Carried audio that a cancel-family call destroys is cleared by
-    /// teardown without touching any helper — measure it around the call.
-    private func measuringCarriedDiscard(_ body: () -> Void) {
-        let before = carriedCount
-        body()
-        let after = carriedCount
-        if after < before {
-            driverDiscarded += before - after
-        }
-    }
-
-    private var carriedCount: Int {
-        feature.carriedRecordingSegments.reduce(0) { $0 + $1.samples.count }
     }
 
     private func randomDevice() -> AudioDevice? {
@@ -369,15 +349,17 @@ final class ModeFuzzDriver {
             gates.releaseAll()
             pendingDelayed.removeAll { $0.isCancelled }
             if let item = pendingDelayed.popLast() {
-                measuringCarriedDiscard { item.perform() }
+                item.perform()
             }
             for _ in 0..<10 { await Task.yield() }
             if gates.pendingCount == 0, pendingDelayed.isEmpty {
                 if let turn = feature.turnTask { await turn.value }
+                await drainDiscardSalvage()
                 // One extra sweep so work spawned by the turn's tail lands.
                 for _ in 0..<10 { await Task.yield() }
                 pendingDelayed.removeAll { $0.isCancelled }
-                if gates.pendingCount == 0, pendingDelayed.isEmpty {
+                if gates.pendingCount == 0, pendingDelayed.isEmpty,
+                   feature.discardArchiver.currentTask == nil {
                     return
                 }
             }
@@ -388,6 +370,22 @@ final class ModeFuzzDriver {
             + "\(feature.turnTask == nil ? "nil" : "live"), "
             + "phase \(feature.state.phase)"
         )
+    }
+
+    /// Await any discard-salvage persist. Its transcript enrichment suspends
+    /// on the "transcribe" gate like every other transcription, so a
+    /// releaser keeps the hub flowing while we wait — awaiting directly
+    /// would deadlock on a gate nobody else releases.
+    private func drainDiscardSalvage() async {
+        guard feature.discardArchiver.currentTask != nil else { return }
+        let releaser = Task { @MainActor [gates] in
+            while !Task.isCancelled {
+                gates.releaseAll()
+                await Task.yield()
+            }
+        }
+        await feature.discardArchiver.drain()
+        releaser.cancel()
     }
 
     // MARK: Invariants
@@ -423,9 +421,14 @@ final class ModeFuzzDriver {
             violations.add("carried audio leaked in phase \(feature.state.phase)")
         }
 
-        // 4. Conservation. Strict in the no-cancel profile: every sample
-        //    recorded reaches the transcriber, sits in a live buffer, or is
-        //    carried across a mic switch — nothing is discarded or vanishes.
+        // 4. Conservation — the invariant the Escape-loses-dictation bug
+        //    hid behind when cancels were "legal destruction". Every fuzz
+        //    audio quantum (2s) is above the discard-salvage threshold, so
+        //    with history on NO entry point may destroy samples anymore:
+        //    they reach the transcriber (turn or salvage), sit in a live
+        //    buffer, or are carried. Cancels are allowed to OVER-deliver
+        //    (a capture cancelled mid-turn is re-transcribed by the
+        //    salvage), never to lose.
         let recorded = helpers.reduce(0) { $0 + $1.recordedTotal }
         let discarded = helpers.reduce(0) { $0 + $1.discardedTotal }
         let buffered = helpers.reduce(0) { $0 + $1.bufferedCount }
@@ -433,20 +436,26 @@ final class ModeFuzzDriver {
             .reduce(0) { $0 + $1.samples.count }
         let delivered = await transcriber.receivedSamples
         let accounted = delivered + buffered + carried
+        if discarded != 0 {
+            violations.add(
+                "a helper destroyed audio above the salvage threshold: "
+                + "discarded \(discarded) of recorded \(recorded)"
+            )
+        }
         if profile == .noCancel {
-            if accounted != recorded || discarded != 0 || driverDiscarded != 0 {
+            if accounted != recorded {
                 violations.add(
                     "audio vanished without a cancel: recorded \(recorded), "
                     + "delivered \(delivered), buffered \(buffered), "
-                    + "carried \(carried), discarded \(discarded), "
-                    + "teardown-discarded \(driverDiscarded)"
+                    + "carried \(carried)"
                 )
             }
-        } else if accounted + discarded + driverDiscarded != recorded {
+        } else if accounted < recorded {
             violations.add(
-                "audio unaccounted for: recorded \(recorded), delivered "
-                + "\(delivered), discarded \(discarded), teardown-discarded "
-                + "\(driverDiscarded), buffered \(buffered), carried \(carried)"
+                "audio vanished through a cancel path: recorded \(recorded), "
+                + "delivered \(delivered), buffered \(buffered), "
+                + "carried \(carried) — a discard must salvage to the "
+                + "trash, never destroy"
             )
         }
     }
