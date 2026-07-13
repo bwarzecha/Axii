@@ -1,0 +1,92 @@
+name: Release fuzz
+
+# The 50,000-seed release-tier deep fuzz, sharded across parallel macOS
+# runners: 10 shards x seeds_per_shard, each shard running BOTH fuzzers
+# over a disjoint seed range (AXII_FUZZ_SEED_START). Seeds are
+# independent, so 10 x 5,000 covers the same space as one 50,000 run in
+# a fraction of the wall clock — and off any developer machine.
+# Dispatch before tagging a release; the real-UI E2E suite remains the
+# only local pre-tag step.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seeds_per_shard:
+        description: "Seeds per shard (10 shards; 5000 = release tier)"
+        default: "5000"
+
+jobs:
+  fuzz-shard:
+    name: Fuzz shard ${{ matrix.shard }}
+    runs-on: macos-26
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Checkout AxiiDiarization (local sibling package)
+        run: git clone --depth 1 https://github.com/bwarzecha/AxiiDiarization.git ../AxiiDiarization
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Axii.xcodeproj \
+            -scheme Axii
+
+      - name: Deep capture fuzz (shard range)
+        run: |
+          PER=${{ inputs.seeds_per_shard }}
+          START=$(( ${{ matrix.shard }} * PER ))
+          echo "capture fuzz seeds [$START, $((START + PER)))"
+          TEST_RUNNER_AXII_FUZZ_SEEDS=$PER \
+          TEST_RUNNER_AXII_FUZZ_SEED_START=$START \
+          xcodebuild test \
+            -project Axii.xcodeproj \
+            -scheme Axii \
+            -destination 'platform=macOS' \
+            -only-testing:AxiiIntegrationTests/MeetingConcurrencyFuzzTests \
+            -parallel-testing-enabled NO \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO
+
+      - name: Deep interaction fuzz (shard range, 2 profiles)
+        run: |
+          PER=${{ inputs.seeds_per_shard }}
+          START=$(( ${{ matrix.shard }} * PER ))
+          echo "interaction fuzz seeds [$START, $((START + PER))) per profile"
+          TEST_RUNNER_AXII_FUZZ_ITERATIONS=$PER \
+          TEST_RUNNER_AXII_FUZZ_SEED_START=$START \
+          xcodebuild test \
+            -project Axii.xcodeproj \
+            -scheme Axii \
+            -destination 'platform=macOS' \
+            -only-testing:AxiiIntegrationTests/ModeInteractionFuzzTests \
+            -parallel-testing-enabled NO \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload xcresult on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresults-shard-${{ matrix.shard }}-${{ github.run_id }}
+          path: ~/Library/Developer/Xcode/DerivedData/**/Logs/Test/*.xcresult
+          if-no-files-found: ignore
