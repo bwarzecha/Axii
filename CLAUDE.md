@@ -106,7 +106,10 @@ Registration is handled by `HotkeyService`/`AdvancedHotkeyService` via
 `FeatureManager` — modes do not register hotkeys directly.
 
 ## Core Services
-- `Services/Audio/` - Microphone and system-audio capture (AudioSession)
+- `Services/Audio/` - Microphone and system-audio capture (AudioSession).
+  Bluetooth mics get a silent-output ownership grab for the capture's
+  lifetime (`BluetoothWarmupGrab`) — multipoint AirPods otherwise deliver
+  zeros forever; evidence in `poc/bt-warmup/FINDINGS.md`
 - `TranscriptionService` - Speech-to-text (FluidAudio / Parakeet, actor)
 - `DiarizationService` - Speaker separation for meetings
 - `Services/Pipeline/` - Post-transcription processing steps

@@ -64,10 +64,15 @@ final class AudioSession {
     private var config: SessionConfig?
     private var currentDevice: AudioDevice?
     private(set) var isRunning = false
+    /// Held for the capture's lifetime when the mic is Bluetooth: a silent
+    /// output stream is the ONLY thing that forces a multipoint headset to
+    /// hand its mic to this Mac (see BluetoothWarmupGrab). No-op for wired.
+    private let warmupGrab: BluetoothWarmupGrabbing
 
     // MARK: - Initialization
 
-    init() {
+    init(warmupGrab: BluetoothWarmupGrabbing = BluetoothWarmupGrab()) {
+        self.warmupGrab = warmupGrab
         var chunkCont: AsyncStream<AudioSessionChunk>.Continuation!
         var eventCont: AsyncStream<AudioEvent>.Continuation!
 
@@ -135,6 +140,14 @@ final class AudioSession {
             targetDevice = nil
         }
 
+        // Bluetooth mics need the ownership grab BEFORE capture opens: the
+        // multipoint handoff (~1s) then races the capture spin-up instead
+        // of stalling it (input alone never wins the headset — measured).
+        let resolvedDevice = targetDevice ?? DeviceMonitor.systemDefaultDevice()
+        if let device = resolvedDevice, device.isBluetooth {
+            warmupGrab.start(for: device)
+        }
+
         // Setup device monitor
         let monitor = DeviceMonitor()
         monitor.onDeviceDisconnected = { [weak self] device in
@@ -165,10 +178,12 @@ final class AudioSession {
 
         do {
             try mic.start(device: targetDevice)
-            currentDevice = targetDevice ?? DeviceMonitor.systemDefaultDevice()
+            currentDevice = resolvedDevice
         } catch let error as AudioSessionError {
+            warmupGrab.stop()
             throw error
         } catch {
+            warmupGrab.stop()
             throw AudioSessionError.captureFailure(underlying: error.localizedDescription)
         }
     }
@@ -236,6 +251,12 @@ final class AudioSession {
         deviceMonitor = monitor
         currentDevice = micDevice ?? DeviceMonitor.systemDefaultDevice()
 
+        // Same ownership grab as the mic-only path: a Bluetooth meeting mic
+        // wedges identically inside SCStream's combined capture.
+        if let device = currentDevice, device.isBluetooth {
+            warmupGrab.start(for: device)
+        }
+
         // Use SystemAudioCapture with combined mode (macOS 14.4+)
         let sys = SystemAudioCapture()
         sys.onChunk = { [weak self] chunk in
@@ -248,7 +269,12 @@ final class AudioSession {
         }
         systemCapture = sys
 
-        try await sys.start(apps: apps, includeMicrophone: true, micDevice: micDevice)
+        do {
+            try await sys.start(apps: apps, includeMicrophone: true, micDevice: micDevice)
+        } catch {
+            warmupGrab.stop()
+            throw error
+        }
     }
 
     /// Stop capturing, streams finish.
@@ -260,6 +286,7 @@ final class AudioSession {
         systemCapture?.stop()
         systemCapture = nil
         deviceMonitor = nil
+        warmupGrab.stop()
         isRunning = false
 
         chunkContinuation.finish()
@@ -328,6 +355,13 @@ final class AudioSession {
                 capture = newCapture
                 currentDevice = defaultDevice
                 deviceMonitor?.monitorDevice(nil)
+                // The grab follows the mic: a Bluetooth fallback needs the
+                // ownership steal too; a wired fallback releases the headset.
+                if defaultDevice.isBluetooth {
+                    warmupGrab.start(for: defaultDevice)
+                } else {
+                    warmupGrab.stop()
+                }
                 eventContinuation.yield(.deviceChanged(to: defaultDevice))
             } catch {
                 eventContinuation.yield(.error(.deviceUnavailable))
