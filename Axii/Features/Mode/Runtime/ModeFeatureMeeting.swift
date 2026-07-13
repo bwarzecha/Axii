@@ -118,6 +118,11 @@ extension ModeFeature {
         // does, and the handler's own fallback would read empty segments —
         // losing the only transcript in existence if finalization also fails.
         let streamedSegments = state.segments
+        // Snapshot the persistence contract too: a NEW meeting started while
+        // this save drains re-freezes meetingHistoryEnabledAtStart — the OLD
+        // meeting must be persisted under the contract IT recorded under
+        // (fuzzer seed 18718's sibling hazard).
+        let historyContract = meetingHistoryEnabledAtStart
         let task = Task { @MainActor in
             // Clear only OUR registration: a newer era's stop may have
             // replaced it while this one drained.
@@ -151,14 +156,19 @@ extension ModeFeature {
             if let result, persists {
                 let discardedAt = disposition == .discard ? Date() : nil
                 guard await persistMeeting(
-                    result, generation: gen, discardedAt: discardedAt
+                    result, generation: gen, era: era,
+                    historyContract: historyContract, discardedAt: discardedAt
                 ) else { return }
             }
-            // Resolve .processing to idle only when BOTH hold: the phase is
-            // still processing AND no newer stop was issued — a newer stop
-            // occupies .processing itself, and a phase check alone would
-            // stomp it mid-finalize.
-            if state.phase == .processing, gen == meetingStopGeneration {
+            // Resolve .processing to idle only when ALL hold: the phase is
+            // still processing, no newer stop was issued, AND no newer
+            // CAPTURE started. A cancel-then-restart bumps the era without
+            // ever issuing a stop, so a generation check alone lets this
+            // stale completion write into the new session's UI (fuzzer
+            // seed 18718: the new recording sailed on unowned under a
+            // published .done).
+            if state.phase == .processing, gen == meetingStopGeneration,
+               era == meetingCaptureEra {
                 state.phase = .idle
             }
             // The save is durable and the capture detached — an edit made
@@ -175,17 +185,22 @@ extension ModeFeature {
 
     /// Persist a finished meeting. Returns false when the caller must leave
     /// the phase alone (an error or an export state was published instead).
+    /// `historyContract` is the history-enabled snapshot from the meeting's
+    /// own start — never the instance var, which a newer meeting re-freezes.
     private func persistMeeting(
         _ result: MeetingPersistencePayload,
         generation gen: Int,
+        era: Int,
+        historyContract: Bool,
         discardedAt: Date?
     ) async -> Bool {
         // Honor the contract this meeting was recorded under, not whatever
         // the toggle says now. A history-off DISCARD has nowhere durable to
         // go and no export makes sense — drop it.
-        guard meetingHistoryEnabledAtStart else {
-            if discardedAt == nil { offerExport(of: result, generation: gen) }
-            else { result.recoveryArtifacts?.clear() }
+        guard historyContract else {
+            if discardedAt == nil {
+                offerExport(of: result, generation: gen, era: era)
+            } else { result.recoveryArtifacts?.clear() }
             return false
         }
         do {
@@ -200,17 +215,21 @@ extension ModeFeature {
                 // Nothing reached disk — keep the artifacts and hand the
                 // user the transcript rather than pretending it was saved
                 // (a discard has nothing to offer, so just release).
-                if discardedAt == nil { offerExport(of: result, generation: gen) }
-                else { result.recoveryArtifacts?.clear() }
+                if discardedAt == nil {
+                    offerExport(of: result, generation: gen, era: era)
+                } else { result.recoveryArtifacts?.clear() }
                 return false
             }
         } catch {
             logger.error("Failed to save meeting: \(error.localizedDescription)")
             // Surface the failure, and deliberately do NOT clear the recovery
             // artifacts: the meeting is not durably saved yet, so it must
-            // remain recoverable. Both guards matter: a newer stop's
-            // .processing must not be stomped by a stale error either.
-            if state.phase == .processing, gen == meetingStopGeneration {
+            // remain recoverable. All three guards matter: a newer stop's
+            // .processing must not be stomped by a stale error, and a newer
+            // CAPTURE era owns the UI outright (the artifacts still recover
+            // at next launch).
+            if state.phase == .processing, gen == meetingStopGeneration,
+               era == meetingCaptureEra {
                 state.phase = .error("Failed to save meeting")
                 // A displaced save (Save & Switch) fails on a HIDDEN panel:
                 // no surface shows the error and the user believes the
@@ -234,9 +253,16 @@ extension ModeFeature {
     /// closes — the transcript is not durably stored anywhere else.
     private func offerExport(
         of result: MeetingPersistencePayload,
-        generation gen: Int
+        generation gen: Int,
+        era: Int
     ) {
         guard gen == meetingStopGeneration else { return }
+        // A newer capture era owns the panel: parking an export (and its
+        // .done) there would stamp a stale meeting's UI onto a LIVE
+        // recording — the zombie of fuzzer seed 18718. Leave the artifacts
+        // on disk instead: recoverable at next launch, same policy as the
+        // busy-feature branch below.
+        guard era == meetingCaptureEra else { return }
         if !isActive {
             // The panel closed while the salvage ran. An offer parked in a
             // closed panel is worse than none: the next hotkey press would

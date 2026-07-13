@@ -49,6 +49,18 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   panel. (Deep interaction fuzzer, seed 34311: close a long meeting mid-
   persist, start a new one, stop it — the stop joined the stale task and
   audio was never detached.)
+- **Stop-COMPLETION writes are era-scoped too.** Everything a save task
+  publishes after its awaits — the `.processing → .idle` resolve, the
+  persist-failure `.error`, and the history-off export offer's `.done` —
+  requires `era == meetingCaptureEra` in addition to the stop-generation
+  check. A cancel-then-restart bumps the era WITHOUT issuing a new stop,
+  so generation alone lets the stale completion stamp its terminal phase
+  onto the new live recording. The meeting's persistence contract
+  (`meetingHistoryEnabledAtStart`) is likewise SNAPSHOT into the stop
+  task: a new meeting re-freezes the instance var while the old save
+  drains. (Sharded release fuzzer, seed 18718: cancel mid-save, start a
+  new meeting — the old save's export offer published `.done` over the
+  live recording, which sailed on unowned.)
 
 ## Crash recovery / artifact lifecycle
 
