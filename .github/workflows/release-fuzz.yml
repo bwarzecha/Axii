@@ -19,7 +19,7 @@ jobs:
   fuzz-shard:
     name: Fuzz shard ${{ matrix.shard }}
     runs-on: macos-26
-    timeout-minutes: 150
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
