@@ -1,0 +1,54 @@
+name: Nightly reliability
+
+# The deep tiers that are too heavy for per-push CI: ThreadSanitizer sweep
+# plus 10,000-seed capture and interaction fuzzes. The real-UI E2E layer
+# stays on a local machine (BlackHole, Accessibility, live session); the
+# real-ASR quirk tests self-skip on runners (no Parakeet models).
+
+on:
+  schedule:
+    - cron: "0 8 * * *" # nightly, 08:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  nightly-gate:
+    name: Reliability gate (nightly tier, no E2E)
+    runs-on: macos-15
+    timeout-minutes: 330
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Checkout AxiiDiarization (local sibling package)
+        run: git clone --depth 1 https://github.com/bwarzecha/AxiiDiarization.git ../AxiiDiarization
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Cache Swift Package Manager
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Axii.xcodeproj \
+            -scheme Axii
+
+      - name: Reliability gate (nightly tier)
+        run: |
+          AXII_SUITE_SKIP_E2E=1 AXII_SUITE_UNSIGNED=1 \
+            Scripts/reliability-suite.sh

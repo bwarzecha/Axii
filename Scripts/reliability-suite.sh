@@ -24,6 +24,12 @@
 #   Scripts/reliability-suite.sh             all layers (nightly)
 #   Scripts/reliability-suite.sh --release   all layers, 50,000-seed fuzzes
 #
+# CI knobs (GitHub macOS runners run every layer except E2E):
+#   AXII_SUITE_SKIP_E2E=1    skip layer 6 (needs BlackHole/Accessibility/
+#                            unlocked screen — local machines only)
+#   AXII_SUITE_UNSIGNED=1    ad-hoc/unsigned test builds (runners have no
+#                            signing identity)
+#
 # Run exclusively: no other xcodebuild may touch this DerivedData during a
 # tier, and the E2E layer additionally needs an input-idle, unlocked machine.
 #
@@ -34,6 +40,11 @@ DEST='platform=macOS'
 PROJ=Axii.xcodeproj
 SCHEME=Axii
 TIER=${1:-}
+
+XCFLAGS=()
+if [[ "${AXII_SUITE_UNSIGNED:-0}" == "1" ]]; then
+    XCFLAGS+=(CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO)
+fi
 
 # Runtime writes from tests (fuzz-created mode mic selections) land in an
 # ISOLATED defaults suite (AXII_DEFAULTS_SUITE, set by the Axii scheme's
@@ -63,35 +74,45 @@ run() {
 }
 
 run "Fast suite (both fuzzers at in-suite size)" \
-    xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST"
+    xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST" \
+    "${XCFLAGS[@]:-}"
 
 if [[ "$TIER" != "--pr" && "$TIER" != "--fast" ]]; then
     run "Thread Sanitizer sweep" \
         xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST" \
-        -enableThreadSanitizer YES
+        -enableThreadSanitizer YES "${XCFLAGS[@]:-}"
 
     run "Deep capture fuzz ($CAPTURE_SEEDS seeds)" \
         env TEST_RUNNER_AXII_FUZZ_SEEDS=$CAPTURE_SEEDS \
         xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST" \
-        -only-testing:AxiiIntegrationTests/MeetingConcurrencyFuzzTests
+        -only-testing:AxiiIntegrationTests/MeetingConcurrencyFuzzTests \
+        "${XCFLAGS[@]:-}"
 
     run "Deep interaction fuzz ($INTERACTION_SEEDS seeds x 2 profiles)" \
         env TEST_RUNNER_AXII_FUZZ_ITERATIONS=$INTERACTION_SEEDS \
         xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST" \
-        -only-testing:AxiiIntegrationTests/ModeInteractionFuzzTests
+        -only-testing:AxiiIntegrationTests/ModeInteractionFuzzTests \
+        "${XCFLAGS[@]:-}"
 fi
 
 if [[ "$TIER" != "--pr" && "$TIER" != "--fast" ]]; then
     run "Real-transcription quirks (skips if models absent)" \
         env TEST_RUNNER_AXII_REAL_ASR=1 \
         xcodebuild test -project "$PROJ" -scheme "$SCHEME" -destination "$DEST" \
-        -only-testing:AxiiIntegrationTests/RealTranscriptionQuirkTests
+        -only-testing:AxiiIntegrationTests/RealTranscriptionQuirkTests \
+        "${XCFLAGS[@]:-}"
 
     # Real-UI E2E: real app + synthetic hotkeys + BlackHole + real Parakeet.
     # Individual tests self-skip (not fail) when the machine lacks BlackHole
     # or the runner's Accessibility grant — see AxiiUITests/README.md.
-    run "Real-UI E2E suite (self-skips without BlackHole/Accessibility)" \
-        xcodebuild test -project "$PROJ" -scheme AxiiUITests -destination "$DEST"
+    # CI runners skip the whole layer: they have no audio loopback, no
+    # Accessibility grant, and no interactive session.
+    if [[ "${AXII_SUITE_SKIP_E2E:-0}" != "1" ]]; then
+        run "Real-UI E2E suite (self-skips without BlackHole/Accessibility)" \
+            xcodebuild test -project "$PROJ" -scheme AxiiUITests -destination "$DEST"
+    else
+        echo "== Real-UI E2E suite SKIPPED (AXII_SUITE_SKIP_E2E=1) =="
+    fi
 fi
 
 echo "ALL RELIABILITY GATES PASSED"

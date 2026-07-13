@@ -11,9 +11,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build
+  reliability-gate:
+    name: Reliability gate (PR tier)
     runs-on: macos-15
+    timeout-minutes: 90
 
     steps:
       - name: Checkout code
@@ -45,15 +46,14 @@ jobs:
             -project Axii.xcodeproj \
             -scheme Axii
 
-      - name: Build (Debug)
+      # Unit + integration + both schedule fuzzers at in-suite sizes —
+      # the same gate that used to run locally before every commit.
+      # E2E stays local-only (needs BlackHole, Accessibility, a live
+      # session); it is required before push for UI/capture changes.
+      - name: Reliability gate (--pr)
         run: |
-          xcodebuild build \
-            -project Axii.xcodeproj \
-            -scheme Axii \
-            -configuration Debug \
-            -destination "platform=macOS,arch=arm64" \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_ALLOWED=NO
+          AXII_SUITE_SKIP_E2E=1 AXII_SUITE_UNSIGNED=1 \
+            Scripts/reliability-suite.sh --pr
 
       - name: Build (Release)
         run: |
