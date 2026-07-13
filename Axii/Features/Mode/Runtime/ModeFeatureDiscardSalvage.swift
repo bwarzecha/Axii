@@ -28,16 +28,26 @@ extension ModeFeature {
     /// capture, and their live capture discards through stopMeeting(.discard),
     /// which owns the meeting trash path.
     func salvageDiscardedSimpleCapture() {
+        // Custody of the crash spool moves here with the capture: it dies
+        // with a sub-threshold/opted-out discard, or once the archive's
+        // audio write is durable — a crash in between leaves it on disk
+        // for next-launch recovery.
+        let spool = activeCaptureSpool
+        activeCaptureSpool = nil
         let capture = takeDiscardedCapture()
         guard historyService.isEnabled,
               let (samples, sampleRate) = capture,
               sampleRate > 0,
               Double(samples.count) / sampleRate
                   >= Self.discardSalvageMinimumSeconds
-        else { return }
+        else {
+            spool?.discard()
+            return
+        }
         discardArchiver.archive(
             samples: samples, sampleRate: sampleRate,
-            config: historyOutputConfig()
+            config: historyOutputConfig(),
+            onAudioDurable: { spool?.discard() }
         )
     }
 

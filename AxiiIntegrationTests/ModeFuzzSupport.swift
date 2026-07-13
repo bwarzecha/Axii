@@ -44,6 +44,7 @@ final class ChaosRecordingHelper: RecordingSessionProviding {
     var onSignalStateChanged: ((Bool) -> Void)?
     var onError: ((AudioSessionError) -> Void)?
     var onDeviceChanged: ((AudioDevice) -> Void)?
+    var captureSpool: (any CaptureSpooling)?
 
     init(
         id: Int,

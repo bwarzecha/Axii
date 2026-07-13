@@ -25,6 +25,10 @@ protocol RecordingSessionProviding: AnyObject {
     var onSignalStateChanged: ((Bool) -> Void)? { get set }
     var onError: ((AudioSessionError) -> Void)? { get set }
     var onDeviceChanged: ((AudioDevice) -> Void)? { get set }
+    /// Crash spool this capture streams into (nil = unspooled). Owned by
+    /// the capture SESSION, not the helper — a mic switch hands the same
+    /// spool to the replacement helper.
+    var captureSpool: (any CaptureSpooling)? { get set }
     func start(source: AudioSource) async throws
     func stop() -> (samples: [Float], sampleRate: Double)
     func cancel()
@@ -49,6 +53,7 @@ final class RecordingSessionHelper: RecordingSessionProviding {
     /// fallback). The UI must show the mic that is actually recording, not
     /// the one the user picked and lost.
     var onDeviceChanged: ((AudioDevice) -> Void)?
+    var captureSpool: (any CaptureSpooling)?
 
     // Internal state
     private var audioSession: AudioSession?
@@ -127,6 +132,7 @@ final class RecordingSessionHelper: RecordingSessionProviding {
             onSignalStateChanged?(true)
             startWarmupTimeout()
         }
+        captureSpool?.noteDevice(currentDevice)
     }
 
     /// Start timeout for Bluetooth warmup - fires error if signal not received in time.
@@ -184,6 +190,11 @@ final class RecordingSessionHelper: RecordingSessionProviding {
                 chunk.samples, from: chunk.sampleRate, to: sampleRate
             ))
         }
+        // Crash net: the same audio streams to disk as it arrives, so a
+        // process death mid-dictation leaves a recoverable spool.
+        captureSpool?.append(
+            samples: chunk.samples, sampleRate: chunk.sampleRate
+        )
 
         // Calculate visualization
         let rms = Self.calculateRMS(chunk.samples)
@@ -220,6 +231,7 @@ final class RecordingSessionHelper: RecordingSessionProviding {
 
         case .deviceChanged(let newDevice):
             currentDevice = newDevice
+            captureSpool?.noteDevice(newDevice)
             onDeviceChanged?(newDevice)
             if newDevice.isBluetooth {
                 // Re-arm the warmup state machine: without this, the

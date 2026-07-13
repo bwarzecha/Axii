@@ -115,7 +115,7 @@ harness layers and invariants is in `docs/meeting-reliability-model.md`.
 | Tier | What / catches | Command |
 |---|---|---|
 | Fast gate (pre-commit) | unit + integration + 500-seed capture fuzz + 2×300-seed interaction fuzz | `Scripts/reliability-suite.sh --pr` |
-| Real-UI E2E (pre-push; FIRST for UI/capture changes) | real app, real hotkeys, real audio, real ASR — 10 scenarios incl. kill -9 recovery, dual-source attribution, Escape-discard recovery | `xcodebuild test -project Axii.xcodeproj -scheme AxiiUITests -destination 'platform=macOS'` |
+| Real-UI E2E (pre-push; FIRST for UI/capture changes) | real app, real hotkeys, real audio, real ASR — 11 scenarios incl. kill -9 recovery (meeting AND dictation), dual-source attribution, Escape-discard recovery | `xcodebuild test -project Axii.xcodeproj -scheme AxiiUITests -destination 'platform=macOS'` |
 | Nightly | everything + TSan sweep + 10k-seed deep fuzzes + real-ASR quirks + E2E | `Scripts/reliability-suite.sh` |
 | Release | deep fuzzes at 50k seeds | `Scripts/reliability-suite.sh --release` |
 | Memory soak (opt-in) | 60-min meeting stop-time spike (budget 2 GB, measured 0.28 GB) | `TEST_RUNNER_AXII_SOAK=1 xcodebuild test … -only-testing:AxiiIntegrationTests/MeetingMemorySoakTests` |

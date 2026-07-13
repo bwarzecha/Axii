@@ -84,9 +84,20 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   write lands. Sub-second captures and history-off stay out of the trash.
   The interaction fuzzer enforces this as conservation: a cancel may
   over-deliver (salvage re-transcribes a mid-turn capture), never lose.
-  Known residuals (tracked, not yet fixed): no crash spool for simple
-  modes (kill -9 mid-dictation still loses the buffer), ASR false-empty
-  releases the capture, and the quit drain's 60 s deadline.
+- **Simple captures are crash-spooled from second zero.** Every
+  dictation/conversation capture streams to a disk spool as it records
+  (`SimpleCaptureSpool`: 16 kHz raw float32 + JSON sidecar, headerless so
+  death at any byte leaves a readable file; one spool per capture
+  SESSION, surviving mic switches and the post-stop turn). The spool is
+  discarded only at a terminal state — delivered, durably trashed, or
+  sub-threshold; an orphan on disk means the process died, and
+  `SimpleCaptureRecovery` at launch archives it into "Recently Deleted"
+  under its ORIGINAL date via the same archiver as user discards. A
+  failed archive leaves the spool for the next launch to retry. Tests
+  and fuzzers get no spool by default (nil factory); production wires
+  `SimpleCaptureSpool` at ModeFeature construction.
+  Known residuals (tracked, not yet fixed): ASR false-empty releases the
+  capture, and the quit drain's 60 s deadline edges.
 - **Reads do not destroy.** `checkForCrashRecovery()` never deletes a
   readable autosave file; only corrupt or expired files are removed. Expiry
   is keyed to the file's modification time (last autosave write), not the

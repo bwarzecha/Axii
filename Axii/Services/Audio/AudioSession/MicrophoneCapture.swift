@@ -84,8 +84,20 @@ final class MicrophoneCapture: NSObject, @unchecked Sendable {
         }
         session.addInput(audioInput)
 
-        // Add audio output
+        // Add audio output. The delivery format is PINNED to float32 LPCM:
+        // unpinned, AVFoundation delivers whatever the environment
+        // negotiates (observed: an integer PCM variant under the XCUITest
+        // runner), and a format the extraction misreads turns every
+        // recording into constant-power noise. Deterministic delivery
+        // beats trusting per-buffer descriptors alone.
         let output = AVCaptureAudioDataOutput()
+        output.audioSettings = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsNonInterleaved: false,
+            AVLinearPCMIsBigEndianKey: false,
+        ]
         output.setSampleBufferDelegate(self, queue: captureQueue)
 
         guard session.canAddOutput(output) else {

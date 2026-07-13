@@ -44,6 +44,16 @@ final class ModeFeature: Feature, ModeDismissControlling {
     var makeRecordingHelper: () -> any RecordingSessionProviding = {
         RecordingSessionHelper()
     }
+    /// Crash-spool factory for simple captures. Defaults to nil (no spool)
+    /// so tests and fuzzers never write recovery files; PRODUCTION wires
+    /// SimpleCaptureSpool at construction (AppController).
+    var makeCaptureSpool: () -> (any CaptureSpooling)? = { nil }
+    /// The current capture session's crash spool. Created per capture at
+    /// start, survives mic switches and the post-stop turn, and is
+    /// discarded only at a terminal state (delivered / durably trashed /
+    /// below the salvage threshold). An orphan on disk = crash → recovered
+    /// at next launch into "Recently Deleted".
+    var activeCaptureSpool: (any CaptureSpooling)?
     /// Busy-mode dialog decision; nil = real NSAlert.
     var busyChoiceProvider: (() -> ModeBusyChoice)?
     /// History-off confirm decision; nil = real NSAlert.

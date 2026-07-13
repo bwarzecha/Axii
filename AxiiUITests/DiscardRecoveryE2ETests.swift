@@ -162,6 +162,84 @@ final class DiscardRecoveryE2ETests: XCTestCase {
         XCTAssertTrue(restored, "interaction.json still carries discardedAt")
     }
 
+    func testKillNineMidDictationRecoversToRecentlyDeleted() throws {
+        app = session.makeApp()
+        app.launch()
+        XCTAssertTrue(app.statusItems.firstMatch.waitForExistence(timeout: 15))
+        sleep(3)
+
+        let fixture = Fixture.testingOneTwoThree
+        HotkeyDriver.press(
+            E2EContract.dictationKeyCode, flags: E2EContract.dictationFlags
+        )
+        XCTAssertTrue(
+            E2ESession.waitForPanelPhase(app, "recording", timeout: 10),
+            "dictation never reached recording"
+        )
+        sleep(1)
+        try AudioDriver.play(fixture.url, toDeviceUID: E2EContract.blackHoleUID)
+        sleep(1)
+
+        // The crash: no stop, no teardown, no salvage — memory is gone.
+        for instance in NSRunningApplication.runningApplications(
+            withBundleIdentifier: E2EContract.bundleID
+        ) {
+            kill(instance.processIdentifier, SIGKILL)
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+
+        XCTAssertFalse(
+            spoolFiles().isEmpty,
+            "no capture spool on disk after kill -9 — nothing to recover"
+        )
+
+        // Next launch archives the orphan into Recently Deleted.
+        let entriesBefore = session.historyEntryCount()
+        app = session.makeApp()
+        app.launch()
+        XCTAssertTrue(app.statusItems.firstMatch.waitForExistence(timeout: 15))
+
+        guard let entry = session.waitForNewHistoryEntry(
+            beyond: entriesBefore, timeout: 90
+        ) else {
+            return XCTFail("crashed dictation never recovered into history")
+        }
+        var payload = [String: Any]()
+        let deadline = Date().addingTimeInterval(60)
+        while Date() < deadline {
+            payload = interaction(of: entry) ?? [:]
+            if let text = payload["text"] as? String, !text.isEmpty { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        XCTAssertNotNil(
+            payload["discardedAt"],
+            "recovered capture must land in Recently Deleted"
+        )
+        let text = (payload["text"] as? String ?? "").lowercased()
+        for anchor in fixture.anchors {
+            XCTAssertTrue(
+                text.contains(anchor),
+                "recovered transcript lost anchor '\(anchor)': \"\(text)\""
+            )
+        }
+        let stats = try session.storedAudioStats(of: entry)
+        XCTAssertGreaterThan(
+            stats.rms, 0.005, "recovered dictation audio is silence"
+        )
+        XCTAssertTrue(
+            spoolFiles().isEmpty,
+            "a durably recovered spool must be consumed"
+        )
+    }
+
+    private func spoolFiles() -> [URL] {
+        let dir = session.recoveryDir
+            .appendingPathComponent("InProgressDictations")
+        return (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil
+        )) ?? []
+    }
+
     /// The `data` payload of the entry's interaction.json, or nil.
     private func interaction(of entry: URL) -> [String: Any]? {
         guard

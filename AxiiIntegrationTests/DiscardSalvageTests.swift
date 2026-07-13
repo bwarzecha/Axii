@@ -77,6 +77,7 @@ final class DiscardSalvageTests: XCTestCase {
         var onSignalStateChanged: ((Bool) -> Void)?
         var onError: ((AudioSessionError) -> Void)?
         var onDeviceChanged: ((AudioDevice) -> Void)?
+        var captureSpool: (any CaptureSpooling)?
 
         private var samples: [Float]
         private(set) var cancelled = false
@@ -287,6 +288,60 @@ final class DiscardSalvageTests: XCTestCase {
 
         XCTAssertTrue(historyService.discardedMetadata().isEmpty,
                       "the trash retention window applies to dictations like meetings")
+    }
+
+    // MARK: - Crash-spool custody
+
+    @MainActor
+    private final class FakeSpool: CaptureSpooling {
+        private(set) var discarded = false
+        func append(samples: [Float], sampleRate: Double) {}
+        func noteDevice(_ device: AudioDevice?) {}
+        func discard() { discarded = true }
+    }
+
+    func testDeliveredTurnDiscardsItsCrashSpool() async {
+        let feature = makeFeature()
+        let spool = FakeSpool()
+        feature.activeCaptureSpool = spool
+        _ = putFeatureInRecording(feature, seconds: 2)
+
+        feature.stopSimpleRecording()
+        await feature.turnTask?.value
+
+        XCTAssertEqual(feature.state.phase, .done)
+        XCTAssertTrue(spool.discarded,
+                      "a delivered capture no longer needs its crash net")
+    }
+
+    func testSalvagedDiscardKeepsSpoolUntilTrashWriteIsDurable() async {
+        let feature = makeFeature()
+        let spool = FakeSpool()
+        feature.activeCaptureSpool = spool
+        _ = putFeatureInRecording(feature, seconds: 2)
+
+        feature.handleEscape()
+        await awaitSalvage(feature)
+
+        XCTAssertTrue(spool.discarded,
+                      "spool released once the trash copy is on disk")
+        XCTAssertNil(feature.activeCaptureSpool)
+    }
+
+    func testErroredTurnKeepsSpoolForRecovery() async {
+        let feature = makeFeature(transcriber: FailingTranscriber())
+        let spool = FakeSpool()
+        feature.activeCaptureSpool = spool
+        _ = putFeatureInRecording(feature, seconds: 2)
+
+        feature.stopSimpleRecording()
+        await feature.turnTask?.value
+
+        guard case .error = feature.state.phase else {
+            return XCTFail("expected error phase")
+        }
+        XCTAssertFalse(spool.discarded,
+                       "an undelivered capture keeps its crash net armed")
     }
 
     // MARK: - Backward compatibility

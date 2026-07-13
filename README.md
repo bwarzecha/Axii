@@ -32,11 +32,11 @@ meeting — so Axii is engineered, tested, and continuously proven not to.
 Reliability here is not a promise — it is a tested invariant. What that
 means in practice:
 
-- **Crash-proof from second zero.** A meeting's audio and transcript are
-  spooled to disk from the moment recording starts and autosaved
-  continuously. Force-quit the app, `kill -9` it, kernel-panic the
-  machine — the next launch recovers the meeting into history under its
-  original date.
+- **Crash-proof from second zero.** Every recording — meetings AND
+  dictations — is spooled to disk from the moment capture starts.
+  Force-quit the app, `kill -9` it, kernel-panic the machine — the next
+  launch recovers a meeting into history, and a dictation into
+  *Recently Deleted*, under its original date.
 - **Recoverable for a week.** Crash artifacts survive for 7 days, so a
   laptop that dies on Friday still hands you the meeting on Monday.
 - **Mistakes are reversible.** Discarding a live recording — meeting OR

@@ -23,10 +23,12 @@ extension ModeFeature {
         turnGeneration += 1
         // An errored turn's capture may still be held (kept for teardown
         // salvage); a new turn is about to overwrite it — trash it now.
+        // The salvage also takes custody of the old crash spool.
         salvageDiscardedSimpleCapture()
         // Idempotency: a leftover helper (double-start) must be released,
         // and a NEW recording never inherits a previous one's audio.
         recordingHelper?.cancel(); recordingHelper = nil
+        activeCaptureSpool = makeCaptureSpool()
         micSwitchRestartWorkItem?.cancel(); micSwitchRestartWorkItem = nil
         carriedRecordingSegments = []
         // Published SYNCHRONOUSLY: capture start can suspend for seconds on
@@ -48,6 +50,9 @@ extension ModeFeature {
     private func beginCaptureSession() {
         let helper = makeRecordingHelper()
         recordingHelper = helper
+        // The SESSION's spool, not the helper's: a mic-switch replacement
+        // helper keeps streaming into the same crash net.
+        helper.captureSpool = activeCaptureSpool
         // Every callback is IDENTITY-GUARDED: a superseded helper's late
         // events (errors from a dying device, visualization stragglers) are
         // noise about a capture that no longer exists — acting on them can
@@ -157,10 +162,13 @@ extension ModeFeature {
     /// A delivered turn (.done — pasted, saved, or genuinely empty) no
     /// longer needs its capture held. An ERRORED turn keeps it: the audio
     /// was never delivered anywhere, so the eventual dismiss/teardown must
-    /// still be able to salvage it to "Recently Deleted".
+    /// still be able to salvage it to "Recently Deleted". The crash spool
+    /// follows the same custody — deleted on delivery, kept on error.
     func releaseTurnCaptureIfDelivered() {
         if case .error = state.phase { return }
         inFlightTurnCapture = nil
+        activeCaptureSpool?.discard()
+        activeCaptureSpool = nil
     }
 
     // MARK: - Multi Turn (Conversation)

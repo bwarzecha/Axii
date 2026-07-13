@@ -49,9 +49,16 @@ final class DiscardedCaptureArchiver {
 
     /// Archive a capture as a DISCARDED transcription entry. `config`
     /// shapes the persistence (audio on/off, format); nil uses defaults.
+    /// `createdAt` backdates the entry (crash recovery restores a capture
+    /// under its original date). `onAudioDurable` fires on the main actor
+    /// once entry + audio are on disk — the point where any crash spool
+    /// backing this capture may be deleted; it is NOT called on failure,
+    /// so a failed archive leaves the spool for the next launch to retry.
     /// Detached: must outlive the panel teardown that triggered it.
     func archive(
-        samples: [Float], sampleRate: Double, config: HistoryConfig?
+        samples: [Float], sampleRate: Double, config: HistoryConfig?,
+        createdAt: Date = Date(),
+        onAudioDurable: (@MainActor @Sendable () -> Void)? = nil
     ) {
         guard history.isEnabled else { return }
         let config = config ?? HistoryConfig()
@@ -65,7 +72,9 @@ final class DiscardedCaptureArchiver {
             await previous?.value
             await Self.persist(
                 samples: samples, sampleRate: sampleRate, config: config,
-                history: history, transcriber: transcriber
+                createdAt: createdAt,
+                history: history, transcriber: transcriber,
+                onAudioDurable: onAudioDurable
             ) {
                 // Audio durable (or failed-and-logged) either way: release
                 // the quit gate — nothing more can be waited for.
@@ -80,10 +89,14 @@ final class DiscardedCaptureArchiver {
 
     private static func persist(
         samples: [Float], sampleRate: Double, config: HistoryConfig,
+        createdAt: Date,
         history: HistoryService, transcriber: any TranscriptionProviding,
+        onAudioDurable: (@MainActor @Sendable () -> Void)?,
         onAudioSettled: () -> Void
     ) async {
-        let discarded = Transcription(text: "", discardedAt: Date())
+        let discarded = Transcription(
+            text: "", createdAt: createdAt, discardedAt: Date()
+        )
         var audio: AudioRecording?
         do {
             defer { onAudioSettled() }
@@ -96,6 +109,9 @@ final class DiscardedCaptureArchiver {
                 try await history.save(.transcription(
                     discarded.with(audio: audio)
                 ))
+            }
+            if let onAudioDurable {
+                await MainActor.run { onAudioDurable() }
             }
         } catch {
             logger.error(

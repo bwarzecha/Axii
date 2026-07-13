@@ -111,7 +111,7 @@ final class AppController {
     /// Single construction path for ModeFeature instances. Used by both
     /// startup registration and runtime custom-mode creation.
     private func makeModeFeature(from config: ModeConfig) -> ModeFeature {
-        ModeFeature(
+        let feature = ModeFeature(
             config: config,
             transcriptionService: transcriptionService,
             micPermission: micPermission,
@@ -124,6 +124,10 @@ final class AppController {
             llmService: llmService,
             diarizationService: config.audioCapture.isDual ? diarizationService : nil
         )
+        // Production captures stream to a crash spool; tests/fuzzers keep
+        // the nil default so they never write recovery files.
+        feature.makeCaptureSpool = { SimpleCaptureSpool() }
+        return feature
     }
 
     // MARK: - Settings Callbacks
@@ -193,9 +197,16 @@ final class AppController {
     private func startHistoryLoad() {
         Task {
             await historyService.loadAllMetadata()
-            // Purge meetings whose "Recently Deleted" window has passed —
+            // Purge entries whose "Recently Deleted" window has passed —
             // same retention as crash-recovery artifacts.
             await historyService.sweepExpiredDiscards()
+            // A dictation that died with the process left its crash spool
+            // behind: archive it into Recently Deleted under its original
+            // date. Runs before any capture can start a new spool.
+            await SimpleCaptureRecovery.run(
+                history: historyService, transcriber: transcriptionService
+            )
+            SimpleCaptureRecovery.sweepExpired()
         }
     }
 
