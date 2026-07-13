@@ -52,8 +52,16 @@ jobs:
       # session); it is required before push for UI/capture changes.
       - name: Reliability gate (--pr)
         run: |
-          AXII_SUITE_SKIP_E2E=1 AXII_SUITE_UNSIGNED=1 \
+          AXII_SUITE_SKIP_E2E=1 AXII_SUITE_UNSIGNED=1 AXII_SUITE_VERBOSE=1 \
             Scripts/reliability-suite.sh --pr
+
+      - name: Upload xcresult on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresults-${{ github.run_id }}
+          path: ~/Library/Developer/Xcode/DerivedData/**/Logs/Test/*.xcresult
+          if-no-files-found: ignore
 
       - name: Build (Release)
         run: |

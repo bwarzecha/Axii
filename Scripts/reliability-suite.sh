@@ -64,6 +64,12 @@ fi
 run() {
     echo "== $1 =="
     shift
+    # CI sets AXII_SUITE_VERBOSE=1: full output (collapsible there), so a
+    # target-level failure is diagnosable without a rerun.
+    if [[ "${AXII_SUITE_VERBOSE:-0}" == "1" ]]; then
+        "$@"
+        return
+    fi
     local output
     if output=$("$@" 2>&1); then
         echo "$output" | tail -3
