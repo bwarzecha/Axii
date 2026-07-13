@@ -17,7 +17,7 @@ concurrency:
 jobs:
   nightly-gate:
     name: Reliability gate (nightly tier, no E2E)
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 330
 
     steps:
