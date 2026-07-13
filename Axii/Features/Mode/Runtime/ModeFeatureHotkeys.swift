@@ -132,5 +132,13 @@ extension ModeFeature {
     func copyAndDismiss(_ text: String) {
         clipboardService.copy(text); cancelAndDeactivate()
     }
+
+    /// Copy the running meeting transcript mid-recording. Unlike
+    /// `copyAndDismiss`, this leaves the capture and panel untouched — the
+    /// meeting keeps recording while the user pastes the transcript so far.
+    func copyLiveTranscript() {
+        guard !state.segments.isEmpty else { return }
+        clipboardService.copy(Self.transcriptText(from: state.segments))
+    }
 }
 #endif

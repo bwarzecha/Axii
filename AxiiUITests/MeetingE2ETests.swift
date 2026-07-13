@@ -6,10 +6,14 @@
 //  real button click, capture runs from BlackHole, Stop persists a meeting
 //  whose mic-attributed segments carry the fixture's words.
 //
+//  Scenario 3b: copy transcript mid-meeting — the live "Copy" button puts
+//  the running transcript on the clipboard and the meeting keeps recording.
+//
 //  Scenario 5: kill -9 mid-meeting — a fresh launch recovers the meeting
 //  into history from the scratch recovery artifacts.
 //
 
+import AppKit
 import XCTest
 
 final class MeetingE2ETests: XCTestCase {
@@ -71,6 +75,77 @@ final class MeetingE2ETests: XCTestCase {
                 "mic segments lost anchor '\(anchor)': \"\(text)\""
             )
         }
+    }
+
+    // MARK: - Scenario 3b: copy transcript mid-meeting
+
+    /// The live "Copy" button puts the running transcript on the clipboard
+    /// WITHOUT stopping the meeting: after the copy the pasteboard carries the
+    /// fixture's words and the panel is still in the recording phase.
+    func testCopyLiveTranscriptWhileRecording() throws {
+        app = session.makeApp()
+        app.launch()
+        XCTAssertTrue(app.statusItems.firstMatch.waitForExistence(timeout: 15))
+        sleep(3)
+
+        openMeetingPanelAndStart()
+
+        sleep(1)
+        try AudioDriver.play(
+            Fixture.hopeItWorks.url, toDeviceUID: E2EContract.blackHoleUID
+        )
+
+        // The live copy button only exists once a segment has been
+        // transcribed — waiting on it also waits for the transcript to appear.
+        let copyButton = app.descendants(matching: .any)
+            .matching(identifier: E2EContract.panelCopyLiveID).firstMatch
+        XCTAssertTrue(
+            copyButton.waitForExistence(timeout: 60),
+            "live copy button never appeared — no transcript mid-meeting"
+        )
+
+        // Sentinel the pasteboard so the assertion reads the app's write, not
+        // whatever happened to be on the clipboard before.
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("axii-e2e-sentinel", forType: .string)
+
+        copyButton.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        ).click()
+
+        let copied = waitForClipboard(changedFrom: "axii-e2e-sentinel", timeout: 8)
+        let text = (copied ?? "").lowercased()
+        for anchor in Fixture.hopeItWorks.anchors {
+            XCTAssertTrue(
+                text.contains(anchor),
+                "clipboard lost anchor '\(anchor)': \"\(text)\""
+            )
+        }
+
+        // The whole point: copying did NOT stop the meeting.
+        XCTAssertTrue(
+            E2ESession.waitForPanelPhase(app, "recording", timeout: 4),
+            "copying the live transcript stopped the meeting"
+        )
+
+        // Leave nothing running: stop and discard.
+        clickPanelAction()
+    }
+
+    /// Poll the shared pasteboard until its string differs from `previous`.
+    private func waitForClipboard(
+        changedFrom previous: String, timeout: TimeInterval
+    ) -> String? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let current = NSPasteboard.general.string(forType: .string),
+               current != previous {
+                return current
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return nil
     }
 
     // MARK: - Scenario 5: kill -9 recovery

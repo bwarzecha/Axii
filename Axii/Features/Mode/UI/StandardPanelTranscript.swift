@@ -69,6 +69,13 @@ extension StandardPanelView {
                 }
                 .accessibilityIdentifier(AccessibilityID.panelTranscript)
             }
+            .overlay(alignment: .topTrailing) {
+                if state.phase.isRecording, let onCopyLive {
+                    LiveTranscriptCopyButton(onCopy: onCopyLive)
+                        .padding(.top, 6)
+                        .padding(.trailing, 10)
+                }
+            }
         }
     }
 
@@ -80,6 +87,44 @@ extension StandardPanelView {
         case .error: return "An error occurred"
         case .idle: return "Press Start to begin"
         case .done: return "Recording complete"
+        }
+    }
+}
+
+// MARK: - Live Transcript Copy Button
+
+/// Copies the running transcript mid-recording without stopping the meeting.
+/// Flashes a checkmark for confirmation, since nothing else changes on screen.
+struct LiveTranscriptCopyButton: View {
+    let onCopy: () -> Void
+    @State private var showCopied = false
+
+    var body: some View {
+        Button(action: copy) {
+            HStack(spacing: 4) {
+                Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
+                Text(showCopied ? "Copied" : "Copy")
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(showCopied ? Color.green : .secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule().fill(.background.opacity(0.85))
+            )
+            .overlay(Capsule().stroke(.primary.opacity(0.1), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help("Copy transcript so far")
+        .accessibilityIdentifier(AccessibilityID.panelCopyLiveButton)
+    }
+
+    private func copy() {
+        onCopy()
+        withAnimation { showCopied = true }
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            withAnimation { showCopied = false }
         }
     }
 }

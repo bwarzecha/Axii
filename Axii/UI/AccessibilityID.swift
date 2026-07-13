@@ -12,6 +12,7 @@ enum AccessibilityID {
     static let panelStopButton = "panel.stop"
     static let panelExpandButton = "panel.expand"
     static let panelCopyButton = "panel.copy"
+    static let panelCopyLiveButton = "panel.copyLive"
 
     // Floating panel — expanded view
     static let panelActionButton = "panel.action"

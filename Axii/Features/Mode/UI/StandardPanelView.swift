@@ -44,6 +44,7 @@ struct StandardPanelView: View {
     var onRefreshApps: (() -> Void)? = nil
     var onModeChange: ((PanelDisplayMode) -> Void)? = nil
     var onCopy: ((String) -> Void)? = nil
+    var onCopyLive: (() -> Void)? = nil
 
     var body: some View {
         if config.panel.preferences.compactModeEnabled

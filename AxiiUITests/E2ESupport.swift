@@ -40,6 +40,7 @@ enum E2EContract {
     static let panelAudioLevelID = "panel.audioLevel"
     static let panelStopID = "panel.stop"
     static let panelActionID = "panel.action"
+    static let panelCopyLiveID = "panel.copyLive"
     static let historyTrashToggleID = "history.trashToggle"
     static let historyRestoreID = "history.restore"
     static let panelMicPickerID = "panel.micPicker"
