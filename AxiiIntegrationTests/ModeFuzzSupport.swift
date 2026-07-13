@@ -362,33 +362,71 @@ final class ModeFuzzDriver {
     }
 
     /// Run everything to quiescence: no suspended gates, no pending timers,
-    /// no in-flight turn.
+    /// no in-flight turn. Convergence-based (see FuzzQuiescence.swift): a
+    /// released continuation's job may still be queued when pendingCount
+    /// reads 0 — e.g. a restarted helper's start resumed from its gate but
+    /// the job that sets live=true hasn't run — so the drain ends only once
+    /// the invariant-relevant fingerprint stops changing, with helper
+    /// liveness part of that fingerprint, not just feature-level state.
     private func drain() async {
-        for _ in 0..<200 {
-            gates.releaseAll()
-            pendingDelayed.removeAll { $0.isCancelled }
-            if let item = pendingDelayed.popLast() {
-                item.perform()
-            }
-            for _ in 0..<10 { await Task.yield() }
-            if gates.pendingCount == 0, pendingDelayed.isEmpty {
-                if let turn = feature.turnTask { await turn.value }
-                await drainDiscardSalvage()
-                // One extra sweep so work spawned by the turn's tail lands.
-                for _ in 0..<10 { await Task.yield() }
+        let converged = await settleUntilStable(
+            round: { _ in
+                gates.releaseAll()
                 pendingDelayed.removeAll { $0.isCancelled }
-                if gates.pendingCount == 0, pendingDelayed.isEmpty,
-                   feature.discardArchiver.currentTask == nil {
-                    return
+                if let item = pendingDelayed.popLast() {
+                    item.perform()
                 }
-            }
+                for _ in 0..<10 { await Task.yield() }
+                if gates.pendingCount == 0, pendingDelayed.isEmpty {
+                    // The turn may be mid-hop to its transcribe gate right
+                    // now — that gate parks AFTER this await starts, so a
+                    // bare await deadlocks. Keep the hub flowing while we
+                    // wait, exactly like drainDiscardSalvage().
+                    if let turn = feature.turnTask {
+                        await gates.releasingWhile { await turn.value }
+                    }
+                    await drainDiscardSalvage()
+                }
+            },
+            fingerprint: { drainFingerprint() }
+        )
+        pendingDelayed.removeAll { $0.isCancelled }
+        // turnTask may legitimately be a stale COMPLETED task here — the
+        // product only nils it on the cancel path. The round above already
+        // awaited it, so non-nil does not mean in-flight.
+        if converged, gates.pendingCount == 0, pendingDelayed.isEmpty,
+           feature.discardArchiver.currentTask == nil {
+            return
         }
         violations.add(
-            "drain did not reach quiescence — gates \(gates.pendingCount), "
+            "drain did not reach quiescence "
+            + "(converged \(converged)) — gates \(gates.pendingCount), "
             + "delayed \(pendingDelayed.count), turnTask "
             + "\(feature.turnTask == nil ? "nil" : "live"), "
             + "phase \(feature.state.phase)"
         )
+    }
+
+    /// Everything checkInvariants() reads, plus in-flight work markers.
+    private func drainFingerprint() -> String {
+        var parts = [
+            "gates:\(gates.pendingCount)",
+            "delayed:\(pendingDelayed.count)",
+            "phase:\(feature.state.phase)",
+            "turn:\(feature.turnTask != nil)",
+            "archiver:\(feature.discardArchiver.currentTask != nil)",
+            "carried:\(feature.carriedRecordingSegments.count)",
+        ]
+        for helper in helpers {
+            parts.append(
+                "h\(helper.id):\(helper.started),\(helper.live),"
+                + "\(helper.bufferedCount),\(helper.discardedTotal)"
+            )
+        }
+        for (index, spool) in spools.enumerated() {
+            parts.append("s\(index):\(spool.discarded)")
+        }
+        return parts.joined(separator: "|")
     }
 
     /// Await any discard-salvage persist. Its transcript enrichment suspends
@@ -397,14 +435,7 @@ final class ModeFuzzDriver {
     /// would deadlock on a gate nobody else releases.
     private func drainDiscardSalvage() async {
         guard feature.discardArchiver.currentTask != nil else { return }
-        let releaser = Task { @MainActor [gates] in
-            while !Task.isCancelled {
-                gates.releaseAll()
-                await Task.yield()
-            }
-        }
-        await feature.discardArchiver.drain()
-        releaser.cancel()
+        await gates.releasingWhile { await feature.discardArchiver.drain() }
     }
 
     // MARK: Invariants
