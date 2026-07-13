@@ -41,7 +41,10 @@ PROJ=Axii.xcodeproj
 SCHEME=Axii
 TIER=${1:-}
 
-XCFLAGS=()
+# The suites assume EXCLUSIVE state: one test host, one defaults suite
+# (AXII_DEFAULTS_SUITE), one DerivedData. CI runners default to parallel
+# host clones, which collide on all three — force serial everywhere.
+XCFLAGS=(-parallel-testing-enabled NO)
 if [[ "${AXII_SUITE_UNSIGNED:-0}" == "1" ]]; then
     XCFLAGS+=(CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=NO)
 fi
