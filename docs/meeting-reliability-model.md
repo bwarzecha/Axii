@@ -193,10 +193,13 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   profile; `AXII_FUZZ_ITERATIONS` scales the deep tiers. Found a real bug
   on its first run (stale error arming a dismiss timer that fired into the
   recording a resumed start later published) and the era-coalescing zombie
-  at deep seed 34311. Replay one failing seed with
-  `AXII_FUZZ_SEED_START=<seed>` + `AXII_FUZZ_ITERATIONS=1`; get a
-  per-action state timeline with `AXII_FUZZ_TRACE_FILE=<path>` (sidecar
-  file — xcodebuild logs swallow test-host stdout).
+  at deep seed 34311. `AXII_FUZZ_SEED_START` is the ABSOLUTE first seed
+  for every test in the class (it overrides the per-test seed base, same
+  semantics as the capture fuzzer) — release shards use it for disjoint
+  ranges, and `AXII_FUZZ_SEED_START=<seed>` + `AXII_FUZZ_ITERATIONS=1`
+  replays exactly the seed a failure message printed, in any profile.
+  Get a per-action state timeline with `AXII_FUZZ_TRACE_FILE=<path>`
+  (sidecar file — xcodebuild logs swallow test-host stdout).
 - **Convergence-based quiescence** (both fuzzers,
   `AxiiIntegrationTests/FuzzQuiescence.swift`): gate release removes a
   waiter at RESUME time, so a resumed-but-not-yet-run continuation is
