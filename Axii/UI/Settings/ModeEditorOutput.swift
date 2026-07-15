@@ -12,6 +12,9 @@ import SwiftUI
 struct ModeEditorOutput: View {
     @Binding var config: ModeConfig
     let onSave: () -> Void
+    /// Save path for live-typed text (content templates). Debounced so the
+    /// cursor does not jump to the end on every keystroke.
+    let onTypingSave: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -107,7 +110,7 @@ struct ModeEditorOutput: View {
                 template: cfg.contentTemplate,
                 onUpdate: {
                     var updated = cfg; updated.contentTemplate = $0
-                    config.outputs[index] = .pasteAtCursor(updated); onSave()
+                    config.outputs[index] = .pasteAtCursor(updated); onTypingSave()
                 }
             )
         }
@@ -122,7 +125,7 @@ struct ModeEditorOutput: View {
             template: cfg.contentTemplate,
             onUpdate: {
                 config.outputs[index] = .clipboard(ClipboardConfig(contentTemplate: $0))
-                onSave()
+                onTypingSave()
             }
         )
     }
@@ -135,7 +138,7 @@ struct ModeEditorOutput: View {
             template: cfg.contentTemplate,
             onUpdate: {
                 config.outputs[index] = .display(DisplayConfig(contentTemplate: $0))
-                onSave()
+                onTypingSave()
             }
         )
     }
@@ -151,7 +154,7 @@ struct ModeEditorOutput: View {
                     get: { cfg.pathTemplate },
                     set: {
                         var updated = cfg; updated.pathTemplate = $0
-                        config.outputs[index] = .file(updated)
+                        config.outputs[index] = .file(updated); onTypingSave()
                     }
                 ))
                 .textFieldStyle(.roundedBorder)
@@ -176,7 +179,7 @@ struct ModeEditorOutput: View {
                 template: cfg.contentTemplate,
                 onUpdate: {
                     var updated = cfg; updated.contentTemplate = $0
-                    config.outputs[index] = .file(updated); onSave()
+                    config.outputs[index] = .file(updated); onTypingSave()
                 }
             )
         }
@@ -208,10 +211,9 @@ struct ModeEditorOutput: View {
     ) -> some View {
         DisclosureGroup("Content template") {
             VStack(alignment: .leading, spacing: 4) {
-                TextEditor(text: Binding(
-                    get: { template ?? "" },
-                    set: { onUpdate($0.isEmpty ? nil : $0) }
-                ))
+                StableTextEditor(text: template ?? "") {
+                    onUpdate($0.isEmpty ? nil : $0)
+                }
                 .font(.system(.caption, design: .monospaced))
                 .frame(height: 50)
                 .border(Color.secondary.opacity(0.3))

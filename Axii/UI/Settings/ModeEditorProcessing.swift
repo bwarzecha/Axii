@@ -11,6 +11,9 @@ import SwiftUI
 struct ModeEditorProcessing: View {
     @Binding var config: ModeConfig
     let onSave: () -> Void
+    /// Save path for live-typed text (prompt, input template). Debounced so
+    /// the cursor does not jump to the end on every keystroke.
+    let onTypingSave: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -126,15 +129,12 @@ struct ModeEditorProcessing: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Prompt:")
                 .font(.caption)
-            TextEditor(text: Binding(
-                get: { llmConfig.systemPrompt },
-                set: {
-                    var updated = llmConfig
-                    updated.systemPrompt = $0
-                    config.processing[index] = .llmTransform(updated)
-                    onSave()
-                }
-            ))
+            StableTextEditor(text: llmConfig.systemPrompt) {
+                var updated = llmConfig
+                updated.systemPrompt = $0
+                config.processing[index] = .llmTransform(updated)
+                onTypingSave()
+            }
             .font(.system(.caption, design: .monospaced))
             .frame(height: 60)
             .border(Color.secondary.opacity(0.3))
@@ -169,7 +169,7 @@ struct ModeEditorProcessing: View {
                                 var updated = llmConfig
                                 updated.label = $0.isEmpty ? nil : $0
                                 config.processing[index] = .llmTransform(updated)
-                                onSave()
+                                onTypingSave()
                             }
                         ))
                         .textFieldStyle(.roundedBorder)
@@ -184,15 +184,12 @@ struct ModeEditorProcessing: View {
 
                     Text("Input template:")
                         .font(.caption)
-                    TextEditor(text: Binding(
-                        get: { llmConfig.promptTemplate ?? "" },
-                        set: {
-                            var updated = llmConfig
-                            updated.promptTemplate = $0.isEmpty ? nil : $0
-                            config.processing[index] = .llmTransform(updated)
-                            onSave()
-                        }
-                    ))
+                    StableTextEditor(text: llmConfig.promptTemplate ?? "") {
+                        var updated = llmConfig
+                        updated.promptTemplate = $0.isEmpty ? nil : $0
+                        config.processing[index] = .llmTransform(updated)
+                        onTypingSave()
+                    }
                     .font(.system(.caption, design: .monospaced))
                     .frame(height: 50)
                     .border(Color.secondary.opacity(0.3))

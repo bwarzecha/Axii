@@ -30,6 +30,12 @@ struct ModeEditorView: View {
     @State private var showDeleteConfirmation = false
     @State private var showResetConfirmation = false
 
+    /// Pending debounced save. Live-typed text fields coalesce their saves
+    /// through this so a synchronous persist+reload does not fire on every
+    /// keystroke — that round-trip reassigns the parent's mode list, which
+    /// re-instantiates the TextEditor and snaps the cursor to the end.
+    @State private var pendingSave: Task<Void, Never>?
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
@@ -44,10 +50,18 @@ struct ModeEditorView: View {
                     ModeEditorTranscription(config: $config, onSave: saveConfig)
                 }
                 collapsibleSection(.processing) {
-                    ModeEditorProcessing(config: $config, onSave: saveConfig)
+                    ModeEditorProcessing(
+                        config: $config,
+                        onSave: saveConfig,
+                        onTypingSave: saveConfigDebounced
+                    )
                 }
                 collapsibleSection(.output) {
-                    ModeEditorOutput(config: $config, onSave: saveConfig)
+                    ModeEditorOutput(
+                        config: $config,
+                        onSave: saveConfig,
+                        onTypingSave: saveConfigDebounced
+                    )
                 }
                 collapsibleSection(.behavior) {
                     ModeEditorBehavior(
@@ -58,6 +72,11 @@ struct ModeEditorView: View {
                 }
             }
             .padding()
+        }
+        .onDisappear {
+            // Flush any in-flight debounced save so the last keystrokes in a
+            // template/prompt survive closing Settings or switching modes.
+            if pendingSave != nil { saveConfig() }
         }
         .alert("Delete Mode", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) { onDelete() }
@@ -160,8 +179,25 @@ struct ModeEditorView: View {
     // MARK: - Save
 
     private func saveConfig() {
+        pendingSave?.cancel()
+        pendingSave = nil
         guard (try? modeService.save(config)) != nil else { return }
         onConfigChanged(config)
+    }
+
+    /// Save after a short idle gap. Used by free-text editors (templates,
+    /// prompts) where saving on every keystroke would push a fresh config
+    /// value back into the view and reset the text cursor to the end. The
+    /// in-memory `config` is already current from the binding; only the
+    /// persist+propagate is deferred. Coalesces rapid edits into one save.
+    private func saveConfigDebounced() {
+        pendingSave?.cancel()
+        pendingSave = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            guard (try? modeService.save(config)) != nil else { return }
+            onConfigChanged(config)
+        }
     }
 
     private func reloadConfig() -> ModeConfig? {

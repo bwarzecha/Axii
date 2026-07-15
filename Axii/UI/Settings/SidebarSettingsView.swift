@@ -150,7 +150,20 @@ struct SidebarSettingsView: View {
     }
 
     private func reloadModes() {
-        modes = modeService.loadAllModes()
+        let fresh = modeService.loadAllModes()
+        // Only reassign when a sidebar-visible field changed (name/icon or the
+        // mode set itself). ModeEditorView owns its config as @State seeded via
+        // .id(id); pushing an unchanged list back mid-edit re-diffs the active
+        // TextEditor and snaps its cursor to the end — the template-editing
+        // cursor jump. Editing a template/prompt leaves this signature intact,
+        // so the sidebar (and the focused editor) stay untouched.
+        guard sidebarSignature(fresh) != sidebarSignature(modes) else { return }
+        modes = fresh
+    }
+
+    /// The only mode fields the sidebar renders: identity, name, icon, order.
+    private func sidebarSignature(_ modes: [ModeConfig]) -> [String] {
+        modes.map { "\($0.id.uuidString)|\($0.name)|\($0.icon)|\($0.isBuiltIn)" }
     }
 
     private func handleDelete(id: UUID) {
