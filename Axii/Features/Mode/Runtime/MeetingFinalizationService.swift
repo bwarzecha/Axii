@@ -202,26 +202,15 @@ final class MeetingFinalizationService {
     // MARK: - Internal: Resample
 
     /// Resample audio to 16 kHz. Returns input unchanged if already 16 kHz.
-    /// Preserved verbatim from MeetingTranscriptManager.resample.
+    /// Delegates to the shared windowed resampler: this service's previous
+    /// private copy used one Float32 ramp across the whole track, whose
+    /// indices quantize past 2^24 — every meeting longer than ~12 minutes
+    /// got a silently garbled transcript tail.
     private func resample(_ samples: [Float], from sampleRate: Double) -> [Float] {
         guard !samples.isEmpty, sampleRate > 0 else { return [] }
-        guard sampleRate != Self.targetSampleRate else { return samples }
-        guard samples.count > 1 else { return samples }
-
-        let outputCount = Int(Double(samples.count) * Self.targetSampleRate / sampleRate)
-        guard outputCount > 0 else { return [] }
-
-        var output = [Float](repeating: 0, count: outputCount)
-        var indices = [Float](repeating: 0, count: outputCount)
-        var index: Float = 0
-        var increment = Float(sampleRate / Self.targetSampleRate)
-        vDSP_vramp(&index, &increment, &indices, 1, vDSP_Length(outputCount))
-
-        var maxIndex = Float(samples.count - 1)
-        vDSP_vclip(indices, 1, &index, &maxIndex, &indices, 1, vDSP_Length(outputCount))
-        vDSP_vlint(samples, indices, 1, &output, 1, vDSP_Length(outputCount), vDSP_Length(samples.count))
-
-        return output
+        return AudioResampler.resample(
+            samples, from: sampleRate, to: Self.targetSampleRate
+        )
     }
 
     // MARK: - Internal: Sort + Merge

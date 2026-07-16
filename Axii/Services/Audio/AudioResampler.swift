@@ -11,6 +11,14 @@ import Accelerate
 import Foundation
 
 enum AudioResampler {
+    /// Output samples per vDSP window. The interpolation indices are Float32:
+    /// a single ramp across a long recording quantizes once values pass 2^24
+    /// (~5.8 min of 48kHz source) — indices stall in runs and the tail
+    /// degrades to sample-and-hold garbage. Windowing keeps every ramp value
+    /// small (≤ windowSize × ratio), where Float32 still has fine fractional
+    /// precision, at any recording length.
+    private static let windowSize = 4_096
+
     /// Resample `samples` from `sourceRate` to `targetRate`.
     /// Returns the input unchanged when rates match or inputs are trivial.
     static func resample(
@@ -24,15 +32,40 @@ enum AudioResampler {
         let outputCount = Int(Double(samples.count) * targetRate / sourceRate)
         guard outputCount > 0 else { return [] }
 
+        let ratio = sourceRate / targetRate
         var output = [Float](repeating: 0, count: outputCount)
-        var indices = [Float](repeating: 0, count: outputCount)
-        var index: Float = 0
-        var increment = Float(sourceRate / targetRate)
-        vDSP_vramp(&index, &increment, &indices, 1, vDSP_Length(outputCount))
+        var indices = [Float](repeating: 0, count: Self.windowSize)
 
-        var maxIndex = Float(samples.count - 1)
-        vDSP_vclip(indices, 1, &index, &maxIndex, &indices, 1, vDSP_Length(outputCount))
-        vDSP_vlint(samples, indices, 1, &output, 1, vDSP_Length(outputCount), vDSP_Length(samples.count))
+        samples.withUnsafeBufferPointer { source in
+            output.withUnsafeMutableBufferPointer { destination in
+                var windowStart = 0
+                while windowStart < outputCount {
+                    let count = min(Self.windowSize, outputCount - windowStart)
+                    // The window's base source position is computed in Double,
+                    // so only the small ramp lives in Float32.
+                    let sourcePosition = Double(windowStart) * ratio
+                    let baseIndex = min(Int(sourcePosition), samples.count - 1)
+                    let span = samples.count - baseIndex
+
+                    var rampStart = Float(sourcePosition - Double(baseIndex))
+                    var rampIncrement = Float(ratio)
+                    vDSP_vramp(
+                        &rampStart, &rampIncrement, &indices, 1, vDSP_Length(count)
+                    )
+                    var low: Float = 0
+                    var high = Float(span - 1)
+                    vDSP_vclip(indices, 1, &low, &high, &indices, 1, vDSP_Length(count))
+                    vDSP_vlint(
+                        source.baseAddress! + baseIndex,
+                        indices, 1,
+                        destination.baseAddress! + windowStart, 1,
+                        vDSP_Length(count),
+                        vDSP_Length(span)
+                    )
+                    windowStart += count
+                }
+            }
+        }
 
         return output
     }
