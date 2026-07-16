@@ -212,10 +212,29 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   profile; `AXII_FUZZ_ITERATIONS` scales the deep tiers. Found a real bug
   on its first run (stale error arming a dismiss timer that fired into the
   recording a resumed start later published) and the era-coalescing zombie
-  at deep seed 34311. Replay one failing seed with
-  `AXII_FUZZ_SEED_START=<seed>` + `AXII_FUZZ_ITERATIONS=1`; get a
-  per-action state timeline with `AXII_FUZZ_TRACE_FILE=<path>` (sidecar
-  file — xcodebuild logs swallow test-host stdout).
+  at deep seed 34311. `AXII_FUZZ_SEED_START` is the ABSOLUTE first seed
+  for every test in the class (it overrides the per-test seed base, same
+  semantics as the capture fuzzer) — release shards use it for disjoint
+  ranges, and `AXII_FUZZ_SEED_START=<seed>` + `AXII_FUZZ_ITERATIONS=1`
+  replays exactly the seed a failure message printed, in any profile.
+  Get a per-action state timeline with `AXII_FUZZ_TRACE_FILE=<path>`
+  (sidecar file — xcodebuild logs swallow test-host stdout).
+- **Convergence-based quiescence** (both fuzzers,
+  `AxiiIntegrationTests/FuzzQuiescence.swift`): gate release removes a
+  waiter at RESUME time, so a resumed-but-not-yet-run continuation is
+  invisible to `GateHub.pendingCount` — on a slow host a fixed-round
+  release/yield drain can check invariants against a mid-flight state
+  (three CI-only false positives on GitHub macos-26 runners: seeds 45253,
+  22605, 23311). The drains therefore converge instead: keep releasing
+  until the invariant-relevant state fingerprint — including every chaos
+  fake's liveness, not just feature-level state — is unchanged for 25
+  consecutive rounds. A genuinely stuck state stays stuck forever, so
+  convergence checks the product's eventual-teardown contract rather than
+  assuming scheduler fairness Swift does not guarantee. Caveat: the
+  "failing seed = reproducible bug report" contract holds only with
+  convergence-based drains — under a fixed-round drain a red seed may be
+  a scheduler artifact that no other shard, attempt, or local replay
+  reproduces.
 - **Memory soak** (`MeetingMemorySoakTests`, opt-in `AXII_SOAK=1`,
   minutes via `AXII_SOAK_MINUTES`): a long dual-track meeting through the
   REAL finalize + AAC persist path with a footprint sampler, plus a

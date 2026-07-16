@@ -118,11 +118,26 @@ final class MeetingConcurrencyFuzzTests: XCTestCase {
             await operation.value
         }
         session.cancel()
-        for _ in 0..<100 {
-            gates.releaseAll()
-            await Task.yield()
-        }
+        // Convergence drain: a released continuation's job may still be
+        // queued when pendingCount reads 0, so release/yield until the
+        // invariant-relevant state stops moving (see FuzzQuiescence.swift)
+        // instead of trusting a fixed round count.
+        let converged = await settleUntilStable(
+            round: { _ in
+                gates.releaseAll()
+                for _ in 0..<5 { await Task.yield() }
+            },
+            fingerprint: {
+                "gates:\(gates.pendingCount)|" + registry.stateFingerprint
+            }
+        )
         drain.cancel()
+        if !converged {
+            violations.add(
+                "drain did not converge — state still changing after "
+                + "\(fuzzDrainMaxRounds) rounds"
+            )
+        }
 
         checkInvariants(
             session: session,

@@ -313,31 +313,56 @@ final class MeetingModeFuzzDriver {
         }
     }
 
+    /// Convergence-based quiescence (see FuzzQuiescence.swift): released
+    /// continuations may still be queued when pendingCount reads 0, so the
+    /// drain ends only once the invariant-relevant fingerprint — including
+    /// every chaos fake's liveness — stops changing.
     private func drain() async {
-        for step in 0..<300 {
-            gates.releaseAll()
-            pendingDelayed.removeAll { $0.isCancelled }
-            if let item = pendingDelayed.popLast() {
-                item.perform()
-            }
-            for _ in 0..<10 { await Task.yield() }
-            trace("DRAIN[\(step)]")
-            if gates.pendingCount == 0, pendingDelayed.isEmpty {
-                if let stop = feature.meetingStopTask { await stop.value }
-                for _ in 0..<10 { await Task.yield() }
+        let converged = await settleUntilStable(
+            round: { step in
+                gates.releaseAll()
                 pendingDelayed.removeAll { $0.isCancelled }
-                if gates.pendingCount == 0, pendingDelayed.isEmpty,
-                   feature.meetingStopTask == nil {
-                    return
+                if let item = pendingDelayed.popLast() {
+                    item.perform()
                 }
-            }
+                for _ in 0..<10 { await Task.yield() }
+                trace("DRAIN[\(step)]")
+                if gates.pendingCount == 0, pendingDelayed.isEmpty,
+                   let stop = feature.meetingStopTask {
+                    // The stop task may be mid-hop toward a gate right now —
+                    // it parks AFTER this await starts, so a bare await
+                    // deadlocks. Keep the hub flowing while we wait.
+                    await gates.releasingWhile { await stop.value }
+                }
+            },
+            fingerprint: { drainFingerprint() }
+        )
+        pendingDelayed.removeAll { $0.isCancelled }
+        if converged, gates.pendingCount == 0, pendingDelayed.isEmpty,
+           feature.meetingStopTask == nil {
+            return
         }
         violations.add(
-            "drain did not reach quiescence — gates \(gates.pendingCount), "
+            "drain did not reach quiescence "
+            + "(converged \(converged)) — gates \(gates.pendingCount), "
             + "delayed \(pendingDelayed.count), stopTask "
             + "\(feature.meetingStopTask == nil ? "nil" : "live"), "
             + "phase \(feature.state.phase)"
         )
+    }
+
+    /// Everything checkInvariants() reads, plus in-flight work markers.
+    private func drainFingerprint() -> String {
+        let parts = [
+            "gates:\(gates.pendingCount)",
+            "delayed:\(pendingDelayed.count)",
+            "phase:\(feature.state.phase)",
+            "stop:\(feature.meetingStopTask != nil)",
+            "export:\(feature.pendingMeetingExport != nil)",
+            "persist:\(persistence.persistCalls),\(persistence.successes)",
+            registry.stateFingerprint,
+        ]
+        return parts.joined(separator: "|")
     }
 
     // MARK: Invariants
