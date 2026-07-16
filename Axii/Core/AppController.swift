@@ -233,6 +233,11 @@ final class AppController {
         for config in modes {
             featureManager.register(makeModeFeature(from: config))
         }
+        // Deleted modes leave orphaned per-mode mic keys behind; unpruned
+        // they accumulate toward cfprefsd's per-domain limit.
+        ModeFeature.pruneOrphanedMicSelections(
+            activeModeIDs: Set(modes.map(\.id))
+        )
         print("Mode features activated (\(modes.count) modes)")
     }
 

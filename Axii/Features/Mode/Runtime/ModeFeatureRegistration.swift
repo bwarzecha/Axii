@@ -152,5 +152,22 @@ extension ModeFeature {
         guard let uid = selectedDeviceUID else { return nil }
         return state.availableMicrophones.first { $0.uid == uid }
     }
+
+    /// Remove per-mode mic selections whose mode no longer exists. The keys
+    /// are per-mode-ID and otherwise accumulate forever — deleted custom
+    /// modes in production, and fuzz-created UUID modes in the test suite,
+    /// where they once grew the defaults domain past cfprefsd's 4MB limit
+    /// (every write then fault-logs and every read pays a full-dictionary
+    /// merge; a 2026-07 fuzz run burned 95% CPU in CFPreferences).
+    /// Call with the full set of live mode IDs (launch) or `[]` (test reset).
+    static func pruneOrphanedMicSelections(activeModeIDs: Set<UUID>) {
+        let defaults = AppLaunchOverrides.runtimeDefaults
+        let activeKeys = Set(activeModeIDs.map { "mode_\($0)_selectedMic" })
+        for key in defaults.dictionaryRepresentation().keys
+        where key.hasPrefix("mode_") && key.hasSuffix("_selectedMic")
+            && !activeKeys.contains(key) {
+            defaults.removeObject(forKey: key)
+        }
+    }
 }
 #endif

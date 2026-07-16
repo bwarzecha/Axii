@@ -188,6 +188,12 @@ final class ModeFuzzDriver {
         self.violations = ViolationLog()
         self.transcriber = AccountingTranscriber(gates: gates)
 
+        // Each iteration's UUID mode writes a per-mode mic key on every
+        // mic-switch action; unpruned they accumulate across iterations AND
+        // runs (the suite plist persists) toward cfprefsd's 4MB limit,
+        // after which every defaults access crawls and fuzz timing lies.
+        ModeFeature.pruneOrphanedMicSelections(activeModeIDs: [])
+
         let feature = ModeFeature(
             config: Self.fuzzConfig(),
             transcriptionService: transcriber,
