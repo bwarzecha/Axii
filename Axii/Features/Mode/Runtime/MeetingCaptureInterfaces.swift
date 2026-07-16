@@ -86,6 +86,37 @@ protocol MeetingTranscriptManaging: AnyObject {
 
 extension MeetingTranscriptManager: MeetingTranscriptManaging {}
 
+/// Seam over the recording-duration ticker: the production ticker runs a
+/// real 1s Timer on the main run loop. Inside the deterministic fuzz
+/// harness those wall-clock callbacks land at machine-speed-dependent
+/// points in the schedule, so fuzzers inject a manual ticker.
+@MainActor
+protocol MeetingDurationTicking: AnyObject {
+    var onTick: ((TimeInterval) -> Void)? { get set }
+    var duration: TimeInterval { get }
+    func reset()
+    func start()
+    func pause()
+    func resume()
+    func stop()
+}
+
+extension MeetingDurationTicker: MeetingDurationTicking {}
+
+/// Seam over power monitoring: the production monitor registers real
+/// NSWorkspace sleep/wake observers and takes a real idle-sleep assertion
+/// per recording. Fuzzers inject a no-op — thousands of seeded recordings
+/// must not churn system assertions or observer registrations.
+@MainActor
+protocol MeetingPowerMonitoring: AnyObject {
+    var onWillSleep: (() -> Void)? { get set }
+    var onDidWake: (() -> Void)? { get set }
+    func beginRecording(reason: String)
+    func endRecording()
+}
+
+extension MeetingPowerMonitor: MeetingPowerMonitoring {}
+
 /// Recovered transcript from a crashed session, with everything needed to
 /// persist it and then release its recovery file.
 struct MeetingCrashRecovery {

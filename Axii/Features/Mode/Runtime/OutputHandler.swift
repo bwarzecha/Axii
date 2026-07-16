@@ -19,7 +19,7 @@ private let logger = Logger(subsystem: "com.axii", category: "OutputHandler")
 @MainActor
 final class OutputHandler: ModeOutputExecuting {
     private let pasteService: any PasteProviding
-    private let clipboardService: ClipboardService
+    private let clipboardService: any ClipboardProviding
     private let historyService: HistoryService
     private let settings: SettingsService
     private let fileOutputService = FileOutputService()
@@ -27,7 +27,7 @@ final class OutputHandler: ModeOutputExecuting {
 
     init(
         pasteService: any PasteProviding,
-        clipboardService: ClipboardService,
+        clipboardService: any ClipboardProviding,
         historyService: HistoryService,
         settings: SettingsService
     ) {

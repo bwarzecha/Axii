@@ -193,7 +193,7 @@ final class ModeFuzzDriver {
             transcriptionService: transcriber,
             micPermission: MicrophonePermissionService(),
             pasteService: FuzzPasteProvider(),
-            clipboardService: ClipboardService(),
+            clipboardService: FuzzClipboard(),
             settings: settings,
             historyService: historyService,
             mediaControlService: MediaControlService()

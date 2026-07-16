@@ -36,8 +36,8 @@ final class MeetingCaptureSession {
     // sample rates land (see wireCallbacks).
     private var didFlushOnFirstAudio = false
     private let switches = MeetingSwitchSerializer()
-    private let durationTicker = MeetingDurationTicker()
-    private let powerMonitor = MeetingPowerMonitor()
+    private let durationTicker: any MeetingDurationTicking
+    private let powerMonitor: any MeetingPowerMonitoring
 
     // Bumped by start/stop/cancel. An operation that resumes from an await
     // and finds the epoch changed must not publish or mutate session state.
@@ -57,24 +57,28 @@ final class MeetingCaptureSession {
         audioManagerFactory: @escaping AudioManagerFactory = {
             MeetingAudioManager()
         },
-        transcriptManagerFactory: TranscriptManagerFactory? = nil
+        transcriptManagerFactory: TranscriptManagerFactory? = nil,
+        durationTicker: (any MeetingDurationTicking)? = nil,
+        powerMonitor: (any MeetingPowerMonitoring)? = nil
     ) {
         self.audioManagerFactory = audioManagerFactory
         self.transcriptManagerFactory = transcriptManagerFactory ?? {
             MeetingTranscriptManager(transcriptionService: transcriptionService)
         }
-        durationTicker.onTick = { [weak self] duration in
+        self.durationTicker = durationTicker ?? MeetingDurationTicker()
+        self.powerMonitor = powerMonitor ?? MeetingPowerMonitor()
+        self.durationTicker.onTick = { [weak self] duration in
             self?.onDurationUpdated?(duration)
         }
         // Sleep mid-meeting: protect the recording FIRST (the autosave may
         // be up to 60s stale, and the machine may never wake), then stop
         // counting time the audio pipeline will not capture.
-        powerMonitor.onWillSleep = { [weak self] in
+        self.powerMonitor.onWillSleep = { [weak self] in
             guard let self, self.isRecording else { return }
             self.flushAutoSaveNow()
             self.durationTicker.pause()
         }
-        powerMonitor.onDidWake = { [weak self] in
+        self.powerMonitor.onDidWake = { [weak self] in
             guard let self, self.isRecording else { return }
             self.durationTicker.resume()
         }

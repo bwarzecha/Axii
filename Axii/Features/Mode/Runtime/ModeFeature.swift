@@ -26,7 +26,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
     // Services (internal for cross-file extensions)
     let transcriptionService: any TranscriptionProviding
     let micPermission: MicrophonePermissionService
-    let clipboardService: ClipboardService
+    let clipboardService: any ClipboardProviding
     let settings: SettingsService
     let mediaControlService: MediaControlService
     let outputHandler: OutputHandler
@@ -169,7 +169,7 @@ final class ModeFeature: Feature, ModeDismissControlling {
         micPermission: MicrophonePermissionService,
         screenPermission: ScreenRecordingPermissionService? = nil,
         pasteService: any PasteProviding,
-        clipboardService: ClipboardService,
+        clipboardService: any ClipboardProviding,
         settings: SettingsService,
         historyService: HistoryService,
         mediaControlService: MediaControlService,

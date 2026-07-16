@@ -26,6 +26,40 @@ final class FuzzScreenPermission: MeetingScreenRecordingPermissionChecking {
     func request() {}
 }
 
+// MARK: - System Seam Fakes
+//
+// The fuzzer must never touch real system surfaces: pasteboard writes,
+// run-loop timers, workspace observers, and power assertions all inject
+// machine-speed-dependent behavior into seeded schedules (and clobber the
+// developer's actual clipboard). NOTE: the drivers' error injection must
+// also never use .permissionDenied — ModeFeature's handler for it opens
+// the REAL System Settings when the machine's mic TCC state is blocked.
+
+@MainActor
+final class FuzzClipboard: ClipboardProviding {
+    private(set) var copied: [String] = []
+    func copy(_ text: String) { copied.append(text) }
+}
+
+@MainActor
+final class FuzzDurationTicker: MeetingDurationTicking {
+    var onTick: ((TimeInterval) -> Void)?
+    private(set) var duration: TimeInterval = 0
+    func reset() { duration = 0 }
+    func start() {}
+    func pause() {}
+    func resume() {}
+    func stop() {}
+}
+
+@MainActor
+final class FuzzPowerMonitor: MeetingPowerMonitoring {
+    var onWillSleep: (() -> Void)?
+    var onDidWake: (() -> Void)?
+    func beginRecording(reason: String) {}
+    func endRecording() {}
+}
+
 // MARK: - Seeded Persistence
 
 /// Gate-suspended persistence whose outcome (success / throw / silent
@@ -106,7 +140,7 @@ final class MeetingModeFuzzDriver {
             transcriptionService: transcriber,
             micPermission: MicrophonePermissionService(),
             pasteService: MeetingFuzzPasteProvider(),
-            clipboardService: ClipboardService(),
+            clipboardService: FuzzClipboard(),
             settings: settings,
             historyService: historyService,
             mediaControlService: MediaControlService(),
@@ -121,7 +155,9 @@ final class MeetingModeFuzzDriver {
             audioManagerFactory: {
                 registry.makeAudio(failStart: failRNG.next(upperBound: 6) == 0)
             },
-            transcriptManagerFactory: { registry.makeTranscript() }
+            transcriptManagerFactory: { registry.makeTranscript() },
+            durationTicker: FuzzDurationTicker(),
+            powerMonitor: FuzzPowerMonitor()
         )
         let handler = MeetingPipelineHandler(
             state: feature.state,

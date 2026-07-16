@@ -190,6 +190,16 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   schedules of start/stop/cancel/switch/chunk/error/start-failure operations
   are checked against conservation invariants at quiescence. A failing seed
   is a reproducible bug report.
+- **Fuzzers never touch real system surfaces.** A seeded schedule is only a
+  reproducible bug report if nothing in it runs at machine speed: real
+  ScreenCaptureKit lookups, pasteboard writes, run-loop timers, workspace
+  observers, and power assertions all made CI-only failures that did not
+  replay locally (release-fuzz meeting seed 5908, 2026-07-16). Seams:
+  `appListProvider` (pipeline handler), `ClipboardProviding`,
+  `MeetingDurationTicking`, `MeetingPowerMonitoring` — fuzz injects fakes
+  for all of them. Error injection must never use `.permissionDenied`:
+  its handler opens the REAL System Settings when the machine's mic TCC
+  state is blocked.
 - **Interaction fuzzer** (`ModeInteractionFuzzTests`): seeded schedules over
   the mode runtime's REAL UI entry points — hotkey, Escape, panel buttons,
   mic switches, device events, session errors, config edits, timer fires —

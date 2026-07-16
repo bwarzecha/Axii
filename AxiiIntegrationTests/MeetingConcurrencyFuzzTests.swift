@@ -47,7 +47,11 @@ final class MeetingConcurrencyFuzzTests: XCTestCase {
             audioManagerFactory: {
                 registry.makeAudio(failStart: failRoll.next(upperBound: 10) == 0)
             },
-            transcriptManagerFactory: { registry.makeTranscript() }
+            transcriptManagerFactory: { registry.makeTranscript() },
+            // Deterministic: no run-loop timers or power assertions inside
+            // seeded schedules (see MeetingInteractionFuzzSupport).
+            durationTicker: FuzzDurationTicker(),
+            powerMonitor: FuzzPowerMonitor()
         )
 
         var operations: [Task<Void, Never>] = []
