@@ -134,7 +134,12 @@ final class MeetingModeFuzzDriver {
                 screenPermission: FuzzScreenPermission(),
                 micPermission: FuzzMicPermission()
             ),
-            captureSession: captureSession
+            captureSession: captureSession,
+            // Deterministic: the real provider reaches ScreenCaptureKit
+            // (TCC-gated, real XPC latency) — it floods unentitled CI
+            // runners with permission errors and perturbs schedules so
+            // failing seeds do not replay.
+            appListProvider: { [] }
         )
         self.handler = handler
         feature.meetingHandler = handler

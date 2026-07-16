@@ -79,6 +79,11 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
     private let finalizationService: MeetingFinalizationService
     private let startCoordinator: MeetingStartCoordinator
     private let captureSession: MeetingCaptureSession
+    /// Injectable so tests never reach ScreenCaptureKit: the real lookup is
+    /// TCC-gated (permission prompts/denials, real XPC latency) — inside the
+    /// deterministic fuzz harness it both floods logs on unentitled runners
+    /// and perturbs schedules, making failing seeds irreproducible.
+    private let appListProvider: () async -> [AudioApp]
 
     // Bumped by start/stop/cancel. A stop that resumes from finalization and
     // finds the generation changed must not write to state — a newer session
@@ -95,10 +100,13 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
         settings: SettingsService,
         finalizationService: MeetingFinalizationService? = nil,
         startCoordinator: MeetingStartCoordinator? = nil,
-        captureSession: MeetingCaptureSession? = nil
+        captureSession: MeetingCaptureSession? = nil,
+        appListProvider: (() async -> [AudioApp])? = nil
     ) {
         self.state = state
         self.settings = settings
+        self.appListProvider = appListProvider
+            ?? { await MeetingAudioManager.audioProducingApps() }
         self.finalizationService = finalizationService
             ?? MeetingFinalizationService(transcriptionService: transcriptionService)
         self.startCoordinator = startCoordinator ?? MeetingStartCoordinator(
@@ -254,7 +262,7 @@ final class MeetingPipelineHandler: MeetingPipelineHandling {
     // MARK: - App List
 
     func refreshAppList() async {
-        let apps = await MeetingAudioManager.audioProducingApps()
+        let apps = await appListProvider()
         state.availableApps = sortAppsForMeetings(apps)
     }
 
