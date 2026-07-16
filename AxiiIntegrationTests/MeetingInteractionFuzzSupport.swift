@@ -100,10 +100,6 @@ final class MeetingModeFuzzDriver {
         historyService.isEnabled = rng.next(upperBound: 4) != 0
         self.rng = rng
 
-        // See ModeFuzzDriver: fuzz-created UUID modes leak per-mode mic
-        // keys across iterations and runs toward cfprefsd's 4MB limit.
-        ModeFeature.pruneOrphanedMicSelections(activeModeIDs: [])
-
         let transcriber = NullTranscriber()
         let feature = ModeFeature(
             config: Self.fuzzConfig(),

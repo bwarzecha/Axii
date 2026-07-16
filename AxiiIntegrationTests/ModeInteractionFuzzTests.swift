@@ -28,6 +28,14 @@ final class ModeInteractionFuzzTests: XCTestCase {
     private var tempDir: URL!
 
     override func setUp() async throws {
+        // Once per test, NOT per fuzz iteration: fuzz-created UUID modes
+        // leak per-mode mic keys across iterations and runs (the suite
+        // plist persists) toward cfprefsd's 4MB limit, after which every
+        // defaults access crawls and fuzz timing lies. Pruning inside the
+        // driver init would hit cfprefsd hundreds of times per run.
+        await MainActor.run {
+            ModeFeature.pruneOrphanedMicSelections(activeModeIDs: [])
+        }
         settings = SettingsService(
             defaults: UserDefaults(suiteName: "ModeFuzz-\(UUID().uuidString)")!
         )
