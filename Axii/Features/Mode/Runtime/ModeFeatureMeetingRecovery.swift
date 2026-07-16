@@ -42,12 +42,16 @@ extension ModeFeature {
 
         return Task { @MainActor in
             // Restore the audio too when the spool files survived the crash.
-            let micSamples = MeetingAudioManager.readRawSamples(
-                from: recovery.audioFiles?.micFileURL
-            )
-            let systemSamples = MeetingAudioManager.readRawSamples(
-                from: recovery.audioFiles?.systemFileURL
-            )
+            // Detached: a recovered hour-long meeting's spools are ~700MB
+            // per track — reading them on the main actor stalls launch.
+            let micFile = recovery.audioFiles?.micFileURL
+            let systemFile = recovery.audioFiles?.systemFileURL
+            let (micSamples, systemSamples) = await Task.detached(priority: .userInitiated) {
+                (
+                    MeetingAudioManager.readRawSamples(from: micFile),
+                    MeetingAudioManager.readRawSamples(from: systemFile)
+                )
+            }.value
 
             // Streaming-off sessions have audio but no live segments —
             // build the transcript from the recovered audio.

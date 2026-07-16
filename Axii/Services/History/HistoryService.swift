@@ -6,6 +6,7 @@
 //  Stores history in ~/Library/Application Support/Axii/history/
 //
 
+import Accelerate
 import AudioToolbox
 import AVFoundation
 import Foundation
@@ -310,7 +311,13 @@ final class HistoryService {
         let fileURL = folderURL.appendingPathComponent(filename)
 
         do {
-            try writeCompressedAudio(samples: samples, sampleRate: sampleRate, format: format, to: fileURL)
+            // Detached: encoding an hour-long track is seconds of sustained
+            // CPU — on the main actor (this class) it reads as a beachball.
+            try await Task.detached(priority: .userInitiated) {
+                try Self.writeCompressedAudio(
+                    samples: samples, sampleRate: sampleRate, format: format, to: fileURL
+                )
+            }.value
         } catch {
             throw HistoryError.audioWriteFailed(error)
         }
@@ -370,18 +377,33 @@ final class HistoryService {
         data.append(contentsOf: "data".utf8)
         data.append(contentsOf: withUnsafeBytes(of: dataSize.littleEndian) { Array($0) })
 
-        // Convert Float samples to 16-bit PCM
-        for sample in samples {
-            let clamped = max(-1.0, min(1.0, sample))
-            let int16Value = Int16(clamped * Float(Int16.max))
-            data.append(contentsOf: withUnsafeBytes(of: int16Value.littleEndian) { Array($0) })
-        }
+        // Convert Float samples to 16-bit PCM in bulk — a per-sample append
+        // loop is minutes of CPU for hour-long recordings.
+        var scaled = [Float](repeating: 0, count: samples.count)
+        var low: Float = -1.0
+        var high: Float = 1.0
+        vDSP_vclip(samples, 1, &low, &high, &scaled, 1, vDSP_Length(samples.count))
+        var scale = Float(Int16.max)
+        vDSP_vsmul(scaled, 1, &scale, &scaled, 1, vDSP_Length(samples.count))
+        var pcm = [Int16](repeating: 0, count: samples.count)
+        vDSP_vfix16(scaled, 1, &pcm, 1, vDSP_Length(samples.count))
+        pcm.withUnsafeBufferPointer { data.append(Data(buffer: $0)) }
 
         return data
     }
 
-    /// Write audio samples to a compressed file (ALAC or AAC) using AVAudioFile
-    private func writeCompressedAudio(
+    /// Frames per AVAudioFile.write call. One write of the WHOLE track is a
+    /// wedge, not a slowdown: the AAC codec degenerates into re-zeroing its
+    /// output span per produced packet once the input buffer crosses ~512MB
+    /// (2^29 bytes ≈ 46.6 min at 48kHz mono Float32) — an hour-long meeting
+    /// track burns 20+ CPU-minutes without finishing. Bounded chunks keep
+    /// the encoder linear at any recording length.
+    private static let encodeChunkFrames = 65_536
+
+    /// Write audio samples to a compressed file (ALAC or AAC) using AVAudioFile.
+    /// nonisolated static: pure samples-in/file-out work with no service
+    /// state, safe to run off the main actor (see saveAudioCompressed).
+    private nonisolated static func writeCompressedAudio(
         samples: [Float],
         sampleRate: Double,
         format: AudioStorageFormat,
@@ -429,25 +451,30 @@ final class HistoryService {
         // Create output file
         let audioFile = try AVAudioFile(forWriting: url, settings: settings)
 
-        // Create buffer and copy samples
+        // Reusable chunk buffer (see encodeChunkFrames for why chunked).
         guard let buffer = AVAudioPCMBuffer(
             pcmFormat: pcmFormat,
-            frameCapacity: AVAudioFrameCount(samples.count)
-        ) else {
+            frameCapacity: AVAudioFrameCount(Self.encodeChunkFrames)
+        ), let channelData = buffer.floatChannelData else {
             throw NSError(domain: "HistoryService", code: 2, userInfo: [
                 NSLocalizedDescriptionKey: "Failed to create audio buffer"
             ])
         }
 
-        buffer.frameLength = AVAudioFrameCount(samples.count)
-
-        // Copy samples to buffer
-        if let channelData = buffer.floatChannelData {
-            memcpy(channelData[0], samples, samples.count * MemoryLayout<Float>.size)
+        try samples.withUnsafeBufferPointer { source in
+            var offset = 0
+            while offset < samples.count {
+                let frames = min(Self.encodeChunkFrames, samples.count - offset)
+                memcpy(
+                    channelData[0],
+                    source.baseAddress! + offset,
+                    frames * MemoryLayout<Float>.size
+                )
+                buffer.frameLength = AVAudioFrameCount(frames)
+                try audioFile.write(from: buffer)
+                offset += frames
+            }
         }
-
-        // Write to file
-        try audioFile.write(from: buffer)
     }
 }
 

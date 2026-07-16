@@ -165,8 +165,11 @@ final class MeetingCaptureSession {
             await task.value
         }
 
-        let micSamples = audio.readSamplesFromFile(stoppedAudio.micFile)
-        let systemSamples = audio.readSamplesFromFile(stoppedAudio.systemFile)
+        // Off-main: an hour-long capture's spool is ~700MB per track; the
+        // capture is already detached, so awaiting here cannot be clobbered
+        // by a newer session (detach-before-await invariant).
+        let micSamples = await audio.readSamplesFromFileOffMain(stoppedAudio.micFile)
+        let systemSamples = await audio.readSamplesFromFileOffMain(stoppedAudio.systemFile)
 
         // The AUDIO is the truth for persisted duration: the wall clock kept
         // running through any system sleep, the samples did not. The ticker

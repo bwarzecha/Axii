@@ -48,7 +48,18 @@ protocol MeetingAudioManaging: AnyObject {
         micSource: AudioSource.MicrophoneSource
     ) async throws
     func readSamplesFromFile(_ url: URL?) -> [Float]
+    /// Full-track read for the stop path. An hour of 48kHz Float32 is
+    /// ~700MB per track — reading it on the main actor is a visible stall,
+    /// so conformers backed by real files hop off the main actor.
+    func readSamplesFromFileOffMain(_ url: URL?) async -> [Float]
     func cleanupTempFiles()
+}
+
+extension MeetingAudioManaging {
+    /// Default for fakes serving in-memory samples — no I/O to move off main.
+    func readSamplesFromFileOffMain(_ url: URL?) async -> [Float] {
+        readSamplesFromFile(url)
+    }
 }
 
 extension MeetingAudioManager: MeetingAudioManaging {}

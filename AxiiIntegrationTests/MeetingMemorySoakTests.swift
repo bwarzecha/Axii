@@ -49,8 +49,12 @@ final class MeetingMemorySoakTests: XCTestCase {
         ) ?? 60
 
         // Build the two tracks the way a real stop holds them: full-length
-        // float arrays. Tiled real speech so the ASR does real work.
-        let rate = 16_000.0
+        // float arrays AT CAPTURE RATE. 48kHz matters: an hour-long 48kHz
+        // track is a ~660MB buffer, past the AAC codec's 512MB single-write
+        // knee — the 2026-07-15 stop wedge that a 16kHz soak (230MB/hour)
+        // structurally could not reach. Tiled real speech so the ASR does
+        // real work.
+        let rate = 48_000.0
         let clip = try speechClip()
         let mic = tile(clip, minutes: minutes, rate: rate)
         let system = tile(clip, minutes: minutes, rate: rate)
@@ -73,6 +77,7 @@ final class MeetingMemorySoakTests: XCTestCase {
         let sampler = FootprintSampler()
         sampler.start()
         let baseline = FootprintSampler.currentFootprint()
+        let stopStart = Date()
 
         let finalization = MeetingFinalizationService(
             transcriptionService: transcription
@@ -91,6 +96,13 @@ final class MeetingMemorySoakTests: XCTestCase {
             payload: payload, audioFormat: .aac
         )
         XCTAssertNotNil(persisted, "soak meeting failed to persist")
+
+        // Wedge tripwire: the healthy stop chain is ~a minute; the AAC
+        // single-write wedge was 20+ CPU-minutes.
+        XCTAssertLessThan(
+            Date().timeIntervalSince(stopStart), 600,
+            "stop chain (finalize + persist) exceeded 10 minutes — wedge regressed"
+        )
 
         sampler.stop()
         let peak = sampler.peak
@@ -121,7 +133,7 @@ final class MeetingMemorySoakTests: XCTestCase {
         let say = Process()
         say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
         say.arguments = [
-            "-o", url.path, "--data-format=LEF32@16000",
+            "-o", url.path, "--data-format=LEF32@48000",
             "The reliability suite verifies that long meetings survive "
                 + "their own stop button without exhausting memory.",
         ]

@@ -127,7 +127,7 @@ harness layers and invariants is in `docs/meeting-reliability-model.md`.
 | Real-UI E2E (pre-push; FIRST for UI/capture changes) | real app, real hotkeys, real audio, real ASR — 11 scenarios incl. kill -9 recovery (meeting AND dictation), dual-source attribution, Escape-discard recovery | LOCAL ONLY: `xcodebuild test -project Axii.xcodeproj -scheme AxiiUITests -destination 'platform=macOS'` |
 | Nightly | TSan sweep + 10k-seed deep fuzzes (+ quirks/E2E only where hardware exists) | CI scheduled (`nightly-reliability.yml`); locally: `Scripts/reliability-suite.sh` |
 | Release | deep fuzzes at 50k seeds, sharded 10× in parallel | CI before tagging: `gh workflow run release-fuzz.yml` (+ local E2E) |
-| Memory soak (opt-in) | 60-min meeting stop-time spike (budget 2 GB, measured 0.28 GB) | `TEST_RUNNER_AXII_SOAK=1 xcodebuild test … -only-testing:AxiiIntegrationTests/MeetingMemorySoakTests` |
+| Memory soak (opt-in) | 60-min meeting stop-time spike at 48kHz capture rate (budget 2 GB, measured 1.08 GB) + stop-chain wall-time tripwire | `TEST_RUNNER_AXII_SOAK=1 xcodebuild test … -only-testing:AxiiIntegrationTests/MeetingMemorySoakTests` |
 | Real ASR (opt-in) | actual Parakeet models, hang detection | `TEST_RUNNER_AXII_REAL_ASR=1 … -only-testing:AxiiIntegrationTests/RealTranscriptionQuirkTests` |
 
 Operational rules (violating these produces confusing failures, not errors):

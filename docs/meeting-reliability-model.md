@@ -172,6 +172,15 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   the machine may never wake.
 - **Saves hold their own sleep assertion** through finalize + persist; the
   capture's assertion ends at detach.
+- **Length-scaling stop-path work never runs on the main actor.** Anything
+  in the stop/persist/recovery chain whose cost grows with recording length
+  is a beachball generator at hour scale: the audio encode (chunked AND
+  detached in `HistoryService` — a single whole-track `AVAudioFile.write`
+  WEDGES the AAC codec outright past 512MB ≈ 46.6 min @48kHz, the
+  2026-07-15 incident), the stop path's full-track spool reads
+  (`readSamplesFromFileOffMain`), and launch recovery's spool reads. New
+  stop-path work must budget against `MeetingStopResponsivenessTests`'
+  main-actor stall probe (<2s, the beachball threshold).
 
 ## Test harness layers
 
@@ -199,9 +208,24 @@ and `MeetingSaveRegressionTests.swift` freeze most of them.
   file — xcodebuild logs swallow test-host stdout).
 - **Memory soak** (`MeetingMemorySoakTests`, opt-in `AXII_SOAK=1`,
   minutes via `AXII_SOAK_MINUTES`): a long dual-track meeting through the
-  REAL finalize + AAC persist path with a footprint sampler. Measured
-  2026-07-11 (60 min x2 tracks): 0.28 GB stop spike, 0.75 GB peak;
-  budget-guarded at 2 GB as a regression tripwire.
+  REAL finalize + AAC persist path with a footprint sampler, plus a
+  stop-chain wall-time tripwire. Tracks are built at 48kHz — capture-real
+  rate; the original 16kHz soak (230MB/hour) structurally could not reach
+  the 512MB AAC encode knee. Budget-guarded at 2 GB spike.
+- **Encode-wedge regression** (`HistoryAudioEncodeRegressionTests`, fast
+  tier, no models): `saveAudioCompressed` of an above-knee (>512MB) track
+  must complete in bounded time for both AAC and ALAC — the wedge was
+  20+ CPU-minutes; healthy is seconds.
+- **Stop-chain responsiveness** (`MeetingStopResponsivenessTests`, opt-in
+  `AXII_STOP_REPRO=1`, needs downloaded models): the full hour-scale stop
+  chain (spool read → real-ASR finalize → persist) with a main-actor stall
+  probe asserting <2s (beachball threshold) and bounded total time.
+  Knobs: `_MINUTES`, `_FORMAT` (default aac), `_CLIP` (real recording).
+- **Kill-during-persist recovery** (`MeetingKillDuringPersistRecoveryTests`):
+  the exact on-disk state a force-kill during finalize/persist leaves
+  (final autosave flushed with audio references, spools closed, nothing in
+  history) recovers WITH audio at relaunch, and artifacts are released
+  only after the durable persist.
 - **Real-UI E2E suite** (`AxiiUITests`, scheme `AxiiUITests`): drives the
   REAL app — synthetic global hotkeys (CGEventPost to the HID tap), real
   capture from the BlackHole 2ch virtual device, real Parakeet, and

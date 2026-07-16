@@ -293,9 +293,18 @@ final class MeetingAudioManager {
         Self.readRawSamples(from: url)
     }
 
+    /// Off-main full-track read — the stop path calls this so a ~700MB/hour
+    /// spool read never blocks the main thread.
+    func readSamplesFromFileOffMain(_ url: URL?) async -> [Float] {
+        await Task.detached(priority: .userInitiated) {
+            Self.readRawSamples(from: url)
+        }.value
+    }
+
     /// Raw float32 spool-file reader — also used by crash recovery, which
-    /// has no live manager instance.
-    static func readRawSamples(from url: URL?) -> [Float] {
+    /// has no live manager instance. nonisolated: pure file I/O, callable
+    /// from the detached stop-path read.
+    nonisolated static func readRawSamples(from url: URL?) -> [Float] {
         guard let url = url else { return [] }
 
         do {
@@ -488,31 +497,7 @@ final class MeetingAudioManager {
     }
 
     private func resampleTo16kHz(_ samples: [Float], fromRate: Double) -> [Float] {
-        let targetRate = Self.targetSampleRate
-        guard fromRate != targetRate else { return samples }
-        guard samples.count > 1 else { return samples }
-
-        let ratio = targetRate / fromRate
-        let outputCount = Int(Double(samples.count) * ratio)
-        guard outputCount > 0 else { return [] }
-
-        // Use vDSP for high-quality vectorized linear interpolation
-        var output = [Float](repeating: 0, count: outputCount)
-
-        // Generate interpolation indices
-        var indices = [Float](repeating: 0, count: outputCount)
-        var index: Float = 0
-        var increment = Float(fromRate / targetRate)
-        vDSP_vramp(&index, &increment, &indices, 1, vDSP_Length(outputCount))
-
-        // Clamp indices to valid range
-        var maxIndex = Float(samples.count - 1)
-        vDSP_vclip(indices, 1, &index, &maxIndex, &indices, 1, vDSP_Length(outputCount))
-
-        // Perform vectorized linear interpolation
-        vDSP_vlint(samples, indices, 1, &output, 1, vDSP_Length(outputCount), vDSP_Length(samples.count))
-
-        return output
+        AudioResampler.resample(samples, from: fromRate, to: Self.targetSampleRate)
     }
 
     private func calculateRMS(_ samples: [Float]) -> Float {
