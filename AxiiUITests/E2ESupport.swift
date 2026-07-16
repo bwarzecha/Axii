@@ -12,6 +12,7 @@
 
 import AVFoundation
 import AppKit
+import AudioToolbox
 import Carbon.HIToolbox
 import CoreAudio
 import XCTest
@@ -404,6 +405,11 @@ enum HotkeyDriver {
 enum AudioDriver {
     /// CoreAudio device lookup by UID — no capture permission needed.
     static func deviceExists(uid: String) -> Bool {
+        deviceID(forUID: uid) != nil
+    }
+
+    /// Resolve a device UID to its AudioDeviceID (nil when absent).
+    static func deviceID(forUID uid: String) -> AudioDeviceID? {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -412,14 +418,14 @@ enum AudioDriver {
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(
             AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size
-        ) == noErr else { return false }
+        ) == noErr else { return nil }
         var deviceIDs = [AudioDeviceID](
             repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size
         )
         guard AudioObjectGetPropertyData(
             AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
             &size, &deviceIDs
-        ) == noErr else { return false }
+        ) == noErr else { return nil }
         var uidAddress = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyDeviceUID,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -433,41 +439,64 @@ enum AudioDriver {
                     deviceID, &uidAddress, 0, nil, &uidSize, pointer
                 )
             }
-            if status == noErr, deviceUID as String == uid { return true }
+            if status == noErr, deviceUID as String == uid { return deviceID }
         }
-        return false
+        return nil
     }
 
     /// Play a file AUDIBLY through the default output — for fixtures whose
     /// only allowed path into the app is ScreenCaptureKit (playing them
     /// into BlackHole would loop them into the mic track).
     static func playToDefaultOutput(_ url: URL) throws {
-        try run(AVPlayer(playerItem: AVPlayerItem(url: url)), url: url)
+        try playViaEngine(url, deviceID: nil)
     }
 
     /// Play a file to a specific output device by UID and block until done.
-    /// A missing device fails loudly on item.error (never falls back to the
-    /// system default output).
+    /// A missing device fails loudly (never falls back to the system
+    /// default output).
     static func play(_ url: URL, toDeviceUID uid: String) throws {
-        let item = AVPlayerItem(url: url)
-        let player = AVPlayer(playerItem: item)
-        player.audioOutputDeviceUniqueID = uid
-        try run(player, url: url)
+        guard let deviceID = deviceID(forUID: uid) else {
+            throw E2EError.playbackFailed("output device \(uid) not found")
+        }
+        try playViaEngine(url, deviceID: deviceID)
     }
 
-    private static func run(_ player: AVPlayer, url: URL) throws {
-        guard let item = player.currentItem else {
-            throw E2EError.playbackFailed("no player item")
+    /// AVAudioEngine playback, not AVPlayer: as of macOS 26.5.2,
+    /// AVPlayer.audioOutputDeviceUniqueID routing SILENTLY delivers no
+    /// audio to virtual devices — playback "completes" while BlackHole
+    /// receives zeros, failing every ASR-dependent E2E scenario. The
+    /// engine's output unit binds to the device directly and is verified
+    /// working on the same configuration.
+    private static func playViaEngine(_ url: URL, deviceID: AudioDeviceID?) throws {
+        let engine = AVAudioEngine()
+        if var id = deviceID {
+            let status = AudioUnitSetProperty(
+                engine.outputNode.audioUnit!,
+                kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global, 0,
+                &id, UInt32(MemoryLayout<AudioDeviceID>.size)
+            )
+            guard status == noErr else {
+                throw E2EError.playbackFailed("failed to bind output device (\(status))")
+            }
         }
-        let duration = CMTimeGetSeconds(AVURLAsset(url: url).duration)
+        let file = try AVAudioFile(forReading: url)
+        let player = AVAudioPlayerNode()
+        engine.attach(player)
+        engine.connect(player, to: engine.mainMixerNode, format: file.processingFormat)
+        try engine.start()
+        defer { engine.stop() }
+        player.scheduleFile(file, at: nil)
         player.play()
+
+        let duration = Double(file.length) / file.processingFormat.sampleRate
         let deadline = Date().addingTimeInterval(duration + 5)
         while Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-            if let error = item.error {
-                throw E2EError.playbackFailed(error.localizedDescription)
-            }
-            if CMTimeGetSeconds(player.currentTime()) >= duration - 0.05 {
+            if let nodeTime = player.lastRenderTime,
+               let playerTime = player.playerTime(forNodeTime: nodeTime),
+               Double(playerTime.sampleTime) / playerTime.sampleRate
+                   >= duration - 0.05 {
                 return
             }
         }
